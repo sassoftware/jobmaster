@@ -79,7 +79,13 @@ def writeConaryRc(d, mirrorUrl = ''):
         print >> conaryrcFile, "includeConfigFile /etc/conary/config.d/*"
         conaryrcFile.close()
 
+def createTemporaryRoot(fakeRoot):
+    for d in ('etc', 'etc/sysconfig', 'etc/sysconfig/network-scripts',
+              'boot/grub', 'tmp', 'proc', 'sys', 'root', 'var'):
+        util.mkdirChain(os.path.join(fakeRoot, d))
+
 def fsOddsNEnds(d):
+    createTemporaryRoot(d)
     createFile(os.path.join(d, 'etc', 'fstab'),
                '\n'.join(('LABEL=/ / ext3 defaults 1 1',
                           'none /dev/pts devpts gid=5,mode=620 0 0',
@@ -91,6 +97,9 @@ def fsOddsNEnds(d):
     mkBlankFile(os.path.join(d, 'var', 'swap'), SWAP_SIZE, sparse = False)
     os.system('/sbin/mkswap %s >/dev/null 2>&1' % \
                   os.path.join(d, 'var', 'swap'))
+
+    util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
+                      os.path.join(d, 'boot', 'grub'))
 
     #copy the files needed by grub and set up the links
     grubContents = \
@@ -174,21 +183,24 @@ class ImageCache(object):
             # lay fs odds and ends *before* group update for tag scripts
             fsOddsNEnds(mntDir)
 
-            os.system('mkdir %s' % os.path.join(mntDir, 'proc'))
+            writeConaryRc(mntDir)
             os.system('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
+            os.system('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
             # NEED ROOT: conary update troveSpec --root mount-point
             os.system("conary update dev --root %s" % mntDir)
-            os.system("conary update '%s' --root %s" % (troveSpec, mntDir))
-            writeConaryRc(mntDir)
+            os.system("conary update '%s' --root %s --replace-files" % \
+                          (troveSpec, mntDir))
+
+            os.system("conary update --sync-to-parents kernel:runtime "
+                      "--root %s" % mntDir)
 
             os.system("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
             os.system("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             os.system('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
-            #os.system('sed -i "/.*template.*/d" %s' % \
-            #              str(os.path.join(mntDir, 'boot', 'grub', 'grub.conf')))
         except:
             # NEED ROOT: unmount image
             os.system('umount %s' % os.path.join(mntDir, 'proc'))
+            os.system('umount %s' % os.path.join(mntDir, 'sys'))
             os.system('sync')
             os.system('umount %s' % mntDir)
             raise
