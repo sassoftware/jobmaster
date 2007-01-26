@@ -9,6 +9,8 @@
 import os
 import time
 
+import math
+
 import simplejson
 import tempfile
 import threading
@@ -22,9 +24,10 @@ from mcp import queue
 from mcp import response
 from mcp import client
 
-from conary import conarycfg
-from conary.lib import cfgtypes
+from conary.lib import cfgtypes, util
+from conary import conaryclient
 from conary.conaryclient import cmdline
+from conary.deps import deps
 from conary import versions
 
 def getAvailableArchs(arch):
@@ -71,6 +74,7 @@ class MasterConfig(client.MCPClientConfig):
                              'imageCache')
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
+    slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -90,8 +94,10 @@ class SlaveHandler(threading.Thread):
                                   getJsversion(self.troveSpec))
 
     def start(self):
-        imagePath = self.imageCache().imagePath(self.troveSpec)
-        xenCfg = xencfg.XenCfg(imagePath, {'memory' : 512})
+        fd, self.imagePath = tempfile.mkstemp()
+        os.close(fd)
+        xenCfg = xencfg.XenCfg(self.imagePath,
+                               {'memory' : self.master().cfg.slaveMemory})
         self.slaveName = xenCfg.cfg['name']
         if not self.imageCache().haveImage(self.troveSpec):
             self.slaveStatus('building')
@@ -110,14 +116,64 @@ class SlaveHandler(threading.Thread):
             # tracked started state simply prevents emitting spurious shell
             # calls to stop that which isn't running.
             if self.started:
-                # fixme: use qcow image and change this call to be "destroy"
-                os.system('xm shutdown %s' % self.slaveName)
+                # FIXME: verify name can be used as arg, not id
+                os.system('xm destroy %s' % self.slaveName)
         finally:
             self.lock.release()
+        if os.path.exists(self.imagePath):
+            util.rmtree(self.imagePath, ignore_errors = True)
         self.slaveStatus('stopped')
 
+    def getJobQueueName(self):
+        name, verStr, flv = cmdline.parseTroveSpec(self.troveSpec)
+        ver = versions.VersionFromString(verStr)
+        jsVersion = str(ver.trailingRevision())
+
+        arch = 'unknown'
+        for refFlv, refArch in (('1#x86_64', 'x86_64'), ('1#x86', 'x86')):
+            if flv.satisfies(deps.ThawFlavor(refFlv)):
+                arch = refArch
+                break
+        return 'job%s:%s' % (jsVersion, arch)
+
     def run(self):
-        self.imageCache().getImage(self.troveSpec)
+        # don't use original. make a backup
+        cachedImage = self.imageCache().getImage(self.troveSpec)
+        util.copyfile(cachedImage, self.imagePath)
+        # now add per-instance settings. such as path to MCP
+        mntPoint = tempfile.mkdtemp()
+        try:
+            os.system('mount %s %s' % (self.imagePath, mntPoint))
+
+
+            #
+            #
+            # FIXME: these runtime settings are not showing up in the image
+            # make sure we're not modifying the orginal!!!
+            #
+            #
+
+            cfg = self.master().cfg
+            cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
+                                  'runtime')
+            util.mkdirChain(os.path.split(cfgPath)[0])
+            f = open(cfgPath, 'w')
+            f.write('queueHost %s' % cfg.queueHost)
+            f.write('queuePort %s' % str(cfg.queuePort))
+            f.write('nodeName %s' % ':'.join((cfg.nodeName, self.slaveName)))
+            f.write('jobQueueName %s' % self.getJobQueueName())
+            f.close()
+            entitlementsDir = os.path.join(mntPoint, 'srv', 'jobslave',
+                                           'entitlements')
+            # FIXME: recipe should enforce this dir exists
+            util.mkdirChain(entitlementsDir)
+            util.copytree(os.path.join(os.path.sep, 'srv', 'rbuilder',
+                                       'entitlements'),
+                          entitlementsDir)
+        finally:
+            os.system('umount %s' % mntPoint)
+            util.rmtree(mntPoint, ignore_errors = True)
+
         self.lock.acquire()
         try:
             if not self.killed:
@@ -169,7 +225,35 @@ class JobMaster(object):
                         "Control method %s does not exist" % action)
             dataStr = self.controlTopic.read()
 
+    def getMaxSlaves(self):
+        # this function is desgined for xen. if we extend to remote slaves
+        # such as EC2 it will need reworking.
+        p = os.open('xm info | grep total_memory | sed "s/.* //"')
+        mem = int(p.read())
+        #p = os.popen("free -b | grep '^Mem:' | awk '{print $2;}'")
+        #mem = int(p.read()) / (1024 * 1024)
+        p.close()
+        count = mem / self.cfg.slaveMemory
+        # Enforce that the master has at least as much memory as half a slave.
+        if (mem % self.cfg.slaveMemory) < (self.cfg.slaveMemory / 2):
+            count -= 1
+        return count
+
+    def resolveTroveSpec(self, troveSpec):
+        # this function is designed to ensure a partial NVF can be resolved to
+        # a full NVF for caching and creation purposes.
+        cc = conaryclient.ConaryClient()
+        n, v, f = cmdline.parseTroveSpec(troveSpec)
+        troves = cc.repos.findTrove( \
+            None, (n, v, f))
+        troves = [x for x in troves \
+                      if x[2].stronglySatisfies(deps.parseFlavor('xen,domU'))]
+        if troves[0][2] is None:
+            troves[0][2] == ''
+        return '%s=%s[%s]' % troves[0]
+
     def handleSlaveStart(self, troveSpec):
+        troveSpec = self.resolveTroveSpec(troveSpec)
         handler = SlaveHandler(self, troveSpec)
         self.handlers[handler.start()] = handler
 
@@ -253,6 +337,9 @@ class JobMaster(object):
     def slaveLimit(self, limit):
         # please note this is a volatile change. rebooting the master resets it
         # FIXME: find a way to save this value.
+
+        # ensure we don't exceed environmental constraints
+        limit = min(limit, getMaxSlaves())
         self.cfg.slaveLimit = max(limit, 0)
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)
         self.demandQueue.setLimit(limit)
