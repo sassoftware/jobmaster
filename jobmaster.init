@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# jobmaster:  Starts the rBuilder Job Master.
+#
+# chkconfig: - 24 15
+# description: Controls rBuilder Slave Appliances.
+# processname: jobmaster
+# config: /usr/bin
+
+#
+# Copyright (c) 2007 rPath, Inc.
+#
+# All rights reserved
+#
+
+# Source function library
+. /etc/init.d/functions
+
+LONGNAME="rBuilder Job Master"
+PIDFILE='/var/run/jobmaster.pid'
+DAEMON='/usr/bin/jobmaster'
+
+start() {
+    echo -n "Starting $LONGNAME:"
+    daemon $DAEMON
+    echo ""
+}
+
+stop() {
+    echo -n "Stopping $LONGNAME:"
+    killproc $DAEMON
+    echo ""
+    if [ "$1" = "--wait" ]; then
+        echo -n "Waiting for $LONGNAME server to terminate..."
+        while [ -f "$PIDFILE" ]; do sleep 1; done
+        echo "done."
+    fi
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart)
+        stop --wait
+        start
+        ;;
+  status)
+        status $DAEMON
+        ;;
+  *)
+    echo "Usage: `basename $0` {start|stop|restart|status}"
+    ;;
+esac
