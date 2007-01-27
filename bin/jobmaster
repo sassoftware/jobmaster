@@ -1,0 +1,10 @@
+#!/usr/bin/python
+
+#
+# Copyright (c) 2007 rPath, Inc.
+#
+# All rights reserved
+#
+
+from jobmaster import master
+master.runDaemon()
