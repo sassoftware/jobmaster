@@ -6,14 +6,13 @@
 #
 
 
-import os
-import time
-
+import os, sys
 import math
-
 import simplejson
 import tempfile
 import threading
+import time
+import signal
 import weakref
 
 from jobmaster import master_error
@@ -70,7 +69,7 @@ def protocols(protocolList):
     return deco
 
 class MasterConfig(client.MCPClientConfig):
-    cachePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'master',
+    cachePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
                              'imageCache')
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
@@ -85,9 +84,8 @@ class SlaveHandler(threading.Thread):
         self.slaveName = None
         self.troveSpec = troveSpec
         self.lock = threading.RLock()
-        self.killed = False
-        self.started = False
         threading.Thread.__init__(self)
+        self.pid = None
 
     def slaveStatus(self, status):
         self.master().slaveStatus(self.slaveName, status,
@@ -99,8 +97,7 @@ class SlaveHandler(threading.Thread):
         xenCfg = xencfg.XenCfg(self.imagePath,
                                {'memory' : self.master().cfg.slaveMemory})
         self.slaveName = xenCfg.cfg['name']
-        if not self.imageCache().haveImage(self.troveSpec):
-            self.slaveStatus('building')
+        self.slaveStatus('building')
         fd, self.cfgPath = tempfile.mkstemp()
         os.close(fd)
         f = open(self.cfgPath, 'w')
@@ -110,19 +107,20 @@ class SlaveHandler(threading.Thread):
         return xenCfg.cfg['name']
 
     def stop(self):
-        self.lock.acquire()
-        try:
-            self.killed = True
-            # tracked started state simply prevents emitting spurious shell
-            # calls to stop that which isn't running.
-            if self.started:
-                # FIXME: verify name can be used as arg, not id
-                os.system('xm destroy %s' % self.slaveName)
-        finally:
-            self.lock.release()
+        pid = self.pid
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError, e:
+                # ignore race condition where child died right after we recorded
+                # it's pid
+                if errno != 3:
+                    raise
+        os.system('xm destroy %s' % self.slaveName)
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
         self.slaveStatus('stopped')
+        self.join()
 
     def getJobQueueName(self):
         name, verStr, flv = cmdline.parseTroveSpec(self.troveSpec)
@@ -137,50 +135,42 @@ class SlaveHandler(threading.Thread):
         return 'job%s:%s' % (jsVersion, arch)
 
     def run(self):
-        # don't use original. make a backup
-        cachedImage = self.imageCache().getImage(self.troveSpec)
-        util.copyfile(cachedImage, self.imagePath)
-        # now add per-instance settings. such as path to MCP
-        mntPoint = tempfile.mkdtemp()
-        try:
-            os.system('mount %s %s' % (self.imagePath, mntPoint))
+        self.pid = os.fork()
+        if not self.pid:
+            os.setsid()
+            try:
+                # don't use original. make a backup
+                cachedImage = self.imageCache().getImage(self.troveSpec)
+                util.copyfile(cachedImage, self.imagePath)
+                # now add per-instance settings. such as path to MCP
+                mntPoint = tempfile.mkdtemp()
+                try:
+                    os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
+                    cfg = self.master().cfg
+                    cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
+                                          'runtime')
+                    util.mkdirChain(os.path.split(cfgPath)[0])
+                    f = open(cfgPath, 'w')
+                    f.write('queueHost %s\n' % cfg.queueHost)
+                    f.write('queuePort %s\n' % str(cfg.queuePort))
+                    f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
+                                                        self.slaveName)))
+                    f.write('jobQueueName %s\n' % self.getJobQueueName())
+                    f.close()
+                    util.copytree(os.path.join(os.path.sep, 'srv', 'rbuilder',
+                                               'entitlements'),
+                                  os.path.join(mntPoint, 'srv', 'jobslave'))
+                finally:
+                    os.system('umount %s' % mntPoint)
+                    util.rmtree(mntPoint, ignore_errors = True)
 
-
-            #
-            #
-            # FIXME: these runtime settings are not showing up in the image
-            # make sure we're not modifying the orginal!!!
-            #
-            #
-
-            cfg = self.master().cfg
-            cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
-                                  'runtime')
-            util.mkdirChain(os.path.split(cfgPath)[0])
-            f = open(cfgPath, 'w')
-            f.write('queueHost %s' % cfg.queueHost)
-            f.write('queuePort %s' % str(cfg.queuePort))
-            f.write('nodeName %s' % ':'.join((cfg.nodeName, self.slaveName)))
-            f.write('jobQueueName %s' % self.getJobQueueName())
-            f.close()
-            entitlementsDir = os.path.join(mntPoint, 'srv', 'jobslave',
-                                           'entitlements')
-            # FIXME: recipe should enforce this dir exists
-            util.mkdirChain(entitlementsDir)
-            util.copytree(os.path.join(os.path.sep, 'srv', 'rbuilder',
-                                       'entitlements'),
-                          entitlementsDir)
-        finally:
-            os.system('umount %s' % mntPoint)
-            util.rmtree(mntPoint, ignore_errors = True)
-
-        self.lock.acquire()
-        try:
-            if not self.killed:
-                self.started = True
                 os.system('xm create %s' % self.cfgPath)
-        finally:
-            self.lock.release()
+            except:
+                sys.exit(1)
+            else:
+                sys.exit(0)
+        os.waitpid(self.pid, 0)
+        self.pid = None
 
 class JobMaster(object):
     def __init__(self, cfg):
@@ -228,8 +218,12 @@ class JobMaster(object):
     def getMaxSlaves(self):
         # this function is desgined for xen. if we extend to remote slaves
         # such as EC2 it will need reworking.
-        p = os.open('xm info | grep total_memory | sed "s/.* //"')
-        mem = int(p.read())
+        p = os.popen('xm info | grep total_memory | sed "s/.* //"')
+        mem = p.read()
+        if mem:
+            mem = int(mem)
+        else:
+            return 1
         #p = os.popen("free -b | grep '^Mem:' | awk '{print $2;}'")
         #mem = int(p.read()) / (1024 * 1024)
         p.close()
@@ -258,7 +252,6 @@ class JobMaster(object):
         self.handlers[handler.start()] = handler
 
     def handleSlaveStop(self, slaveId):
-        # FIXME: this doesn't handle slaves being started...
         slaveName = slaveId.split(':')[1]
         handler = None
         if slaveName in self.slaves:
@@ -271,6 +264,7 @@ class JobMaster(object):
             handler.stop()
             if (len(self.slaves) + len(self.handlers)) < self.cfg.slaveLimit:
                 self.demandQueue.incrementLimit()
+        self.sendStatus()
 
     # FIXME: decorate with a catchall exception logger
     def checkDemandQueue(self):
@@ -318,7 +312,8 @@ class JobMaster(object):
     def sendStatus(self):
         self.response.masterStatus( \
             arch = self.arch, limit = self.cfg.slaveLimit,
-            slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in self.slaves])
+            slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
+                            self.slaves.keys() + self.handlers.keys()])
 
     def slaveStatus(self, slaveName, status, jsversion):
         self.response.slaveStatus(self.cfg.nodeName + ':' + slaveName,
@@ -335,13 +330,14 @@ class JobMaster(object):
     @controlMethod
     @protocols((1,))
     def slaveLimit(self, limit):
-        # please note this is a volatile change. rebooting the master resets it
-        # FIXME: find a way to save this value.
-
         # ensure we don't exceed environmental constraints
-        limit = min(limit, getMaxSlaves())
+        limit = min(limit, self.getMaxSlaves())
         self.cfg.slaveLimit = max(limit, 0)
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)
+
+        f = os.open(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster', 'config.d', 'runtime'), 'w')
+        f.write('slaveLimit %d' % limit)
+        f.close()
         self.demandQueue.setLimit(limit)
 
     @controlMethod
@@ -360,8 +356,46 @@ class JobMaster(object):
         self.handleSlaveStop(slaveId)
 
 
-if __name__ == '__main__':
+def main():
     cfg = MasterConfig()
-    cfg.nodeName = 'testMaster'
+    cfg.read(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
+                          'config'))
     jobMaster = JobMaster(cfg)
     jobMaster.run()
+
+def runDaemon():
+    return main()
+    pidFile = os.path.join(os.path.sep, 'var', 'run', 'jobmaster.pid')
+    if os.path.exists(pidFile):
+        f = open(pidFile)
+        pid = f.read()
+        f.close()
+        statPath = os.path.join(os.path.sep, 'proc', pid, 'stat')
+        if os.path.exists(statPath):
+            f = open(statPath)
+            name = f.read().split()[1][1:-1]
+            if name == 'jobmaster':
+                print >> sys.stderr, "Job Master already running as: %s" % pid
+                sys.stderr.flush()
+                sys.exit(-1)
+            else:
+                # pidfile doesn't point to a job master
+                os.unlink(pidFile)
+        else:
+            # pidfile is stale
+            os.unlink(pidFile)
+    pid = os.fork()
+    if not pid:
+        os.setsid()
+        devNull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devNull, sys.stdout.fileno())
+        os.dup2(devNull, sys.stderr.fileno())
+        os.dup2(devNull, sys.stdin.fileno())
+        os.close(devNull)
+        pid = os.fork()
+        if not pid:
+            f = open(pidFile, 'w')
+            f.write(str(os.getpid()))
+            f.close()
+            main()
+            os.unlink(pidFile)
