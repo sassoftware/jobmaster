@@ -193,6 +193,8 @@ class JobMaster(object):
         self.slaves = {}
         self.handlers = {}
         self.sendStatus()
+        signal.signal(signal.SIGTERM, self.catchSignal)
+        signal.signal(signal.SIGINT, self.catchSignal)
 
     # FIXME: decorate with a catchall exception logger
     def checkControlTopic(self):
@@ -303,7 +305,12 @@ class JobMaster(object):
             self.response.masterOffline()
             self.disconnect()
 
+    def catchSignal(self, *args):
+        self.running = False
+
     def disconnect(self):
+        if handler in self.handlers.values():
+            handler.stop()
         self.running = False
         self.demandQueue.disconnect()
         self.controlTopic.disconnect()
