@@ -371,7 +371,6 @@ def main():
     jobMaster.run()
 
 def runDaemon():
-    return main()
     pidFile = os.path.join(os.path.sep, 'var', 'run', 'jobmaster.pid')
     if os.path.exists(pidFile):
         f = open(pidFile)
