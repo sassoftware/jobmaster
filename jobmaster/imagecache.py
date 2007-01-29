@@ -187,7 +187,10 @@ class ImageCache(object):
             os.system('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             os.system('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
             # NEED ROOT: conary update troveSpec --root mount-point
-            os.system("conary update dev --root %s" % mntDir)
+
+            # FIXME: noted complaints about needing an installLabelPath
+            # FIXME: do we even need to pre-install dev?
+            #os.system("conary update dev --root %s" % mntDir)
             os.system("conary update '%s' --root %s --replace-files" % \
                           (troveSpec, mntDir))
 
@@ -197,19 +200,12 @@ class ImageCache(object):
             os.system("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
             os.system("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             os.system('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
-        except:
-            # NEED ROOT: unmount image
+        finally:
             os.system('umount %s' % os.path.join(mntDir, 'proc'))
             os.system('umount %s' % os.path.join(mntDir, 'sys'))
             os.system('sync')
             os.system('umount %s' % mntDir)
-            raise
-        else:
-            # NEED ROOT: unmount image
-            os.system('umount %s' % os.path.join(mntDir, 'proc'))
-            os.system('sync')
-            os.system('umount %s' % mntDir)
-            os.rename(fn, os.path.join(self.cachePath, hash))
+        os.rename(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)
 
 if __name__ == '__main__':
