@@ -7,11 +7,13 @@
 
 
 import os, sys
+import logging
 import math
 import simplejson
 import tempfile
 import threading
 import time
+import traceback
 import signal
 import weakref
 
@@ -23,7 +25,7 @@ from mcp import queue
 from mcp import response
 from mcp import client
 
-from conary.lib import cfgtypes, util
+from conary.lib import cfgtypes, util, log
 from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.deps import deps
@@ -68,9 +70,21 @@ def protocols(protocolList):
         return wrapper
     return deco
 
+def catchErrors(func):
+    def wrapper(self, *args, **kwargs):
+        try:
+            func(self, *args, **kwargs)
+        except:
+            exc, e, bt = sys.exc_info()
+            try:
+                log.error(traceback.format_stack(bt))
+                log.error(e)
+            except:
+                print >> sys.stderr, "couldn't log error", e
+    return wrapper
+
 class MasterConfig(client.MCPClientConfig):
-    cachePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
-                             'imageCache')
+    basePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster')
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
@@ -104,9 +118,11 @@ class SlaveHandler(threading.Thread):
         xenCfg.write(f)
         f.close()
         threading.Thread.start(self)
+        log.info('starting slave: %s' % self.slaveName)
         return xenCfg.cfg['name']
 
     def stop(self):
+        log.info('stopping slave %s' % self.slaveName)
         pid = self.pid
         if pid:
             try:
@@ -140,11 +156,13 @@ class SlaveHandler(threading.Thread):
             os.setsid()
             try:
                 # don't use original. make a backup
+                log.info('getting slave image')
                 cachedImage = self.imageCache().getImage(self.troveSpec)
                 util.copyfile(cachedImage, self.imagePath)
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp()
                 try:
+                    log.info('inserting runtime settings into slave')
                     os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
                     cfg = self.master().cfg
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
@@ -164,8 +182,17 @@ class SlaveHandler(threading.Thread):
                     os.system('umount %s' % mntPoint)
                     util.rmtree(mntPoint, ignore_errors = True)
 
+                log.info('booting slave: %s' % self.slaveName)
                 os.system('xm create %s' % self.cfgPath)
             except:
+                try:
+                    exc, e, bt = sys.exc_info()
+                    log.error(traceback.format_stack(bt))
+                    log.error(traceback.format_exc(e))
+                    # FIXME: should probably send a stopped slave status as well
+                except:
+                    # this process must exit regardless of failure to log.
+                    pass
                 sys.exit(1)
             else:
                 sys.exit(0)
@@ -189,14 +216,22 @@ class JobMaster(object):
                                        'control', namespace = cfg.namespace,
                                        timeOut = 0)
         self.response = response.MCPResponse(self.cfg.nodeName, cfg)
-        self.imageCache = imagecache.ImageCache(self.cfg.cachePath)
+        self.imageCache = imagecache.ImageCache(os.path.join(self.cfg.basePath,
+                                                             'imageCache'))
         self.slaves = {}
         self.handlers = {}
         self.sendStatus()
+        rootLogger = logging.getLogger('')
+        rootLogger.addHandler(logging.FileHandler(\
+                os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log')))
+        log.setVerbosity(logging.INFO)
+
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
-    # FIXME: decorate with a catchall exception logger
+        log.info('started jobmaster: %s' % self.cfg.nodeName)
+
+    @catchErrors
     def checkControlTopic(self):
         dataStr = self.controlTopic.read()
         while dataStr:
@@ -221,13 +256,11 @@ class JobMaster(object):
         # this function is desgined for xen. if we extend to remote slaves
         # such as EC2 it will need reworking.
         p = os.popen('xm info | grep total_memory | sed "s/.* //"')
-        mem = p.read()
-        if mem:
+        mem = p.read().strip()
+        if mem.isdigit():
             mem = int(mem)
         else:
             return 1
-        #p = os.popen("free -b | grep '^Mem:' | awk '{print $2;}'")
-        #mem = int(p.read()) / (1024 * 1024)
         p.close()
         count = mem / self.cfg.slaveMemory
         # Enforce that the master has at least as much memory as half a slave.
@@ -268,7 +301,7 @@ class JobMaster(object):
                 self.demandQueue.incrementLimit()
         self.sendStatus()
 
-    # FIXME: decorate with a catchall exception logger
+    @catchErrors
     def checkDemandQueue(self):
         dataStr = self.demandQueue.read()
         if dataStr:
@@ -276,11 +309,12 @@ class JobMaster(object):
             if data['protocolVersion'] == 1:
                 self.handleSlaveStart(data['troveSpec'])
             else:
+                log.error('Invalid Protocol Version %d' % \
+                              data['protocolVersion'])
                 # FIXME: protocol problem
                 # should implement some sort of error feedback to MCP
-                pass
 
-    # FIXME: decorate with a catchall exception logger
+    @catchErrors
     def checkHandlers(self):
         """Move slaves from 'being started' to 'active'
 
@@ -305,11 +339,13 @@ class JobMaster(object):
             self.response.masterOffline()
             self.disconnect()
 
-    def catchSignal(self, *args):
+    def catchSignal(self, sig, frame):
+        log.info('caught signal: %d' % sig)
         self.running = False
 
     def disconnect(self):
-        if handler in self.handlers.values():
+        log.info('stopping jobmaster')
+        for handler in self.handlers.values():
             handler.stop()
         self.running = False
         self.demandQueue.disconnect()
@@ -317,12 +353,14 @@ class JobMaster(object):
         del self.response
 
     def sendStatus(self):
+        log.info('sending master status')
         self.response.masterStatus( \
             arch = self.arch, limit = self.cfg.slaveLimit,
             slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
                             self.slaves.keys() + self.handlers.keys()])
 
     def slaveStatus(self, slaveName, status, jsversion):
+        log.info('sending slave status')
         self.response.slaveStatus(self.cfg.nodeName + ':' + slaveName,
                                   status, jsversion)
 
@@ -332,34 +370,40 @@ class JobMaster(object):
 
     @controlMethod
     def checkVersion(self, protocols):
+        log.info('asked for protocol compatibility: %s' % str(protocols))
         self.response.protocol(self.getBestProtocol(protocols))
 
     @controlMethod
     @protocols((1,))
     def slaveLimit(self, limit):
+        log.info('asked to set slave limit to %d' % limit)
         # ensure we don't exceed environmental constraints
+
         limit = min(limit, self.getMaxSlaves())
         self.cfg.slaveLimit = max(limit, 0)
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)
 
-        f = os.open(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster', 'config.d', 'runtime'), 'w')
-        f.write('slaveLimit %d' % limit)
+        f = open(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster', 'config.d', 'runtime'), 'w')
+        f.write('slaveLimit %d\n' % limit)
         f.close()
         self.demandQueue.setLimit(limit)
 
     @controlMethod
     @protocols((1,))
     def clearImageCache(self):
+        log.info('clearing image cache')
         self.imageCache.deleteAllImages()
 
     @controlMethod
     @protocols((1,))
     def status(self):
+        log.info('status requested')
         self.sendStatus()
 
     @controlMethod
     @protocols((1,))
     def stopSlave(self, slaveId):
+        log.info('stopping slave: %s' % slaveId)
         self.handleSlaveStop(slaveId)
 
 
@@ -371,6 +415,7 @@ def main():
     jobMaster.run()
 
 def runDaemon():
+    return main()
     pidFile = os.path.join(os.path.sep, 'var', 'run', 'jobmaster.pid')
     if os.path.exists(pidFile):
         f = open(pidFile)
@@ -392,7 +437,6 @@ def runDaemon():
             os.unlink(pidFile)
     pid = os.fork()
     if not pid:
-        os.setsid()
         devNull = os.open(os.devnull, os.O_RDWR)
         os.dup2(devNull, sys.stdout.fileno())
         os.dup2(devNull, sys.stderr.fileno())
@@ -400,6 +444,7 @@ def runDaemon():
         os.close(devNull)
         pid = os.fork()
         if not pid:
+            os.setsid()
             f = open(pidFile, 'w')
             f.write(str(os.getpid()))
             f.close()
