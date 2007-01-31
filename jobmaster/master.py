@@ -165,6 +165,8 @@ class SlaveHandler(threading.Thread):
                     log.info('inserting runtime settings into slave')
                     os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
                     cfg = self.master().cfg
+
+                    # write python SlaveConfig
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
                                           'runtime')
                     util.mkdirChain(os.path.split(cfgPath)[0])
@@ -174,6 +176,16 @@ class SlaveHandler(threading.Thread):
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.getJobQueueName())
+                    masterIp = getIP()
+                    f.write('proxy http://%s/conary' % masterIP)
+                    f.close()
+
+                    # write init script settings
+                    initSettings = os.path.join(mntPoint, 'etc', 'sysconfig',
+                                                'slave_runtime')
+                    util.mkdirChain(os.path.split(initSettings)[0])
+                    f = open(initSettings, 'w')
+                    f.write('MASTER_IP=%s' % masterIP)
                     f.close()
                     util.copytree(os.path.join(os.path.sep, 'srv', 'rbuilder',
                                                'entitlements'),
