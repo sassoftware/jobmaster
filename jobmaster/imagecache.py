@@ -119,7 +119,7 @@ def fsOddsNEnds(d):
                '\n'.join(('NETWORKING=yes',
                           'HOSTNAME=localhost.localdomain\n')))
     createFile(os.path.join(d, 'etc', 'sysconfig', 'network-scripts',
-                            'ifcfg-eth0\n'),
+                            'ifcfg-eth0'),
                '\n'.join(('DEVICE=eth0',
                           'BOOTPROTO=dhcp',
                           'ONBOOT=yes',
