@@ -176,7 +176,7 @@ class SlaveHandler(threading.Thread):
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.getJobQueueName())
-                    masterIp = getIP()
+                    masterIP = getIP()
                     f.write('proxy http://%s/conary' % masterIP)
                     f.close()
 
