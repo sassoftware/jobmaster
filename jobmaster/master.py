@@ -161,6 +161,7 @@ class SlaveHandler(threading.Thread):
                 util.copyfile(cachedImage, self.imagePath)
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp()
+                f = None
                 try:
                     log.info('inserting runtime settings into slave')
                     os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
@@ -191,6 +192,8 @@ class SlaveHandler(threading.Thread):
                                                'entitlements'),
                                   os.path.join(mntPoint, 'srv', 'jobslave'))
                 finally:
+                    if f:
+                        f.close()
                     os.system('umount %s' % mntPoint)
                     util.rmtree(mntPoint, ignore_errors = True)
 
