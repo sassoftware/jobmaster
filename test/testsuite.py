@@ -139,7 +139,7 @@ def isIndividual():
     return _individual
 
 
-EXCLUDED_PATHS = ['test', 'scripts', 'raaplugins', 'schema.py']
+EXCLUDED_PATHS = ['test', 'scripts', 'raaplugins', 'schema.py', 'dist']
 
 def main(argv=None, individual=True):
     import testhelp
