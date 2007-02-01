@@ -178,7 +178,8 @@ class SlaveHandler(threading.Thread):
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.getJobQueueName())
                     masterIP = getIP()
-                    f.write('proxy http://%s/conary' % masterIP)
+                    # FIXME disable the proxy for now
+                    #f.write('proxy http://%s/conary' % masterIP)
                     f.close()
 
                     # write init script settings
