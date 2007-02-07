@@ -1,0 +1,4 @@
+/usr/sbin/tmpwatch 240 /srv/rbuilder/jobmaster/imageCache/
+/usr/sbin/tmpwatch 24 /srv/rbuilder/jobmaster/tmp
+/usr/sbin/tmpwatch 24 /srv/rbuilder/jobmaster/finished-images
+/usr/sbin/tmpwatch 2160 /srv/rbuilder/jobmaster/anaconda-templates
