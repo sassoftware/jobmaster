@@ -26,6 +26,7 @@ from mcp import response
 from mcp import client
 
 from conary.lib import cfgtypes, util, log
+from conary import conarycfg
 from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.deps import deps
