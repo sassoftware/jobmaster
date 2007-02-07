@@ -252,7 +252,8 @@ class JobMaster(object):
         dataStr = self.controlTopic.read()
         while dataStr:
             data = simplejson.loads(dataStr)
-            if data.get('node') in ('masters', self.cfg.nodeName):
+            node = data.get('node', '')
+            if node in ('masters', self.cfg.nodeName):
                 action = data['action']
                 kwargs = dict([(str(x[0]), x[1]) for x in data.iteritems() \
                                    if x[0] not in ('node', 'action')])
@@ -266,6 +267,16 @@ class JobMaster(object):
                 else:
                     raise master_error.ProtocolError( \
                         "Control method %s does not exist" % action)
+            elif node.split(':')[0] == self.cfg.nodeName:
+                # FIXME: ensure the following is correct and enable it
+                break
+                #check list of slaves and ensure it's really up
+                slaveName = node.split(':')[1]
+                p = os.popen("xm list| awk '{print $1;}")
+                if slaveName not in p.read():
+                    print "Detected missing slave."
+                    self.sendStatus()
+                p.close()
             dataStr = self.controlTopic.read()
 
     def getMaxSlaves(self):
