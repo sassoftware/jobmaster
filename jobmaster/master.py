@@ -160,6 +160,7 @@ class SlaveHandler(threading.Thread):
                 # don't use original. make a backup
                 log.info('getting slave image')
                 cachedImage = self.imageCache().getImage(self.troveSpec)
+                log.info('copying %s to %s' % (cachedImage, self.imagePath))
                 shutil.copyfile(cachedImage, self.imagePath)
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp()
