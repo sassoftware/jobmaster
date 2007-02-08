@@ -173,7 +173,13 @@ class SlaveHandler(threading.Thread):
                                           'runtime')
                     util.mkdirChain(os.path.split(cfgPath)[0])
                     f = open(cfgPath, 'w')
-                    f.write('queueHost %s\n' % cfg.queueHost)
+
+                    # It never makes sense to direct a remote machine to
+                    # 127.0.0.1
+                    f.write('queueHost %s\n' % ((cfg.queueHost != '127.0.0.1') \
+                                                    and cfg.queueHost \
+                                                    or getIP()))
+
                     f.write('queuePort %s\n' % str(cfg.queuePort))
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
@@ -190,9 +196,11 @@ class SlaveHandler(threading.Thread):
                     f = open(initSettings, 'w')
                     f.write('MASTER_IP=%s' % masterIP)
                     f.close()
-                    util.copytree(os.path.join(os.path.sep, 'srv', 'rbuilder',
-                                               'entitlements'),
-                                  os.path.join(mntPoint, 'srv', 'jobslave'))
+                    entitlementsDir = os.path.join(os.path.sep, 'srv',
+                                                   'rbuilder', 'entitlements')
+                    if os.path.exists(entitlementsDir):
+                        util.copytree(entitlementsDir,
+                                      os.path.join(mntPoint, 'srv', 'jobslave'))
                 finally:
                     if f:
                         f.close()
