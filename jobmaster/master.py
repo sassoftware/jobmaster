@@ -99,13 +99,14 @@ class SlaveHandler(threading.Thread):
         self.cfgPath = ''
         self.slaveName = None
         self.troveSpec = troveSpec
+        self.jobQueueName = self.getJobQueueName()
         self.lock = threading.RLock()
         threading.Thread.__init__(self)
         self.pid = None
 
     def slaveStatus(self, status):
         self.master().slaveStatus(self.slaveName, status,
-                                  getJsversion(self.troveSpec))
+                                  self.jobQueueName.replace('job', ''))
 
     def start(self):
         fd, self.imagePath = tempfile.mkstemp()
@@ -137,7 +138,7 @@ class SlaveHandler(threading.Thread):
         os.system('xm destroy %s' % self.slaveName)
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
-        self.slaveStatus('stopped')
+        self.slaveStatus('offline')
         self.join()
 
     def getJobQueueName(self):
@@ -160,7 +161,6 @@ class SlaveHandler(threading.Thread):
                 # don't use original. make a backup
                 log.info('getting slave image')
                 cachedImage = self.imageCache().getImage(self.troveSpec)
-                log.info('copying %s to %s' % (cachedImage, self.imagePath))
                 shutil.copyfile(cachedImage, self.imagePath)
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp()
@@ -185,7 +185,7 @@ class SlaveHandler(threading.Thread):
                     f.write('queuePort %s\n' % str(cfg.queuePort))
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
-                    f.write('jobQueueName %s\n' % self.getJobQueueName())
+                    f.write('jobQueueName %s\n' % self.jobQueueName)
                     masterIP = getIP()
                     # FIXME disable the proxy for now
                     #f.write('proxy http://%s/conary' % masterIP)
@@ -216,12 +216,13 @@ class SlaveHandler(threading.Thread):
                     exc, e, bt = sys.exc_info()
                     log.error(traceback.format_stack(bt))
                     log.error(traceback.format_exc(e))
-                    # FIXME: should probably send a stopped slave status as well
+                    self.slaveStatus('offline')
                 except:
                     # this process must exit regardless of failure to log.
                     pass
                 sys.exit(1)
             else:
+                self.slaveStatus('started')
                 sys.exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
@@ -341,6 +342,7 @@ class JobMaster(object):
             handler.stop()
             if (len(self.slaves) + len(self.handlers)) < self.cfg.slaveLimit:
                 self.demandQueue.incrementLimit()
+                log.info('Setting limit of demand queue to: %s' % str(self.demandQueue.queueLimit))
         self.sendStatus()
 
     @catchErrors
@@ -365,8 +367,6 @@ class JobMaster(object):
         for slaveName in [x[0] for x in self.handlers.iteritems() \
                               if not x[1].isAlive()]:
             self.slaves[slaveName] = self.handlers[slaveName]
-            self.slaves[slaveName].slaveStatus('running')
-
             del self.handlers[slaveName]
 
     def run(self):
@@ -401,10 +401,11 @@ class JobMaster(object):
             slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
                             self.slaves.keys() + self.handlers.keys()])
 
-    def slaveStatus(self, slaveName, status, jsversion):
-        log.info('sending slave status')
+    def slaveStatus(self, slaveName, status, slaveType):
+        log.info('sending slave status: %s %s %s' % \
+                     (self.cfg.nodeName + ':' + slaveName, status, slaveType))
         self.response.slaveStatus(self.cfg.nodeName + ':' + slaveName,
-                                  status, jsversion)
+                                  status, slaveType)
 
     def getBestProtocol(self, protocols):
         common = PROTOCOL_VERSIONS.intersection(protocols)
