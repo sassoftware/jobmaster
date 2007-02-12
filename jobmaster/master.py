@@ -159,7 +159,7 @@ class SlaveHandler(threading.Thread):
             os.setsid()
             try:
                 # don't use original. make a backup
-                log.info('getting slave image')
+                log.info('Getting slave image: %s' % self.troveSpec)
                 cachedImage = self.imageCache().getImage(self.troveSpec)
                 shutil.copyfile(cachedImage, self.imagePath)
                 # now add per-instance settings. such as path to MCP
@@ -187,8 +187,7 @@ class SlaveHandler(threading.Thread):
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.jobQueueName)
                     masterIP = getIP()
-                    # FIXME disable the proxy for now
-                    #f.write('proxy http://%s/conary' % masterIP)
+                    f.write('proxy http://%s/conary' % masterIP)
                     f.close()
 
                     # write init script settings
