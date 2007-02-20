@@ -8,6 +8,7 @@
 import os, sys
 import math
 import md5
+import re
 import urllib
 import tempfile
 
@@ -128,6 +129,16 @@ def fsOddsNEnds(d):
                '\n'.join(('KEYBOARDTYPE="pc"',
                           'KEYTABLE="us"\n')))
 
+def getRunningKernel():
+    p = os.popen('uname -r')
+    data = p.read()
+    p.close()
+
+    m = re.match('[\d.-]*', data)
+    ver = m.group()[:-1]
+    p = os.popen('conary q kernel --full-versions --flavors | grep %s' % ver)
+    return p.read()
+
 class ImageCache(object):
     def __init__(self, cachePath):
         self.cachePath = cachePath
@@ -173,11 +184,11 @@ class ImageCache(object):
             mkBlankFile(fn, size)
 
             # run mke2fs on blank image
-            os.system('mkfs -t ext3 -F -L / %s %d' % \
+            os.system('mkfs -t ext2 -F -L / %s %d' % \
                           (fn, size / 1024))
+            os.system('tune2fs -i 0 -c 0 %s' % fn)
 
             mntDir = tempfile.mkdtemp()
-            # NEED ROOT: mount image
             os.system('mount -o loop %s %s' % (fn, mntDir))
 
             # lay fs odds and ends *before* group update for tag scripts
@@ -186,16 +197,23 @@ class ImageCache(object):
             writeConaryRc(mntDir)
             os.system('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             os.system('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
-            # NEED ROOT: conary update troveSpec --root mount-point
 
             # FIXME: noted complaints about needing an installLabelPath
-            # FIXME: do we even need to pre-install dev?
-            #os.system("conary update dev --root %s" % mntDir)
             os.system("conary update '%s' --root %s --replace-files" % \
                           (troveSpec, mntDir))
 
-            os.system("conary update --sync-to-parents kernel:runtime "
-                      "--root %s" % mntDir)
+            p = os.popen('conary q mkinitrd --full-versions --flavors')
+            mkinitrdVer = p.read().strip()
+            p.close()
+
+            os.system("conary update '%s' --root %s" % (mkinitrdVer, mntDir))
+
+            kernelSpec = getKernelVersion()
+            os.system("conary update '%s' --root %s" % (kernelSpec, mntDir))
+
+            # FIXME: long term this code would be needed for remote slaves
+            #os.system("conary update --sync-to-parents kernel:runtime "
+            #          "--root %s" % mntDir)
 
             os.system("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
             os.system("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
