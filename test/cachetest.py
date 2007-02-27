@@ -10,10 +10,12 @@ testsuite.setup()
 
 import jobmaster_helper
 
+import os
+
 class CacheTest(jobmaster_helper.JobMasterHelper):
     def testImagePath(self):
         path = self.jobMaster.imageCache.imagePath('notreal')
-        assert path.startswith(self.cfg.cachePath)
+        assert path.startswith(os.path.join(self.cfg.basePath, 'imageCache'))
         assert path.endswith('cd5c569173452f8438cf9bbe84d811fa')
 
     def testGetExistingImage(self):
