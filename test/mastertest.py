@@ -20,6 +20,7 @@ from jobmaster import master
 
 class DummyHandler(master.SlaveHandler):
     count = 0
+    jobQueueName = 'job3.0.0-1-1:x86'
     def __init__(self, master, troveSpec):
         self.master = weakref.ref(master)
         self.troveSpec = troveSpec
@@ -85,12 +86,13 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         assert self.jobMaster.response.response.connection.sent
 
     def testClearImageCache(self):
-        assert not os.listdir(self.cfg.cachePath)
-        f = open(os.path.join(self.cfg.cachePath, 'test'), 'w')
+        cachePath = os.path.join(self.cfg.basePath, 'imageCache')
+        assert not os.listdir(cachePath)
+        f = open(os.path.join(cachePath, 'test'), 'w')
         f.close()
-        assert os.listdir(self.cfg.cachePath) == ['test']
+        assert os.listdir(cachePath) == ['test']
         self.jobMaster.clearImageCache(protocolVersion = 1)
-        self.failIf(os.listdir(self.cfg.cachePath),
+        self.failIf(os.listdir(cachePath),
                     "clearImageCache did not delete images")
 
     def testBasicSetSlaveLimit(self):
@@ -283,7 +285,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
         self.jobMaster.handleSlaveStop(slaveId)
 
-        assert not self.jobMaster.slaves, "slaves was not removed"
+        assert not self.jobMaster.slaves, "slave was not removed"
 
         self.assertResponse(status = 'stopped', node = self.cfg.nodeName,
                             slaveId = slaveId, event = 'slaveStatus')
@@ -300,7 +302,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
         self.jobMaster.checkControlTopic()
 
-        assert not self.jobMaster.slaves, "slaves was not removed"
+        assert not self.jobMaster.slaves, "slave was not removed"
 
         self.assertResponse(status = 'stopped', node = self.cfg.nodeName,
                             slaveId = slaveId, event = 'slaveStatus')
@@ -330,14 +332,15 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                             event = "masterStatus")
 
     def testCacheMessage(self):
-        f = open(os.path.join(self.cfg.cachePath, 'fakeImage'), 'w')
+        cachePath = os.path.join(self.cfg.basePath, 'imageCache')
+        f = open(os.path.join(cachePath, 'fakeImage'), 'w')
         f.write('')
         f.close()
 
         self.insertControl(action = 'clearImageCache', protocolVersion = 1)
         self.jobMaster.checkControlTopic()
 
-        assert not os.listdir(self.cfg.cachePath), \
+        assert not os.listdir(cachePath), \
             "test image was not removed by clearImageCache"
 
     def testCheckVersionMessage(self):
@@ -348,14 +351,16 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testInvalidMessage(self):
         self.insertControl(node = self.cfg.nodeName, action = 'notARealMessage')
         self.jobMaster.checkControlTopic()
-        fail
+        self.assertLogContent("Control method 'notARealMessage' does not exist")
 
     def testUnimplementedMessage(self):
         # insert an action which really is a method of the class, but not
         # flagged as callable
-        self.insertControl(node = self.cfg.nodeName, action = 'checkControlTopic')
+        self.insertControl(node = self.cfg.nodeName,
+                           action = 'checkControlTopic')
         self.jobMaster.checkControlTopic()
-        fail
+        self.assertLogContent(\
+            "Action 'checkControlTopic' is not a control method")
 
     def testBadNode(self):
         dataStr = simplejson.dumps({'action' : 'leftOutNode'})
@@ -368,7 +373,8 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testMissingParams(self):
         self.insertControl(action = "checkVersion")
         self.jobMaster.checkControlTopic()
-        fail
+        self.assertLogContent( \
+            'checkVersion() takes exactly 2 arguments (1 given)')
 
     def testOfflineMessage(self):
         jobMaster = jobmaster_helper.ThreadedJobMaster(self.cfg)
