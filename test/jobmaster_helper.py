@@ -148,4 +148,4 @@ class JobMasterHelper(testhelp.TestCase):
 
     def assertLogContent(self, content):
         f = open(os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log'))
-        assert content in f.read()
+        assert content in f.read(), "'%s' did not appear in log" % content
