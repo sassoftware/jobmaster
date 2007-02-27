@@ -5,8 +5,8 @@
 # All rights reserved
 #
 
-
 import os, sys
+import inspect
 import logging
 import math
 import simplejson
@@ -32,6 +32,9 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.deps import deps
 from conary import versions
+
+CONFIG_PATH = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
+                           'config.d', 'runtime')
 
 def getAvailableArchs(arch):
     if arch in ('i686', 'i586', 'i486', 'i386'):
@@ -79,7 +82,7 @@ def catchErrors(func):
         except:
             exc, e, bt = sys.exc_info()
             try:
-                log.error(traceback.format_stack(bt))
+                log.error(''.join(traceback.format_tb(bt)))
                 log.error(e)
             except:
                 print >> sys.stderr, "couldn't log error", e
@@ -249,7 +252,9 @@ class JobMaster(object):
         self.handlers = {}
         self.sendStatus()
         rootLogger = logging.getLogger('')
-        rootLogger.addHandler(logging.FileHandler(\
+        conaryLogger = logging.getLogger(log.LOGGER_CONARY)
+        conaryLogger.handlers = []
+        rootLogger.addHandler(logging.FileHandler( \
                 os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log')))
         log.setVerbosity(logging.INFO)
 
@@ -268,16 +273,19 @@ class JobMaster(object):
                 action = data['action']
                 kwargs = dict([(str(x[0]), x[1]) for x in data.iteritems() \
                                    if x[0] not in ('node', 'action')])
-                if action in self.__class__.__dict__:
-                    func = self.__class__.__dict__[action]
+                memberDict = dict([ \
+                        x for x in inspect.getmembers( \
+                            self, lambda x: callable(x))])
+                if action in memberDict:
+                    func = memberDict[action]
                     if '_controlMethod' in func.__dict__:
-                        return func(self, **kwargs)
+                        return func(**kwargs)
                     else:
                         raise master_error.ProtocolError( \
-                            'Control method %s is not valid' % action)
+                            "Action '%s' is not a control method" % action)
                 else:
                     raise master_error.ProtocolError( \
-                        "Control method %s does not exist" % action)
+                        "Control method '%s' does not exist" % action)
             elif node.split(':')[0] == self.cfg.nodeName:
                 # FIXME: ensure the following is correct and enable it
                 break
@@ -425,7 +433,7 @@ class JobMaster(object):
         self.cfg.slaveLimit = max(limit, 0)
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)
 
-        f = open(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster', 'config.d', 'runtime'), 'w')
+        f = open(CONFIG_PATH, 'w')
         f.write('slaveLimit %d\n' % limit)
         f.close()
         self.demandQueue.setLimit(limit)
