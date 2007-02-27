@@ -137,7 +137,7 @@ def getRunningKernel():
     m = re.match('[\d.-]*', data)
     ver = m.group()[:-1]
     p = os.popen('conary q kernel --full-versions --flavors | grep %s' % ver)
-    return p.read()
+    return p.read().strip()
 
 class ImageCache(object):
     def __init__(self, cachePath):
@@ -208,7 +208,7 @@ class ImageCache(object):
 
             os.system("conary update '%s' --root %s" % (mkinitrdVer, mntDir))
 
-            kernelSpec = getKernelVersion()
+            kernelSpec = getRunningKernel()
             os.system("conary update '%s' --root %s" % (kernelSpec, mntDir))
 
             # FIXME: long term this code would be needed for remote slaves
