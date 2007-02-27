@@ -11,6 +11,7 @@ testsuite.setup()
 import os
 import time
 import simplejson
+import StringIO
 import threading
 import weakref
 
@@ -392,6 +393,47 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         for key, val in refData.iteritems():
             assert key in data
             assert data[key] == val
+
+    def pipeSlaves(self, memory):
+        def DummyPipe(*args, **kwargs):
+            return StringIO.StringIO(memory)
+        popen = os.popen
+        try:
+            os.popen = DummyPipe
+            return master.JobMaster.getMaxSlaves(self.jobMaster)
+        finally:
+            os.popen = popen
+
+    def testGetNoSlaves(self):
+        slaves = self.pipeSlaves('767')
+        self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
+
+    def testGetOneSlave(self):
+        slaves = self.pipeSlaves('768')
+        self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
+
+    def testGetSlavesTurnover(self):
+        slaves = self.pipeSlaves('1280')
+        self.failIf(slaves != 2, "expected 2 slaves, got: %d" % slaves)
+
+    def testGetSlavesBadPipe(self):
+        slaves = self.pipeSlaves('NAN')
+        self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
+
+    def testMissingSlave(self):
+        def DummyPipe(*args, **kwargs):
+            return StringIO.StringIO('slave name does not appear in output')
+
+        popen = os.popen
+        try:
+            os.popen = DummyPipe
+            # just enough to cause the jobMaster to check it's slave list
+            self.insertControl(node = self.cfg.nodeName + ":voodoo")
+
+            self.jobMaster.checkControlTopic()
+            self.assertLogContent('Detected missing slave')
+        finally:
+            os.popen = popen
 
 if __name__ == "__main__":
     testsuite.main()
