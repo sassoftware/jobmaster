@@ -287,13 +287,11 @@ class JobMaster(object):
                     raise master_error.ProtocolError( \
                         "Control method '%s' does not exist" % action)
             elif node.split(':')[0] == self.cfg.nodeName:
-                # FIXME: ensure the following is correct and enable it
-                break
                 #check list of slaves and ensure it's really up
                 slaveName = node.split(':')[1]
                 p = os.popen("xm list| awk '{print $1;}")
                 if slaveName not in p.read():
-                    print "Detected missing slave."
+                    log.info("Detected missing slave.")
                     self.sendStatus()
                 p.close()
             dataStr = self.controlTopic.read()
