@@ -12,6 +12,7 @@ from jobmaster import master
 
 import tempfile
 import threading
+import os
 
 from conary.lib import util
 
@@ -110,17 +111,41 @@ class ThreadedJobMaster(master.JobMaster, threading.Thread):
         threading.Thread.__init__(self)
         master.JobMaster.__init__(self, *args, **kwargs)
 
+    def resolveTroveSpec(self, troveSpec):
+        return troveSpec
+
+    def getMaxSlaves(self):
+        # needed for test suite purposes
+        return 99999
+
 class JobMasterHelper(testhelp.TestCase):
+    def DummySystem(self, command):
+        self.syscalls.append(command)
+
     def setUp(self):
+        self.basePath = tempfile.mkdtemp()
+        os.mkdir(os.path.join(self.basePath, 'imageCache'))
+        os.mkdir(os.path.join(self.basePath, 'logs'))
+        os.mkdir(os.path.join(self.basePath, 'config.d'))
+
+        master.CONFIG_PATH = os.path.join(self.basePath, 'config.d', 'runtime')
+
         testhelp.TestCase.setUp(self)
         self.cfg = master.MasterConfig()
         self.cfg.nodeName = 'testMaster'
         self.cfg.nameSpace = 'test'
-        self.cfg.cachePath = tempfile.mkdtemp()
-        self.jobMaster = master.JobMaster(self.cfg)
+        self.cfg.basePath = self.basePath
+        self.jobMaster = ThreadedJobMaster(self.cfg)
         # ensure bootup messages don't interfere with tests
         self.jobMaster.response.response.connection.sent = []
+        self.system = os.system
+        self.sysCalls = []
+        os.system = self.DummySystem
 
     def tearDown(self):
-        util.rmtree(self.cfg.cachePath)
+        util.rmtree(self.cfg.basePath)
         testhelp.TestCase.tearDown(self)
+
+    def assertLogContent(self, content):
+        f = open(os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log'))
+        assert content in f.read()
