@@ -435,5 +435,16 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         finally:
             os.popen = popen
 
+    def testNodeName(self):
+        nodeName = self.cfg.nodeName
+        try:
+            self.cfg.nodeName = None
+            master.JobMaster(self.cfg)
+            self.failIf(self.cfg.nodeName is None,
+                        "Master did not set it's nodeName")
+        finally:
+            self.cfg.nodeName = nodeName
+
+
 if __name__ == "__main__":
     testsuite.main()

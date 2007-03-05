@@ -120,7 +120,7 @@ class ThreadedJobMaster(master.JobMaster, threading.Thread):
 
 class JobMasterHelper(testhelp.TestCase):
     def DummySystem(self, command):
-        self.syscalls.append(command)
+        self.sysCalls.append(command)
 
     def setUp(self):
         self.basePath = tempfile.mkdtemp()
@@ -144,6 +144,7 @@ class JobMasterHelper(testhelp.TestCase):
 
     def tearDown(self):
         util.rmtree(self.cfg.basePath)
+        #self.jobMaster.command.connection
         testhelp.TestCase.tearDown(self)
 
     def assertLogContent(self, content):
