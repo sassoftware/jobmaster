@@ -11,6 +11,10 @@ testsuite.setup()
 import jobmaster_helper
 
 import os
+import tempfile
+
+from conary.lib import util
+from jobmaster import imagecache
 
 class CacheTest(jobmaster_helper.JobMasterHelper):
     def testImagePath(self):
@@ -72,6 +76,76 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         assert self.jobMaster.imageCache.haveImage(troveSpec)
         self.jobMaster.imageCache.deleteAllImages()
         assert not self.jobMaster.imageCache.haveImage(troveSpec)
+
+    def testImageSize(self):
+        assert imagecache.roundUpSize(0) == 332881920
+        assert imagecache.roundUpSize(100000) == 332881920
+        assert imagecache.roundUpSize(300 * 1024 * 1024) == 694665216
+
+    def testCreateBlank(self):
+        fd, tmpFile = tempfile.mkstemp()
+        os.close(fd)
+        try:
+            imagecache.mkBlankFile(tmpFile, 1024, sparse = False)
+            f = open(tmpFile)
+            assert f.read() == 1024 * chr(0)
+            f.close()
+            imagecache.mkBlankFile(tmpFile, 512, sparse = True)
+            f = open(tmpFile)
+            assert f.read() == 512 * chr(0)
+            f.close()
+        finally:
+            util.rmtree(tmpFile)
+
+    def testCreateFile(self):
+        tmpDir = tempfile.mkdtemp()
+        try:
+            filePath = os.path.join(tmpDir, 'test', 'path', 'file.txt')
+
+            contents = 'test'
+            imagecache.createFile(filePath, contents)
+
+            f = open(filePath)
+            assert f.read() == contents
+            f.close()
+        finally:
+            util.rmtree(tmpDir)
+
+    def testTempRoot(self):
+        tmpDir = tempfile.mkdtemp()
+        try:
+            imagecache.createTemporaryRoot(tmpDir)
+            assert os.listdir(tmpDir) == \
+                ['etc', 'boot', 'tmp', 'proc', 'sys', 'root', 'var']
+        finally:
+            util.rmtree(tmpDir)
+
+    def testWriteConaryRc(self):
+        tmpDir = tempfile.mkdtemp()
+        os.mkdir(os.path.join(tmpDir, 'etc'))
+        try:
+            imagecache.writeConaryRc(tmpDir, mirrorUrl = 'test')
+            f = open(os.path.join(tmpDir, 'etc', 'conaryrc'))
+            data = f.read()
+            self.failIf(data != 'includeConfigFile http://test/conaryrc\n'
+                        'pinTroves kernel.*\n'
+                        'includeConfigFile /etc/conary/config.d/*\n',
+                        "Unexpected contents of config file")
+        finally:
+            util.rmtree(tmpDir)
+
+    def testFsOddsNEnds(self):
+        tmpDir = tempfile.mkdtemp()
+        try:
+            imagecache.fsOddsNEnds(tmpDir)
+            assert os.listdir(tmpDir) == \
+                ['etc', 'boot', 'tmp', 'proc', 'sys', 'root', 'var']
+            assert os.listdir(os.path.join(tmpDir, 'etc')) == \
+                ['sysconfig', 'fstab', 'hosts']
+            assert os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig')) == \
+                ['network-scripts', 'network', 'keyboard']
+        finally:
+            util.rmtree(tmpDir)
 
 
 if __name__ == "__main__":
