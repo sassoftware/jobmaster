@@ -18,6 +18,7 @@ import weakref
 import jobmaster_helper
 
 from jobmaster import master
+from jobmaster import constants
 
 class DummyHandler(master.SlaveHandler):
     count = 0
