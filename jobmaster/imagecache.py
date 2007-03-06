@@ -48,7 +48,7 @@ def mkBlankFile(fn, size, sparse = True):
     createDir(os.path.split(fn)[0])
     f = open(fn, 'w')
     if sparse:
-        f.seek(SWAP_SIZE - 1)
+        f.seek(size - 1)
         f.write(chr(0))
     else:
         for i in range(size / 512):
@@ -63,22 +63,22 @@ def createFile(fn, contents):
     f.close()
 
 def writeConaryRc(d, mirrorUrl = ''):
-        # write the conaryrc file
-        conaryrcFile = open(os.path.join(d, 'etc', 'conaryrc'), "w")
-        if mirrorUrl:
-            type, url = urllib.splittype(mirrorUrl)
-            relativeLink = ''
-            if not type:
-                type = 'http'
-            if not url.startswith('//'):
-                url = '//' + url
-            if not urllib.splithost(url)[1]:
-                relativeLink = '/conaryrc'
-            mirrorUrl = type + ':' + url + relativeLink
-            print >> conaryrcFile, 'includeConfigFile ' + mirrorUrl
-        print >> conaryrcFile, "pinTroves kernel.*"
-        print >> conaryrcFile, "includeConfigFile /etc/conary/config.d/*"
-        conaryrcFile.close()
+    # write the conaryrc file
+    conaryrcFile = open(os.path.join(d, 'etc', 'conaryrc'), "w")
+    if mirrorUrl:
+        type, url = urllib.splittype(mirrorUrl)
+        relativeLink = ''
+        if not type:
+            type = 'http'
+        if not url.startswith('//'):
+            url = '//' + url
+        if not urllib.splithost(url)[1]:
+            relativeLink = '/conaryrc'
+        mirrorUrl = type + ':' + url + relativeLink
+        print >> conaryrcFile, 'includeConfigFile ' + mirrorUrl
+    print >> conaryrcFile, "pinTroves kernel.*"
+    print >> conaryrcFile, "includeConfigFile /etc/conary/config.d/*"
+    conaryrcFile.close()
 
 def createTemporaryRoot(fakeRoot):
     for d in ('etc', 'etc/sysconfig', 'etc/sysconfig/network-scripts',
@@ -225,7 +225,3 @@ class ImageCache(object):
             os.system('umount %s' % mntDir)
         os.rename(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)
-
-if __name__ == '__main__':
-    imgCache = ImageCache()
-    print imgCache.getImage(sys.argv[1])
