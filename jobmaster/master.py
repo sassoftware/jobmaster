@@ -25,6 +25,7 @@ from jobmaster import xencfg
 from mcp import queue
 from mcp import response
 from mcp import client
+from mcp import slavestatus
 
 from conary.lib import cfgtypes, util, log
 from conary import conarycfg
@@ -117,7 +118,7 @@ class SlaveHandler(threading.Thread):
         xenCfg = xencfg.XenCfg(self.imagePath,
                                {'memory' : self.master().cfg.slaveMemory})
         self.slaveName = xenCfg.cfg['name']
-        self.slaveStatus('building')
+        self.slaveStatus(slavestatus.BUILDING)
         fd, self.cfgPath = tempfile.mkstemp()
         os.close(fd)
         f = open(self.cfgPath, 'w')
@@ -141,7 +142,7 @@ class SlaveHandler(threading.Thread):
         os.system('xm destroy %s' % self.slaveName)
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
-        self.slaveStatus('offline')
+        self.slaveStatus(slavestatus.OFFLINE)
         self.join()
 
     def getJobQueueName(self):
@@ -218,13 +219,13 @@ class SlaveHandler(threading.Thread):
                     exc, e, bt = sys.exc_info()
                     log.error(traceback.format_stack(bt))
                     log.error(traceback.format_exc(e))
-                    self.slaveStatus('offline')
+                    self.slaveStatus(slavestatus.OFFLINE)
                 except:
                     # this process must exit regardless of failure to log.
                     pass
                 sys.exit(1)
             else:
-                self.slaveStatus('started')
+                self.slaveStatus(slavestatus.STARTED)
                 sys.exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
