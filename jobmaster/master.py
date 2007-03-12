@@ -136,7 +136,7 @@ class SlaveHandler(threading.Thread):
                                {'memory' : self.master().cfg.slaveMemory,
                                 'kernel': kernel,
                                 'initrd': initrd,
-                                'root /dev/xvda1 ro'})
+                                'root': '/dev/xvda1 ro'})
         self.slaveName = xenCfg.cfg['name']
         self.slaveStatus(slavestatus.BUILDING)
         fd, self.cfgPath = tempfile.mkstemp()
