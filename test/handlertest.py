@@ -38,8 +38,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             slaveName = handler.start()
         finally:
             xenmac.genMan = genMac
-        self.failIf(slaveName != 'xen34',
-                    "Expected slaveName of xen34, got %s" % slaveName)
+        self.failIf(slaveName != 'slave34',
+                    "Expected slaveName of slave34, got %s" % slaveName)
 
     def testStopHandler(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
@@ -59,7 +59,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             handler.stop()
         finally:
             xenmac.genMan = genMac
-        assert self.sysCalls == ['xm destroy xen22']
+        assert self.sysCalls == ['xm destroy slave22']
 
     def testRunHandler(self):
         class SysExit(Exception):
