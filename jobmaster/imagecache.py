@@ -202,14 +202,9 @@ class ImageCache(object):
             os.system("conary update '%s' --root %s --replace-files" % \
                           (troveSpec, mntDir))
 
-            p = os.popen('conary q mkinitrd --full-versions --flavors')
-            mkinitrdVer = p.read().strip()
-            p.close()
-
-            os.system("conary update '%s' --root %s" % (mkinitrdVer, mntDir))
-
             kernelSpec = getRunningKernel()
-            os.system("conary update '%s' --root %s" % (kernelSpec, mntDir))
+            os.system("conary update '%s' --root %s --resolve --keep-existing" \
+                          % (kernelSpec, mntDir))
 
             # FIXME: long term this code would be needed for remote slaves
             #os.system("conary update --sync-to-parents kernel:runtime "
