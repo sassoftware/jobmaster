@@ -26,7 +26,8 @@ class XenCfg(object):
         self.cfg = copy.deepcopy(cfg)
         self.cfg.setdefault('memory', 64)
 
-        self.cfg.setdefault('bootloader', '/usr/bin/pygrub')
+        if 'kernel' not in self.cfg:
+            self.cfg.setdefault('bootloader', '/usr/bin/pygrub')
 
         # genMac has an effect that is global to the entire system.
         if 'vif' not in self.cfg or not self.cfg['vif'] \
@@ -34,7 +35,7 @@ class XenCfg(object):
             mac = xenmac.genMac()
             self.cfg['vif'] = [ 'mac=%s' % mac ]
 
-        self.cfg.setdefault('name', 'xen%s' % \
+        self.cfg.setdefault('name', 'slave%s' % \
                             self.cfg['vif'][0].split(':')[-1])
 
         p = os.popen('file -k %s' % imgPath)

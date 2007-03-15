@@ -53,6 +53,20 @@ def controlMethod(func):
     func._controlMethod = True
     return func
 
+def getBootPaths():
+    p = os.popen('uname -r')
+    runningKernel = p.read().strip()
+    p.close()
+
+    files = [x for x in os.listdir('/boot') if runningKernel in x]
+    kernel = [x for x in files if x.startswith('vmlinuz')][0]
+    kernel = os.path.join(os.path.sep, 'boot', kernel)
+
+    initrd = [x for x in files if x.startswith('initrd')][0]
+    initrd = os.path.join(os.path.sep, 'boot', initrd)
+    return kernel, initrd
+
+
 PROTOCOL_VERSIONS = set([1])
 
 filterArgs = lambda d, *args: dict([x for x in d.iteritems() \
@@ -115,8 +129,14 @@ class SlaveHandler(threading.Thread):
     def start(self):
         fd, self.imagePath = tempfile.mkstemp()
         os.close(fd)
+
+        kernel, initrd = getBootPaths()
+
         xenCfg = xencfg.XenCfg(self.imagePath,
-                               {'memory' : self.master().cfg.slaveMemory})
+                               {'memory' : self.master().cfg.slaveMemory,
+                                'kernel': kernel,
+                                'initrd': initrd,
+                                'root': '/dev/xvda1 ro'})
         self.slaveName = xenCfg.cfg['name']
         self.slaveStatus(slavestatus.BUILDING)
         fd, self.cfgPath = tempfile.mkstemp()
