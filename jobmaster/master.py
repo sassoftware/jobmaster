@@ -338,16 +338,14 @@ class JobMaster(object):
         # a full NVF for caching and creation purposes.
         cfg = conarycfg.ConaryConfiguration()
         cfg.initializeFlavors()
-        cfg.flavor = [deps.overrideFlavor(x, deps.parseFlavor('xen, domU')) for x in cfg.flavor]
         cc = conaryclient.ConaryClient(cfg)
         n, v, f = cmdline.parseTroveSpec(troveSpec)
-        troves = cc.repos.findTrove(None, \
-                                        (n, v, deps.parseFlavor('domU,xen')),
-                                    defaultFlavor = cfg.flavor)
+        troves = cc.repos.findTrove(None, (n, v, None))
+        refXen = deps.parseFlavor('xen, domU')
+        troves = [x for x in troves if x[2].stronglySatisfies(refXen) \
+                      and x[2].stronglySatisfies(f)]
         if not troves:
             return troveSpec
-        if troves[0][2] is None:
-            troves[0][2] == ''
         return '%s=%s[%s]' % troves[0]
 
     def handleSlaveStart(self, troveSpec):
