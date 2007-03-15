@@ -108,6 +108,7 @@ class MasterConfig(client.MCPClientConfig):
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
+    proxy = None
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -210,8 +211,8 @@ class SlaveHandler(threading.Thread):
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.jobQueueName)
-                    masterIP = getIP()
-                    f.write('proxy http://%s/' % masterIP)
+                    if cfg.proxy:
+                        f.write('proxy %s' % cfg.proxy)
                     f.close()
 
                     # write init script settings
@@ -219,6 +220,7 @@ class SlaveHandler(threading.Thread):
                                                 'slave_runtime')
                     util.mkdirChain(os.path.split(initSettings)[0])
                     f = open(initSettings, 'w')
+                    masterIP = getIP()
                     f.write('MASTER_IP=%s' % masterIP)
                     f.close()
                     entitlementsDir = os.path.join(os.path.sep, 'srv',
