@@ -203,7 +203,7 @@ class ImageCache(object):
                           (troveSpec, mntDir))
 
             kernelSpec = getRunningKernel()
-            os.system("conary update '%s' --root %s --resolve --keep-existing" \
+            os.system("conary update '%s' --root %s --resolve --keep-required" \
                           % (kernelSpec, mntDir))
 
             # FIXME: long term this code would be needed for remote slaves
