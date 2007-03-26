@@ -37,7 +37,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             xenmac.genMac = lambda: '00:16:3e:00:01:34'
             slaveName = handler.start()
         finally:
-            xenmac.genMan = genMac
+            xenmac.genMac = genMac
         self.failIf(slaveName != 'slave34',
                     "Expected slaveName of slave34, got %s" % slaveName)
 
@@ -58,7 +58,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             handler.start()
             handler.stop()
         finally:
-            xenmac.genMan = genMac
+            xenmac.genMac = genMac
         assert self.sysCalls == ['xm destroy slave22']
 
     def testRunHandler(self):
@@ -104,7 +104,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                             "Run exited abnormally: exit code %d" % e.exitCode)
         finally:
             imagecache.ImageCache.makeImage = makeImage
-            xenmac.genMan = genMac
+            xenmac.genMac = genMac
             os.fork = fork
             os.setsid = setsid
             sys.exit = exit
