@@ -20,7 +20,7 @@ import weakref
 
 from jobmaster import master_error
 from jobmaster import imagecache
-from jobmaster import xencfg
+from jobmaster import xencfg, xenmac
 
 from mcp import queue
 from mcp import response
@@ -257,6 +257,7 @@ class JobMaster(object):
         if cfg.nodeName is None:
             cfg.nodeName = getIP() or '127.0.0.1'
         self.cfg = cfg
+        xenmac.setMaxSeq(self.cfg.slaveLimit)
         self.demandQueue = queue.MultiplexedQueue(cfg.queueHost, cfg.queuePort,
                                        namespace = cfg.namespace,
                                        timeOut = 0, queueLimit = cfg.slaveLimit)
@@ -455,6 +456,7 @@ class JobMaster(object):
         f = open(CONFIG_PATH, 'w')
         f.write('slaveLimit %d\n' % limit)
         f.close()
+        xenmac.setMaxSeq(self.cfg.slaveLimit)
         self.demandQueue.setLimit(limit)
 
     @controlMethod

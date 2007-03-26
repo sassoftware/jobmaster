@@ -12,6 +12,13 @@ import fcntl
 
 sequencePath = os.path.join(os.path.sep, 'var', 'run', 'xenmac.seq')
 
+MAX_SEQ = 1
+
+# ensure the value of MAX_SEQ is clamped. it's a divisor so it cannot be zero.
+# it represents the limit of 1 octet so it cannot be greater than 256
+def setMaxSeq(x):
+    sys.modules[__name__].MAX_SEQ = min(max(1, x), 256)
+
 class SuperUser(Exception):
     def __str__(self):
         return "You must be superuser to use this function"
@@ -67,7 +74,7 @@ def genMac():
         if not len(oneUp):
             oneUp = 0
         else:
-            oneUp = (int(oneUp) + 1) % 256
+            oneUp = (int(oneUp) + 1) % MAX_SEQ
         done = False
         while not done:
             f.seek(0)
@@ -78,7 +85,7 @@ def genMac():
                 strOneUp = '0' + strOneUp
             mac = ':'.join((xenPrefix, IP, strOneUp))
             done = checkMac(mac)
-            oneUp = (int(oneUp) + 1) % 256
+            oneUp = (int(oneUp) + 1) % MAX_SEQ
         return mac
     finally:
         f.close()
