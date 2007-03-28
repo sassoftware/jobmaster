@@ -138,12 +138,12 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         tmpDir = tempfile.mkdtemp()
         try:
             imagecache.fsOddsNEnds(tmpDir)
-            assert os.listdir(tmpDir) == \
-                ['etc', 'boot', 'tmp', 'proc', 'sys', 'root', 'var']
-            assert os.listdir(os.path.join(tmpDir, 'etc')) == \
-                ['sysconfig', 'fstab', 'hosts']
-            assert os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig')) == \
-                ['network-scripts', 'network', 'keyboard']
+            assert sorted(os.listdir(tmpDir)) == \
+                ['boot', 'etc', 'var']
+            assert sorted(os.listdir(os.path.join(tmpDir, 'etc'))) == \
+                ['conaryrc', 'fstab', 'hosts', 'sysconfig']
+            assert sorted(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig')))\
+                == ['keyboard', 'network', 'network-scripts']
         finally:
             util.rmtree(tmpDir)
 
