@@ -66,7 +66,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             def __init__(self, exitCode):
                 self.exitCode = exitCode
             def __str__(self):
-                return "sys.exit(%d)" % exitCode
+                return "os._exit(%d)" % exitCode
 
         def dummyExit(exitCode):
             raise SysExit(exitCode)
@@ -90,13 +90,13 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         genMac = xenmac.genMac
         fork = os.fork
         setsid = os.setsid
-        exit = sys.exit
+        exit = os._exit
         try:
             imagecache. ImageCache.makeImage = dummyMakeImage
             os.fork = lambda: 0
             os.setsid = lambda: None
             xenmac.genMac = lambda: '00:16:3e:00:01:66'
-            sys.exit = dummyExit
+            os._exit = dummyExit
             try:
                 handler.run()
             except SysExit, e:
@@ -107,7 +107,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             xenmac.genMac = genMac
             os.fork = fork
             os.setsid = setsid
-            sys.exit = exit
+            os._exit = exit
 
         syscalls = ('mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
                     'xm create /tmp/test-config$')
