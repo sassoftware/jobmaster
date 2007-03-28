@@ -245,10 +245,11 @@ class SlaveHandler(threading.Thread):
                 except:
                     # this process must exit regardless of failure to log.
                     pass
-                sys.exit(1)
+                # forcibly exit *now* sys.exit raises a SystemExit exception
+                os._exit(1)
             else:
                 self.slaveStatus(slavestatus.STARTED)
-                sys.exit(0)
+                os._exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
 
