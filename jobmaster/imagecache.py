@@ -10,6 +10,7 @@ import math
 import md5
 import re
 import urllib
+import shutil
 import tempfile
 
 from conary import conarycfg
@@ -86,7 +87,6 @@ def createTemporaryRoot(fakeRoot):
         util.mkdirChain(os.path.join(fakeRoot, d))
 
 def fsOddsNEnds(d):
-    createTemporaryRoot(d)
     createFile(os.path.join(d, 'etc', 'fstab'),
                '\n'.join(('LABEL=/ / ext3 defaults 1 1',
                           'none /dev/pts devpts gid=5,mode=620 0 0',
@@ -128,6 +128,8 @@ def fsOddsNEnds(d):
     createFile(os.path.join(d, 'etc', 'sysconfig', 'keyboard'),
                '\n'.join(('KEYBOARDTYPE="pc"',
                           'KEYTABLE="us"\n')))
+    writeConaryRc(d)
+
 
 def getRunningKernel():
     p = os.popen('uname -r')
@@ -180,6 +182,7 @@ class ImageCache(object):
         fd, fn = tempfile.mkstemp()
         os.close(fd)
 
+        mntDir = tempfile.mkdtemp()
         try:
             mkBlankFile(fn, size)
 
@@ -188,23 +191,35 @@ class ImageCache(object):
                           (fn, size / 1024))
             os.system('tune2fs -i 0 -c 0 %s' % fn)
 
-            mntDir = tempfile.mkdtemp()
             os.system('mount -o loop %s %s' % (fn, mntDir))
 
-            # lay fs odds and ends *before* group update for tag scripts
-            fsOddsNEnds(mntDir)
-
-            writeConaryRc(mntDir)
+            createTemporaryRoot(mntDir)
             os.system('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             os.system('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
-            # FIXME: noted complaints about needing an installLabelPath
-            os.system("conary update '%s' --root %s --replace-files" % \
-                          (troveSpec, mntDir))
+            os.system(("conary update '%s' --root %s --replace-files " \
+                           "--tag-script=%s") % \
+                          (troveSpec, mntDir,
+                           os.path.join(mntDir, 'root',
+                                        'conary-tag-script.in')))
 
             kernelSpec = getRunningKernel()
-            os.system("conary update '%s' --root %s --resolve --keep-required" \
-                          % (kernelSpec, mntDir))
+            os.system(("conary update '%s' --root %s --resolve " \
+                       "--keep-required --tag-script=%s" ) \
+                          % (kernelSpec, mntDir, os.path.join(mntDir, 'root',
+                                        'conary-tag-script-kernel')))
+            fsOddsNEnds(mntDir)
+
+            outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
+            inScript = outScript + '.in'
+            os.system('echo "/sbin/ldconfig" > %s; cat %s | sed "s|/sbin/ldconfig||g" | grep -vx "" >> %s' % (outScript, inScript, outScript))
+            os.unlink(os.path.join(mntDir, 'root', 'conary-tag-script.in'))
+
+            for tagScript in ('conary-tag-script', 'conary-tag-script-kernel'):
+                tagPath = util.joinPaths(os.path.sep, 'root', tagScript)
+                if os.path.exists(util.joinPaths(mntDir, tagPath)):
+                    util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % \
+                                     (mntDir, tagPath, tagPath + '.output'))
 
             # FIXME: long term this code would be needed for remote slaves
             #os.system("conary update --sync-to-parents kernel:runtime "
@@ -218,5 +233,7 @@ class ImageCache(object):
             os.system('umount %s' % os.path.join(mntDir, 'sys'))
             os.system('sync')
             os.system('umount %s' % mntDir)
-        os.rename(fn, os.path.join(self.cachePath, hash))
+            os.system('sync')
+            util.rmtree(mntDir, ignore_errors = True)
+        shutil.move(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)
