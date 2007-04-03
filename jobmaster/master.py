@@ -186,7 +186,10 @@ class SlaveHandler(threading.Thread):
                 # don't use original. make a backup
                 log.info('Getting slave image: %s' % self.troveSpec)
                 cachedImage = self.imageCache().getImage(self.troveSpec)
+                log.info("Making runtime copy of cached image at: %s" % \
+                             self.imagePath)
                 shutil.copyfile(cachedImage, self.imagePath)
+                log.info("making mount point")
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp()
                 f = None
@@ -314,7 +317,7 @@ class JobMaster(object):
             elif node.split(':')[0] == self.cfg.nodeName:
                 #check list of slaves and ensure it's really up
                 slaveName = node.split(':')[1]
-                p = os.popen("xm list| awk '{print $1;}")
+                p = os.popen("xm list| awk '{print $1;}'")
                 if slaveName not in p.read():
                     log.info("Detected missing slave.")
                     self.sendStatus()
