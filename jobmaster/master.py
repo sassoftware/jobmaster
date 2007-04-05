@@ -154,7 +154,7 @@ class SlaveHandler(threading.Thread):
         pid = self.pid
         if pid:
             try:
-                os.kill(pid, signal.SIGTERM)
+                os.kill(-pid, signal.SIGTERM)
             except OSError, e:
                 # ignore race condition where child died right after we recorded
                 # it's pid
@@ -181,7 +181,7 @@ class SlaveHandler(threading.Thread):
     def run(self):
         self.pid = os.fork()
         if not self.pid:
-            os.setsid()
+            os.setpgid(0, 0)
             try:
                 # don't use original. make a backup
                 log.info('Getting slave image: %s' % self.troveSpec)
@@ -455,12 +455,14 @@ class JobMaster(object):
 
         limit = min(limit, self.getMaxSlaves())
         self.cfg.slaveLimit = max(limit, 0)
-        limit = max(limit - len(self.slaves) - len(self.handlers), 0)
 
         f = open(CONFIG_PATH, 'w')
         f.write('slaveLimit %d\n' % limit)
         f.close()
         xenmac.setMaxSeq(self.cfg.slaveLimit)
+        self.sendStatus()
+
+        limit = max(limit - len(self.slaves) - len(self.handlers), 0)
         self.demandQueue.setLimit(limit)
 
     @controlMethod
@@ -519,7 +521,7 @@ def runDaemon():
         os.close(devNull)
         pid = os.fork()
         if not pid:
-            os.setsid()
+            os.setpgid(0, 0)
             f = open(pidFile, 'w')
             f.write(str(os.getpid()))
             f.close()
