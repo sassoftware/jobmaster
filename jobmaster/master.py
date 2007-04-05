@@ -352,8 +352,24 @@ class JobMaster(object):
         troves = [x for x in troves if x[2].stronglySatisfies(refXen) \
                       and x[2].stronglySatisfies(f)]
         if not troves:
+            log.warning("Found no troves when looking for slaves. "
+                        "This is almost certainly unwanted behavior. "
+                        "Falling back to: %s" % troveSpec)
             return troveSpec
-        return '%s=%s[%s]' % troves[0]
+        if len(troves) > 1:
+            # compare each pair of troves. take the difference between them
+            # and see if the result satisfies f. this roughly translates to
+            # a concept of "narrowest match" because an exact arch will be
+            # preferred over a multi-arch trove.
+            refTrove = troves[0]
+            for trv in troves:
+                if trv != refTrove:
+                    if f.satisfies(trv[2].difference(refTrove[2])):
+                        refTrove = trv
+            troves = [refTrove]
+        res = '%s=%s[%s]' % troves[0]
+        log.info("Using %s to satisfy %s for slave" % (res, troveSpec))
+        return res
 
     def handleSlaveStart(self, troveSpec):
         troveSpec = self.resolveTroveSpec(troveSpec)
