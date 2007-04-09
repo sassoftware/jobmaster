@@ -51,7 +51,7 @@ def genMac():
     if os.geteuid():
         raise SuperUser
     # obtain full IP address
-    IP = readPipe('ifconfig `route | grep default | sed "s/.* //"` | ' \
+    IP = readPipe('/sbin/ifconfig `/sbin/route | grep default | sed "s/.* //"` | ' \
                  'grep "inet addr" | sed "s/.*addr://" | sed "s/ .*//"')
     IP = IP.strip()
 
