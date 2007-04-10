@@ -46,7 +46,6 @@ def genMac():
     # obtain full IP address
     IP = readPipe('/sbin/ifconfig `/sbin/route | grep default | sed "s/.* //"` | ' \
                  'grep "inet addr" | sed "s/.*addr://" | sed "s/ .*//"')
-    print IP
     IP = IP.strip()
 
     if not IP:
@@ -81,7 +80,6 @@ def genMac():
                 strOneUp = '0' + strOneUp
             mac = ':'.join((xenPrefix, IP, strOneUp))
             done = checkMac(mac)
-            print mac, done
             oneUp = (int(oneUp) + 1) % MAX_SEQ
             
             tries += 1
