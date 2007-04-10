@@ -285,7 +285,6 @@ class JobMaster(object):
             format ='%(asctime)s %(levelname)s %(message)s',
             filename = os.path.join(cfg.basePath, 'logs', 'jobmaster.log'),
             filemode='a')
-        log.setVerbosity(logging.INFO)
 
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
