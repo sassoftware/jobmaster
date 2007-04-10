@@ -259,6 +259,11 @@ class SlaveHandler(threading.Thread):
 
 class JobMaster(object):
     def __init__(self, cfg):
+        logging.basicConfig(level=logging.DEBUG,
+            format ='%(asctime)s %(levelname)s %(message)s',
+            filename = os.path.join(cfg.basePath, 'logs', 'jobmaster.log'),
+            filemode='a')
+
         if cfg.nodeName is None:
             cfg.nodeName = getIP() or '127.0.0.1'
         self.cfg = cfg
@@ -280,11 +285,6 @@ class JobMaster(object):
         self.slaves = {}
         self.handlers = {}
         self.sendStatus()
-
-        logging.basicConfig(level=logging.DEBUG,
-            format ='%(asctime)s %(levelname)s %(message)s',
-            filename = os.path.join(cfg.basePath, 'logs', 'jobmaster.log'),
-            filemode='a')
 
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
