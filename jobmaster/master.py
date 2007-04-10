@@ -8,6 +8,7 @@
 import os, sys
 import inspect
 import logging
+log = logging
 import math
 import simplejson
 import tempfile
@@ -27,7 +28,7 @@ from mcp import response
 from mcp import client
 from mcp import slavestatus
 
-from conary.lib import cfgtypes, util, log
+from conary.lib import cfgtypes, util
 from conary import conarycfg
 from conary import conaryclient
 from conary.conaryclient import cmdline
@@ -279,11 +280,11 @@ class JobMaster(object):
         self.slaves = {}
         self.handlers = {}
         self.sendStatus()
-        rootLogger = logging.getLogger('')
-        conaryLogger = logging.getLogger(log.LOGGER_CONARY)
-        conaryLogger.handlers = []
-        rootLogger.addHandler(logging.FileHandler( \
-                os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log')))
+
+        logging.basicConfig(level=logging.DEBUG,
+            format ='%(asctime)s %(levelname)s %(message)s',
+            filename = os.path.join(cfg.basePath, 'logs', 'jobmaster.log'),
+            filemode='a')
         log.setVerbosity(logging.INFO)
 
         signal.signal(signal.SIGTERM, self.catchSignal)
