@@ -28,20 +28,13 @@ class NetworkInterface(Exception):
         return "IP address cannot be determined. There must be a default " \
                "route associated with an active interface."
 
+class NoMACAddressAvailable(Exception):
+    def __str__(self):
+        return "A MAC address for the upcoming slave could not be obtained."
+
 def readPipe(command):
-    stderr = os.dup(sys.stderr.fileno())
-    stdout = os.dup(sys.stdout.fileno())
-    fd = os.open(os.devnull, os.W_OK)
-    os.dup2(fd, sys.stdout.fileno())
-    os.dup2(fd, sys.stderr.fileno())
-    os.close(fd)
-    try:
-        f = os.popen(command)
-        return f.read()
-    finally:
-        f.close()
-        os.dup2(stderr, sys.stderr.fileno())
-        os.dup2(stdout, sys.stdout.fileno())
+    f = os.popen(command)
+    return f.read()
 
 def checkMac(mac):
     data = readPipe('xm list --long')
@@ -53,6 +46,7 @@ def genMac():
     # obtain full IP address
     IP = readPipe('/sbin/ifconfig `/sbin/route | grep default | sed "s/.* //"` | ' \
                  'grep "inet addr" | sed "s/.*addr://" | sed "s/ .*//"')
+    print IP
     IP = IP.strip()
 
     if not IP:
@@ -76,6 +70,8 @@ def genMac():
         else:
             oneUp = (int(oneUp) + 1) % MAX_SEQ
         done = False
+
+        tries = 0
         while not done:
             f.seek(0)
             f.truncate()
@@ -85,7 +81,12 @@ def genMac():
                 strOneUp = '0' + strOneUp
             mac = ':'.join((xenPrefix, IP, strOneUp))
             done = checkMac(mac)
+            print mac, done
             oneUp = (int(oneUp) + 1) % MAX_SEQ
+            
+            tries += 1
+            if tries > 15:
+                raise NoMACAddressAvailable
         return mac
     finally:
         f.close()

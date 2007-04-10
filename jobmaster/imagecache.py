@@ -182,6 +182,12 @@ class ImageCache(object):
         fd, fn = tempfile.mkstemp()
         os.close(fd)
 
+        fd, tagScript = tempfile.mkstemp(prefix="tagscript")
+        os.close(fd)
+
+        fd, kernelTagScript = tempfile.mkstemp(prefix="kernel-tagscript")
+        os.close(fd)
+
         mntDir = tempfile.mkdtemp()
         try:
             mkBlankFile(fn, size)
@@ -199,15 +205,18 @@ class ImageCache(object):
 
             os.system(("conary update '%s' --root %s --replace-files " \
                            "--tag-script=%s") % \
-                          (troveSpec, mntDir,
-                           os.path.join(mntDir, 'root',
-                                        'conary-tag-script.in')))
+                          (troveSpec, mntDir, tagScript))
+
+            shutil.move(tagScript, os.path.join(mntDir, 'root',
+            	'conary-tag-script.in'))
 
             kernelSpec = getRunningKernel()
             os.system(("conary update '%s' --root %s --resolve " \
                        "--keep-required --tag-script=%s" ) \
-                          % (kernelSpec, mntDir, os.path.join(mntDir, 'root',
-                                        'conary-tag-script-kernel')))
+                          % (kernelSpec, mntDir, kernelTagScript))
+
+	    shutil.move(kernelTagScript, os.path.join(mntDir, 'root',
+                                        'conary-tag-script-kernel'))
             fsOddsNEnds(mntDir)
 
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
