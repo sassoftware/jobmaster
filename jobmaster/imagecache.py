@@ -5,6 +5,7 @@
 # All Rights Reserved
 #
 
+import logging
 import os, sys
 import math
 import md5
@@ -166,8 +167,10 @@ class ImageCache(object):
     def getImage(self, troveSpec):
         hash = md5sum(troveSpec)
         if hash in os.listdir(self.cachePath):
+            logging.info("Found image in cache for %s" % troveSpec)
             return os.path.join(self.cachePath, hash)
         else:
+            logging.info("Image not cached, creating image for %s" % troveSpec)
             return self.makeImage(troveSpec, hash)
 
     def makeImage(self, troveSpec, hash):
