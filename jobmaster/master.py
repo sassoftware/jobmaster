@@ -241,14 +241,17 @@ class SlaveHandler(threading.Thread):
                 log.info('booting slave: %s' % self.slaveName)
                 os.system('xm create %s' % self.cfgPath)
             except:
+                exc, e, bt = sys.exc_info()
                 try:
-                    exc, e, bt = sys.exc_info()
                     log.error(traceback.format_stack(bt))
                     log.error(traceback.format_exc(e))
                     self.slaveStatus(slavestatus.OFFLINE)
-                except:
+                except Exception, innerException:
                     # this process must exit regardless of failure to log.
-                    pass
+                    print >> sys.stderr, "Original exception:"
+                    print >> sys.stderr, traceback.format_stack(bt)
+                    print >> sys.stderr, traceback.format_exc(e)
+                    print >> sys.stderr, "Error setting slave status to OFFLINE: ", str(innerException)
                 # forcibly exit *now* sys.exit raises a SystemExit exception
                 os._exit(1)
             else:
