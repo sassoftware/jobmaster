@@ -115,8 +115,9 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         tmpDir = tempfile.mkdtemp()
         try:
             imagecache.createTemporaryRoot(tmpDir)
-            assert os.listdir(tmpDir) == \
-                ['etc', 'boot', 'tmp', 'proc', 'sys', 'root', 'var']
+            self.failUnlessEqual(
+                set(os.listdir(tmpDir)),
+                set(['etc', 'boot', 'tmp', 'proc', 'sys', 'root', 'var']))
         finally:
             util.rmtree(tmpDir)
 
@@ -138,12 +139,15 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         tmpDir = tempfile.mkdtemp()
         try:
             imagecache.fsOddsNEnds(tmpDir)
-            assert sorted(os.listdir(tmpDir)) == \
-                ['boot', 'etc', 'var']
-            assert sorted(os.listdir(os.path.join(tmpDir, 'etc'))) == \
-                ['conaryrc', 'fstab', 'hosts', 'sysconfig']
-            assert sorted(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig')))\
-                == ['keyboard', 'network', 'network-scripts']
+            self.failUnlessEqual(
+                set(os.listdir(tmpDir)),
+                set(['boot', 'etc', 'var']))
+            self.failUnlessEqual(
+                set(os.listdir(os.path.join(tmpDir, 'etc'))),
+                set(['conaryrc', 'fstab', 'hosts', 'sysconfig']))
+            self.failUnlessEqual(
+                set(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig'))),
+                set(['keyboard', 'network', 'network-scripts']))
         finally:
             util.rmtree(tmpDir)
 
