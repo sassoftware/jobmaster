@@ -10,6 +10,7 @@ testsuite.setup()
 
 import jobmaster_helper
 
+import glob
 import os, sys
 import re
 import time
@@ -29,6 +30,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     "Slave Handler should not alter troveSpec")
 
     def testStartHandler(self):
+        if not glob.glob("/boot/vmlinuz*"):
+            raise testsuite.SkipTestException("No kernel on this machine, skipping test")
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec)
         handler.run = lambda: None
@@ -42,6 +45,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     "Expected slaveName of slave34, got %s" % slaveName)
 
     def testStopHandler(self):
+        if not glob.glob("/boot/vmlinuz*"):
+            raise testsuite.SkipTestException("No kernel on this machine, skipping test")
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec)
 

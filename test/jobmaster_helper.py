@@ -143,6 +143,9 @@ class JobMasterHelper(testhelp.TestCase):
         os.system = self.DummySystem
 
     def tearDown(self):
+        import logging
+        for x in logging._handlers:
+            logging.getLogger().removeHandler(x)
         util.rmtree(self.cfg.basePath)
         #self.jobMaster.command.connection
         testhelp.TestCase.tearDown(self)
