@@ -139,7 +139,7 @@ def getRunningKernel():
 
     m = re.match('[\d.-]*', data)
     ver = m.group()[:-1]
-    p = os.popen('conary q kernel --full-versions --flavors | grep %s' % ver)
+    p = os.popen('conary q kernel:runtime --full-versions --flavors | grep %s' % ver)
     return p.read().strip()
 
 class ImageCache(object):
