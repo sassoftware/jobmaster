@@ -346,7 +346,7 @@ class JobMaster(object):
     def resolveTroveSpec(self, troveSpec):
         # this function is designed to ensure a partial NVF can be resolved to
         # a full NVF for caching and creation purposes.
-        cfg = conarycfg.ConaryConfiguration()
+        cfg = conarycfg.ConaryConfiguration(True)
         cfg.initializeFlavors()
         cc = conaryclient.ConaryClient(cfg)
         n, v, f = cmdline.parseTroveSpec(troveSpec)
