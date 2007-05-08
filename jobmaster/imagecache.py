@@ -218,7 +218,7 @@ class ImageCache(object):
                        "--keep-required --tag-script=%s" ) \
                           % (kernelSpec, mntDir, kernelTagScript))
 
-	    shutil.move(kernelTagScript, os.path.join(mntDir, 'root',
+            shutil.move(kernelTagScript, os.path.join(mntDir, 'root',
                                         'conary-tag-script-kernel'))
             fsOddsNEnds(mntDir)
 
