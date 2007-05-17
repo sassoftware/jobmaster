@@ -121,9 +121,11 @@ def fsOddsNEnds(d):
                '\n'.join(('NETWORKING=yes',
                           'HOSTNAME=localhost.localdomain\n')))
     createFile(os.path.join(d, 'etc', 'sysconfig', 'network-scripts',
-                            'ifcfg-eth0'),
+                            'ifcfg-eth0.template'),
                '\n'.join(('DEVICE=eth0',
-                          'BOOTPROTO=dhcp',
+                          'BOOTPROTO=static',
+                          'IPADDR=%(ipaddr)s',
+                          'GATEWAY=%(masterip)s',
                           'ONBOOT=yes',
                           'TYPE=Ethernet\n')))
     createFile(os.path.join(d, 'etc', 'sysconfig', 'keyboard'),

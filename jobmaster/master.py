@@ -68,6 +68,15 @@ def getBootPaths():
     return kernel, initrd
 
 
+def rewriteFile(template, target, data):
+    f = open(template, 'r')
+    templateData = f.read()
+    f.close()
+    f = fopen(target, 'w')
+    f.write(templateData % data)
+    f.close()
+
+
 PROTOCOL_VERSIONS = set([1])
 
 filterArgs = lambda d, *args: dict([x for x in d.iteritems() \
@@ -140,6 +149,7 @@ class SlaveHandler(threading.Thread):
                                 'initrd': initrd,
                                 'root': '/dev/xvda1 ro'})
         self.slaveName = xenCfg.cfg['name']
+        self.ip = xenCfg.ip
         self.slaveStatus(slavestatus.BUILDING)
         fd, self.cfgPath = tempfile.mkstemp()
         os.close(fd)
@@ -232,6 +242,15 @@ class SlaveHandler(threading.Thread):
                     if os.path.exists(entitlementsDir):
                         util.copytree(entitlementsDir,
                                       os.path.join(mntPoint, 'srv', 'jobslave'))
+
+                    # set up networking inside domU
+                    ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
+                    rewriteTemplate(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip)
+
+                    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
+                    f = open(resolv, 'w')
+                    f.write("nameserver %s" % self.ip)
+
                 finally:
                     if f:
                         f.close()
