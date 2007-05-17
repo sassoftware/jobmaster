@@ -11,6 +11,7 @@ import os, sys
 import fcntl
 
 sequencePath = os.path.join(os.path.sep, 'var', 'run', 'xenmac.seq')
+ipSequencePath = os.path.join(os.path.sep, 'var', 'run', 'xenip.seq')
 
 MAX_SEQ = 1
 
@@ -88,9 +89,3 @@ def genMac():
         return mac
     finally:
         f.close()
-
-if __name__ == '__main__':
-    try:
-        print genMac()
-    except (SuperUser, NetworkInterface), e:
-        print e

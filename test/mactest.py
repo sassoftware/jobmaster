@@ -13,6 +13,7 @@ import tempfile
 
 import jobmaster_helper
 from jobmaster import xenmac
+from jobmaster import xenip
 
 class MasterTest(jobmaster_helper.JobMasterHelper):
     def testSuperUser(self):
@@ -106,6 +107,31 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         finally:
             os.geteuid = geteuid
             xenmac.readPipe = readPipe
+
+    def testGenIP(self):
+        sequencePath = xenip.sequencePath
+        geteuid = os.geteuid
+        checkIP = xenip.checkIP
+        MAX_SEQ = xenip.MAX_SEQ
+        try:
+            fd, xenip.sequencePath = tempfile.mkstemp()
+            os.close(fd)
+            os.geteuid = lambda: 0
+            xenip.checkIP = lambda x: True
+            xenip.setMaxSeq(6)
+            for i in range(5):
+                mac = xenip.genIP()
+                self.failUnlessEqual(mac, '10.5.6.%d' % (i+1))
+
+            xenip.setMaxSeq(0)
+            xenip.checkIP = lambda x: False
+            self.assertRaises(xenip.NoIPAddressAvailable, xenip.genIP)
+
+        finally:
+            xenip.checkIP = checkIP
+            os.geteuid = geteuid
+            xenip.sequencePath = sequencePath
+            xenip.MAX_SEQ = MAX_SEQ
 
 
 if __name__ == "__main__":
