@@ -72,9 +72,10 @@ def rewriteFile(template, target, data):
     f = open(template, 'r')
     templateData = f.read()
     f.close()
-    f = fopen(target, 'w')
+    f = open(target, 'w')
     f.write(templateData % data)
     f.close()
+    os.unlink(template)
 
 
 PROTOCOL_VERSIONS = set([1])
@@ -234,7 +235,11 @@ class SlaveHandler(threading.Thread):
                                                 'slave_runtime')
                     util.mkdirChain(os.path.split(initSettings)[0])
                     f = open(initSettings, 'w')
-                    masterIP = getIP()
+
+                    # the host IP address is domU IP address + 127 of the last quad
+                    quads = [int(x) for x in self.ip.split(".")]
+                    masterIP = ".".join(str(x) for x in quads[:3] + [quads[3]+127])
+
                     f.write('MASTER_IP=%s' % masterIP)
                     f.close()
                     entitlementsDir = os.path.join(os.path.sep, 'srv',
@@ -245,11 +250,12 @@ class SlaveHandler(threading.Thread):
 
                     # set up networking inside domU
                     ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
-                    rewriteTemplate(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip)
+                    rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
                     resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
                     f = open(resolv, 'w')
-                    f.write("nameserver %s" % self.ip)
+                    f.write("nameserver %s\n" % self.ip)
+                    f.close()
 
                 finally:
                     if f:
@@ -260,17 +266,14 @@ class SlaveHandler(threading.Thread):
                 log.info('booting slave: %s' % self.slaveName)
                 os.system('xm create %s' % self.cfgPath)
             except:
-                exc, e, bt = sys.exc_info()
+                exc, e, tb = sys.exc_info()
+                log.error(''.join(traceback.format_tb(tb)))
+                log.error(e)
                 try:
-                    log.error(traceback.format_stack(bt))
-                    log.error(traceback.format_exc(e))
                     self.slaveStatus(slavestatus.OFFLINE)
                 except Exception, innerException:
                     # this process must exit regardless of failure to log.
-                    print >> sys.stderr, "Original exception:"
-                    print >> sys.stderr, traceback.format_stack(bt)
-                    print >> sys.stderr, traceback.format_exc(e)
-                    print >> sys.stderr, "Error setting slave status to OFFLINE: ", str(innerException)
+                    log.error("Error setting slave status to OFFLINE: " + str(innerException))
                 # forcibly exit *now* sys.exit raises a SystemExit exception
                 os._exit(1)
             else:
@@ -530,6 +533,7 @@ def main():
     jobMaster.run()
 
 def runDaemon():
+    return main()
     pidFile = os.path.join(os.path.sep, 'var', 'run', 'jobmaster.pid')
     if os.path.exists(pidFile):
         f = open(pidFile)

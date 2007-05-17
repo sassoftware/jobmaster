@@ -33,7 +33,7 @@ class XenCfg(object):
         if 'vif' not in self.cfg or not self.cfg['vif'] \
                or self.cfg['vif'] == ['']:
             mac = xenmac.genMac()
-            self.ip = xenip.getIP()
+            self.ip = xenip.genIP()
             self.cfg['vif'] = [ 'ip=%s, mac=%s' % (self.ip, mac) ]
 
         self.cfg.setdefault('name', 'slave%s' % \
