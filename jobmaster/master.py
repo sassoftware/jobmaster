@@ -69,6 +69,8 @@ def getBootPaths():
 
 
 def rewriteFile(template, target, data):
+    if not os.path.exists(template):
+        return
     f = open(template, 'r')
     templateData = f.read()
     f.close()

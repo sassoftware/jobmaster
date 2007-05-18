@@ -17,7 +17,7 @@ import time
 import tempfile
 
 from jobmaster import master
-from jobmaster import xenmac
+from jobmaster import xenmac, xenip
 from jobmaster import imagecache
 
 from conary.lib import util
@@ -35,11 +35,14 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             handler = master.SlaveHandler(self.jobMaster, troveSpec)
             handler.run = lambda: None
             genMac = xenmac.genMac
+            genIP = xenip.genIP
             try:
                 xenmac.genMac = lambda: '00:16:3e:00:01:34'
+                xenip.genIP = lambda: '10.0.0.1'
                 slaveName = handler.start()
             finally:
                 xenmac.genMac = genMac
+                xenip.genIP = genIP
             self.failIf(slaveName != 'slave34',
                         "Expected slaveName of slave34, got %s" % slaveName)
         except IndexError: # from getBootPaths, kernel/boot dir mismatch
@@ -60,12 +63,15 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
 
             handler.run = dummyRun
             genMac = xenmac.genMac
+            genIP = xenip.genIP
             try:
                 xenmac.genMac = lambda: '00:16:3e:00:01:22'
+                xenip.genIP = lambda: '10.0.0.1'
                 handler.start()
                 handler.stop()
             finally:
                 xenmac.genMac = genMac
+                xenip.genIP = genIP
             assert self.sysCalls == ['xm destroy slave22']
         except IndexError: # from getBootPaths, kernel/boot dir mismatch
             raise testsuite.SkipTestException("running kernel mismatch with /boot, skipping test")
@@ -94,9 +100,11 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         os.close(fd)
         handler.slaveName = 'xen44'
         handler.cfgPath = '/tmp/test-config'
+        handler.ip = '10.0.0.1'
 
         makeImage = imagecache.ImageCache.makeImage
         genMac = xenmac.genMac
+        genIP = xenip.genIP
         fork = os.fork
         setsid = os.setsid
         exit = os._exit
@@ -105,6 +113,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             os.fork = lambda: 0
             os.setsid = lambda: None
             xenmac.genMac = lambda: '00:16:3e:00:01:66'
+            xenip.genIP = lambda: '10.0.0.1'
             os._exit = dummyExit
             try:
                 handler.run()
@@ -114,6 +123,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         finally:
             imagecache.ImageCache.makeImage = makeImage
             xenmac.genMac = genMac
+            xenip.genIP = genIP
             os.fork = fork
             os.setsid = setsid
             os._exit = exit
