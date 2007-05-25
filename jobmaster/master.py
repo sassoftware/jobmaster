@@ -256,7 +256,7 @@ class SlaveHandler(threading.Thread):
 
                     resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
                     f = open(resolv, 'w')
-                    f.write("nameserver %s\n" % self.ip)
+                    f.write("nameserver %s\n" % masterIP)
                     f.close()
 
                 finally:
