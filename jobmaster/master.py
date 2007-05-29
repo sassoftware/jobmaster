@@ -141,7 +141,8 @@ class SlaveHandler(threading.Thread):
                                   self.jobQueueName.replace('job', ''))
 
     def start(self):
-        fd, self.imagePath = tempfile.mkstemp()
+        fd, self.imagePath = tempfile.mkstemp( \
+            dir = os.path.join(self.master().cfg.basePath, 'tmp'))
         os.close(fd)
 
         kernel, initrd = getBootPaths()
@@ -154,7 +155,8 @@ class SlaveHandler(threading.Thread):
         self.slaveName = xenCfg.cfg['name']
         self.ip = xenCfg.ip
         self.slaveStatus(slavestatus.BUILDING)
-        fd, self.cfgPath = tempfile.mkstemp()
+        fd, self.cfgPath = tempfile.mkstemp( \
+            dir = os.path.join(self.master().cfg.basePath, 'tmp'))
         os.close(fd)
         f = open(self.cfgPath, 'w')
         xenCfg.write(f)
@@ -205,7 +207,8 @@ class SlaveHandler(threading.Thread):
                 shutil.copyfile(cachedImage, self.imagePath)
                 log.info("making mount point")
                 # now add per-instance settings. such as path to MCP
-                mntPoint = tempfile.mkdtemp()
+                mntPoint = tempfile.mkdtemp(\
+                    dir = os.path.join(self.master().cfg.basePath, 'tmp'))
                 f = None
                 try:
                     log.info('inserting runtime settings into slave')

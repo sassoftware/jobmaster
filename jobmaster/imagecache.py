@@ -154,6 +154,8 @@ class ImageCache(object):
         self.cc = conaryclient.ConaryClient(self.conarycfg)
         self.nc = self.cc.getRepos()
 
+        self.tmpPath = os.path.join(os.path.split(cachePath)[0], 'tmp')
+
     def deleteAllImages(self):
         # this is for clearing the cache, eg. needed if entitlements changed
         for image in os.listdir(self.cachePath):
@@ -184,16 +186,18 @@ class ImageCache(object):
         size = trv.getSize()
         size = roundUpSize(size)
 
-        fd, fn = tempfile.mkstemp()
+        fd, fn = tempfile.mkstemp(dir = self.tmpPath)
         os.close(fd)
 
-        fd, tagScript = tempfile.mkstemp(prefix="tagscript")
+        fd, tagScript = tempfile.mkstemp(prefix = "tagscript",
+                                         dir = self.tmpPath)
         os.close(fd)
 
-        fd, kernelTagScript = tempfile.mkstemp(prefix="kernel-tagscript")
+        fd, kernelTagScript = tempfile.mkstemp(prefix = "kernel-tagscript",
+                                               dir = self.tmpPath)
         os.close(fd)
 
-        mntDir = tempfile.mkdtemp()
+        mntDir = tempfile.mkdtemp(dir = self.tmpPath)
         try:
             mkBlankFile(fn, size)
 

@@ -128,6 +128,7 @@ class JobMasterHelper(testhelp.TestCase):
         os.mkdir(os.path.join(self.basePath, 'imageCache'))
         os.mkdir(os.path.join(self.basePath, 'logs'))
         os.mkdir(os.path.join(self.basePath, 'config.d'))
+        os.mkdir(os.path.join(self.basePath, 'tmp'))
 
         master.CONFIG_PATH = os.path.join(self.basePath, 'config.d', 'runtime')
 
