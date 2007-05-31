@@ -162,7 +162,7 @@ class SlaveHandler(threading.Thread):
         xenCfg.write(f)
         f.close()
         threading.Thread.start(self)
-        log.info('starting slave: %s' % self.slaveName)
+        log.info('requesting slave: %s' % self.slaveName)
         return xenCfg.cfg['name']
 
     def stop(self):
