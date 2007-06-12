@@ -257,13 +257,7 @@ class SlaveHandler(threading.Thread):
                     ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
                     rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
-                    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
-                    if False: # disable this for now until we get a working DNS server on the dom0
-                        f = open(resolv, 'w')
-                        f.write("nameserver %s\n" % masterIP)
-                        f.close()
-                    else:
-                        util.copyfile('/etc/resolv.conf', resolv) 
+                    util.copyfile('/etc/resolv.conf', resolv) 
 
                 finally:
                     if f:
