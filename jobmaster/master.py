@@ -243,7 +243,7 @@ class SlaveHandler(threading.Thread):
 
                     # the host IP address is domU IP address + 127 of the last quad
                     quads = [int(x) for x in self.ip.split(".")]
-                    masterIP = ".".join(str(x) for x in quads[:3] + [quads[3]+127])
+                    masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
 
                     f.write('MASTER_IP=%s' % masterIP)
                     f.close()
