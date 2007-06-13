@@ -257,6 +257,7 @@ class SlaveHandler(threading.Thread):
                     ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
                     rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
+                    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
                     util.copyfile('/etc/resolv.conf', resolv) 
 
                 finally:
