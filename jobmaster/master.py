@@ -122,6 +122,20 @@ class MasterConfig(client.MCPClientConfig):
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     proxy = None
+    scratchSize = 1024 * 10 # scratch disk space in MB
+    lvmVolumeName = 'vg00'
+
+def logCall(cmd, checkReturn = True):
+    log.debug("+ " + cmd)
+    import popen2
+    p = popen2.Popen4(cmd)
+    if p.wait() and checkReturn:
+        err = p.fromchild.read()
+        raise RuntimeError("Error %s" % (err))
+    else:
+        p.wait()
+        err = p.fromchild.read()
+        [log.debug(errLine) for errLine in err.split("\n")]
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -151,7 +165,8 @@ class SlaveHandler(threading.Thread):
                                {'memory' : self.master().cfg.slaveMemory,
                                 'kernel': kernel,
                                 'initrd': initrd,
-                                'root': '/dev/xvda1 ro'})
+                                'root': '/dev/xvda1 ro'},
+                                extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
         self.slaveName = xenCfg.cfg['name']
         self.ip = xenCfg.ip
         self.slaveStatus(slavestatus.BUILDING)
@@ -177,6 +192,11 @@ class SlaveHandler(threading.Thread):
                 if errno != 3:
                     raise
         os.system('xm destroy %s' % self.slaveName)
+
+        log.info("destroying scratch space")
+        logCall("lvremove -f /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
+
+        os.system
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
         self.slaveStatus(slavestatus.OFFLINE)
@@ -199,6 +219,7 @@ class SlaveHandler(threading.Thread):
         if not self.pid:
             os.setpgid(0, 0)
             try:
+                cfg = self.master().cfg
                 # don't use original. make a backup
                 log.info('Getting slave image: %s' % self.troveSpec)
                 cachedImage = self.imageCache().getImage(self.troveSpec)
@@ -208,12 +229,19 @@ class SlaveHandler(threading.Thread):
                 log.info("making mount point")
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp(\
-                    dir = os.path.join(self.master().cfg.basePath, 'tmp'))
+                    dir = os.path.join(cfg.basePath, 'tmp'))
                 f = None
+
                 try:
+                    # creating temporary scratch space
+                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (cfg.scratchSize, cfg.lvmVolumeName, self.slaveName))
+
+
+                    logCall("lvcreate -n %s -L%dM %s" % (self.slaveName, cfg.scratchSize, cfg.lvmVolumeName))
+                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
+
                     log.info('inserting runtime settings into slave')
                     os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
-                    cfg = self.master().cfg
 
                     # write python SlaveConfig
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
@@ -267,7 +295,7 @@ class SlaveHandler(threading.Thread):
                     util.rmtree(mntPoint, ignore_errors = True)
 
                 log.info('booting slave: %s' % self.slaveName)
-                os.system('xm create %s' % self.cfgPath)
+                logCall('xm create %s' % self.cfgPath)
             except:
                 exc, e, tb = sys.exc_info()
                 log.error(''.join(traceback.format_tb(tb)))
