@@ -19,6 +19,8 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.lib import util
 
+from jobmaster.util import logCall
+
 SWAP_SIZE = 268435456 # 256 MB in bytes
 TAGSCRIPT_GROWTH = 20971520 # 20MB in bytes
 CYLINDERSIZE = 516096
@@ -97,7 +99,7 @@ def fsOddsNEnds(d):
                           '/var/swap swap swap defaults 0 0\n')))
     #create a swap file
     mkBlankFile(os.path.join(d, 'var', 'swap'), SWAP_SIZE, sparse = False)
-    os.system('/sbin/mkswap %s >/dev/null 2>&1' % \
+    logCall('/sbin/mkswap %s >/dev/null 2>&1' % \
                   os.path.join(d, 'var', 'swap'))
 
     util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
@@ -202,25 +204,25 @@ class ImageCache(object):
             mkBlankFile(fn, size)
 
             # run mke2fs on blank image
-            os.system('mkfs -t ext2 -F -L / %s %d' % \
+            logCall('mkfs -t ext2 -F -L / %s %d' % \
                           (fn, size / 1024))
-            os.system('tune2fs -i 0 -c 0 %s' % fn)
+            logCall('tune2fs -m 0 -i 0 -c 0 %s' % fn)
 
-            os.system('mount -o loop %s %s' % (fn, mntDir))
+            logCall('mount -o loop %s %s' % (fn, mntDir))
 
             createTemporaryRoot(mntDir)
-            os.system('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
-            os.system('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
+            logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
+            logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
-            os.system(("conary update '%s' --root %s --replace-files " \
+            logCall(("conary update '%s' --root %s --replace-files " \
                            "--tag-script=%s") % \
                           (troveSpec, mntDir, tagScript))
 
             shutil.move(tagScript, os.path.join(mntDir, 'root',
-            	'conary-tag-script.in'))
+                'conary-tag-script.in'))
 
             kernelSpec = getRunningKernel()
-            os.system(("conary update '%s' --root %s --resolve " \
+            logCall(("conary update '%s' --root %s --resolve " \
                        "--keep-required --tag-script=%s" ) \
                           % (kernelSpec, mntDir, kernelTagScript))
 
@@ -230,7 +232,7 @@ class ImageCache(object):
 
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
             inScript = outScript + '.in'
-            os.system('echo "/sbin/ldconfig" > %s; cat %s | sed "s|/sbin/ldconfig||g" | grep -vx "" >> %s' % (outScript, inScript, outScript))
+            logCall('echo "/sbin/ldconfig" > %s; cat %s | sed "s|/sbin/ldconfig||g" | grep -vx "" >> %s' % (outScript, inScript, outScript))
             os.unlink(os.path.join(mntDir, 'root', 'conary-tag-script.in'))
 
             for tagScript in ('conary-tag-script', 'conary-tag-script-kernel'):
@@ -243,15 +245,15 @@ class ImageCache(object):
             #os.system("conary update --sync-to-parents kernel:runtime "
             #          "--root %s" % mntDir)
 
-            os.system("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
-            os.system("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
-            os.system('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
+            logCall("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
+            logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
+            logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
         finally:
-            os.system('umount %s' % os.path.join(mntDir, 'proc'))
-            os.system('umount %s' % os.path.join(mntDir, 'sys'))
-            os.system('sync')
-            os.system('umount %s' % mntDir)
-            os.system('sync')
+            logCall('umount %s' % os.path.join(mntDir, 'proc'))
+            logCall('umount %s' % os.path.join(mntDir, 'sys'))
+            logCall('sync')
+            logCall('umount %s' % mntDir)
+            logCall('sync')
             util.rmtree(mntDir, ignore_errors = True)
         shutil.move(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)

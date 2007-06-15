@@ -12,7 +12,9 @@ from jobmaster import master
 
 import tempfile
 import threading
+import popen2
 import os
+from cStringIO import StringIO
 
 from conary.lib import util
 
@@ -124,6 +126,14 @@ class JobMasterHelper(testhelp.TestCase):
         self.sysCalls.append(command)
 
     def setUp(self):
+        class FakePopen4:
+            def __init__(self2, cmd):
+                self.sysCalls.append(cmd)
+                self2.fromchild = StringIO()
+
+            def wait(self2):
+                return 0
+
         self.basePath = tempfile.mkdtemp()
         os.mkdir(os.path.join(self.basePath, 'imageCache'))
         os.mkdir(os.path.join(self.basePath, 'logs'))
@@ -141,8 +151,10 @@ class JobMasterHelper(testhelp.TestCase):
         # ensure bootup messages don't interfere with tests
         self.jobMaster.response.response.connection.sent = []
         self.system = os.system
+        self.popen = popen2.Popen4
         self.sysCalls = []
         os.system = self.DummySystem
+        popen2.Popen4 = FakePopen4
 
     def tearDown(self):
         import logging

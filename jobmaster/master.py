@@ -22,6 +22,7 @@ import weakref
 from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import xencfg, xenmac
+from jobmaster.util import rewriteFile, logCall
 
 from mcp import queue
 from mcp import response
@@ -66,18 +67,6 @@ def getBootPaths():
     initrd = [x for x in files if x.startswith('initrd')][0]
     initrd = os.path.join(os.path.sep, 'boot', initrd)
     return kernel, initrd
-
-
-def rewriteFile(template, target, data):
-    if not os.path.exists(template):
-        return
-    f = open(template, 'r')
-    templateData = f.read()
-    f.close()
-    f = open(target, 'w')
-    f.write(templateData % data)
-    f.close()
-    os.unlink(template)
 
 
 PROTOCOL_VERSIONS = set([1])
@@ -125,17 +114,6 @@ class MasterConfig(client.MCPClientConfig):
     scratchSize = 1024 * 10 # scratch disk space in MB
     lvmVolumeName = 'vg00'
 
-def logCall(cmd, checkReturn = True):
-    log.debug("+ " + cmd)
-    import popen2
-    p = popen2.Popen4(cmd)
-    if p.wait() and checkReturn:
-        err = p.fromchild.read()
-        raise RuntimeError("Error %s" % (err))
-    else:
-        p.wait()
-        err = p.fromchild.read()
-        [log.debug(errLine) for errLine in err.split("\n")]
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -191,12 +169,11 @@ class SlaveHandler(threading.Thread):
                 # it's pid
                 if errno != 3:
                     raise
-        os.system('xm destroy %s' % self.slaveName)
+        logCall('xm destroy %s' % self.slaveName)
 
         log.info("destroying scratch space")
-        logCall("lvremove -f /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
+        logCall("lvremove -f /dev/%s/%s" % (self.master().cfg.lvmVolumeName, self.slaveName))
 
-        os.system
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
         self.slaveStatus(slavestatus.OFFLINE)
@@ -241,7 +218,7 @@ class SlaveHandler(threading.Thread):
                     logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
 
                     log.info('inserting runtime settings into slave')
-                    os.system('mount -o loop %s %s' % (self.imagePath, mntPoint))
+                    logCall('mount -o loop %s %s' % (self.imagePath, mntPoint))
 
                     # write python SlaveConfig
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
@@ -291,7 +268,7 @@ class SlaveHandler(threading.Thread):
                 finally:
                     if f:
                         f.close()
-                    os.system('umount %s' % mntPoint)
+                    logCall('umount %s' % mntPoint)
                     util.rmtree(mntPoint, ignore_errors = True)
 
                 log.info('booting slave: %s' % self.slaveName)

@@ -72,7 +72,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             finally:
                 xenmac.genMac = genMac
                 xenip.genIP = genIP
-            assert self.sysCalls == ['xm destroy slave22']
+            self.failUnlessEqual(self.sysCalls, ['xm destroy slave22', 'lvremove -f /dev/vg00/slave22'])
         except IndexError: # from getBootPaths, kernel/boot dir mismatch
             raise testsuite.SkipTestException("running kernel mismatch with /boot, skipping test")
 
@@ -128,7 +128,9 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             os.setsid = setsid
             os._exit = exit
 
-        syscalls = ('mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
+        syscalls = ('lvcreate -n [^\s]* -L10240M vg00',
+                    'mke2fs -m0 /dev/vg00/[^\s]',
+                    'mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
                     'xm create /tmp/test-config$')
         for index, (rgx, cmd) in [x for x in enumerate(zip(syscalls, self.sysCalls))]:
             self.failIf(not re.match(rgx, cmd), "Unexpected command sent to system at position %d: %s" % (index, cmd))
