@@ -24,10 +24,11 @@ def rewriteFile(template, target, data):
 def logCall(cmd, ignoreErrors = False):
     log.debug("+ " + cmd)
     p = popen2.Popen4(cmd)
-    if p.wait() and not ignoreErrors:
+    if not ignoreErrors:
+        code = p.wait()
         err = p.fromchild.read()
         [log.debug("++ " + errLine) for errLine in err.split("\n")]
-        raise RuntimeError("Error executing command: %s" % (cmd))
+        raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, code))
     else:
         p.wait()
         err = p.fromchild.read()
