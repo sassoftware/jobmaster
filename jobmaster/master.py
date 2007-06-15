@@ -268,7 +268,7 @@ class SlaveHandler(threading.Thread):
                 finally:
                     if f:
                         f.close()
-                    logCall('umount %s' % mntPoint)
+                    logCall('umount %s' % mntPoint, ignoreErrors = True)
                     util.rmtree(mntPoint, ignore_errors = True)
 
                 log.info('booting slave: %s' % self.slaveName)
