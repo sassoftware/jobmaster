@@ -28,7 +28,9 @@ def logCall(cmd, ignoreErrors = False):
         code = p.wait()
         err = p.fromchild.read()
         [log.debug("++ " + errLine) for errLine in err.split("\n")]
-        raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, code))
+
+        if code:
+            raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, code))
     else:
         p.wait()
         err = p.fromchild.read()
