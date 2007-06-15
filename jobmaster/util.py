@@ -30,5 +30,4 @@ def logCall(cmd, checkReturn = True):
     else:
         p.wait()
         err = p.fromchild.read()
-        [log.debug(errLine) for errLine in err.split("\n")]
-
+        [log.debug("++ " + errLine) for errLine in err.split("\n")]
