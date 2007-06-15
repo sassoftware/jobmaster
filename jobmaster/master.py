@@ -172,7 +172,7 @@ class SlaveHandler(threading.Thread):
         logCall('xm destroy %s' % self.slaveName)
 
         log.info("destroying scratch space")
-        logCall("lvremove -f /dev/%s/%s" % (self.master().cfg.lvmVolumeName, self.slaveName))
+        logCall("sleep 2; lvremove -f /dev/%s/%s" % (self.master().cfg.lvmVolumeName, self.slaveName))
 
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
