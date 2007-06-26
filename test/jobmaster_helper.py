@@ -7,12 +7,12 @@
 
 import testsuite
 import testhelp
+import subprocess
 
 from jobmaster import master
 
 import tempfile
 import threading
-import popen2
 import os
 from cStringIO import StringIO
 
@@ -123,16 +123,18 @@ class ThreadedJobMaster(master.JobMaster, threading.Thread):
 
 class JobMasterHelper(testhelp.TestCase):
     def DummySystem(self, command):
-        self.sysCalls.append(command)
+        self.callLog.append(command)
 
     def setUp(self):
-        class FakePopen4:
-            def __init__(self2, cmd):
-                self.sysCalls.append(cmd)
-                self2.fromchild = StringIO()
+        class FakePopen:
+            def __init__(self2, cmd, *args, **kwargs):
+                self.callLog.append(cmd)
+                self2.stderr = StringIO()
+                self2.stdout = StringIO()
+                self2.returncode = 0
 
-            def wait(self2):
-                return 0
+            def poll(self2):
+                return True
 
         self.basePath = tempfile.mkdtemp()
         os.mkdir(os.path.join(self.basePath, 'imageCache'))
@@ -150,11 +152,12 @@ class JobMasterHelper(testhelp.TestCase):
         self.jobMaster = ThreadedJobMaster(self.cfg)
         # ensure bootup messages don't interfere with tests
         self.jobMaster.response.response.connection.sent = []
-        self.system = os.system
-        self.popen = popen2.Popen4
-        self.sysCalls = []
+        self.oldSubprocessPopen = subprocess.Popen
+        self.oldOsSystem = os.system
+
+        self.callLog = []
         os.system = self.DummySystem
-        popen2.Popen4 = FakePopen4
+        subprocess.Popen = FakePopen
 
     def tearDown(self):
         import logging
@@ -163,6 +166,8 @@ class JobMasterHelper(testhelp.TestCase):
         util.rmtree(self.cfg.basePath)
         #self.jobMaster.command.connection
         testhelp.TestCase.tearDown(self)
+        os.system = self.oldOsSystem
+        subprocess.Popen = self.oldSubprocessPopen
 
     def assertLogContent(self, content):
         f = open(os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log'))
