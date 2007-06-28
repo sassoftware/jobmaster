@@ -246,7 +246,7 @@ class ImageCache(object):
             #          "--root %s" % mntDir)
 
             safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
-            logCall("chroot %s /usr/bin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir, env = safeEnv)
+            logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir, env = safeEnv)
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
         finally:
