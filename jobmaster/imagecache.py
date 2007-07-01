@@ -245,8 +245,14 @@ class ImageCache(object):
             #os.system("conary update --sync-to-parents kernel:runtime "
             #          "--root %s" % mntDir)
 
-            safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
-            logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir, env = safeEnv)
+            # the preload wrapper isn't working yet, work around until we know why
+            #safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
+
+            # authconfig can whack the domainname in certain circumstances
+            oldDomainname = os.popen('domainname').read().strip() # save old domainname
+            logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
+            logCall("domainname %s" % oldDomainname) # restore it
+
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
         finally:
