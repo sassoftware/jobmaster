@@ -29,8 +29,9 @@ class CoverageWrapper(object):
         util.mkdirChain(dataPath)
         self.environ = dict(COVERAGE_DIR = dataPath, PATH = '/bin:/usr/bin',
                             COVERAGE_PATH = coveragePath)
-        if 'CONARY_PATH' in os.environ:
-            self.environ['CONARY_PATH'] = os.environ['CONARY_PATH']
+        for e in ['CONARY_PATH', 'MCP_PATH', 'PYTHONPATH']:
+            if e in os.environ:
+                self.environ[e] = os.environ[e]
         self.environ['CONARY_POLICY_PATH'] = os.environ.get('CONARY_POLICY_PATH', '/usr/lib/conary/policy')
         self.coverage = None
 
