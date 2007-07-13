@@ -1,9 +1,10 @@
 #!/usr/bin/python
 import imp
-import os.path
+import os
 import sys
 import re
 import types
+import subprocess
 
 conaryPath = os.environ.get('CONARY_PATH', None)
 if not conaryPath:
@@ -22,8 +23,15 @@ class CoverageWrapper(object):
         self._executable = coveragePath + '/coverage.py'
         self._dataPath = dataPath
         self._annotatePath = annotatePath
-        os.environ['COVERAGE_DIR'] = dataPath # yuck
+        os.environ['COVERAGE_DIR'] = dataPath # yuck - this is needed by
+        # coverage.py to determine the cache directory when gathering the
+        # results
         util.mkdirChain(dataPath)
+        self.environ = dict(COVERAGE_DIR = dataPath, PATH = '/bin:/usr/bin',
+                            COVERAGE_PATH = coveragePath)
+        if 'CONARY_PATH' in os.environ:
+            self.environ['CONARY_PATH'] = os.environ['CONARY_PATH']
+        self.environ['CONARY_POLICY_PATH'] = os.environ.get('CONARY_POLICY_PATH', '/usr/lib/conary/policy')
         self.coverage = None
 
     def reset(self):
@@ -32,9 +40,14 @@ class CoverageWrapper(object):
         if os.path.exists(self._annotatePath):
             util.rmtree(self._annotatePath)
 
-    def execute(self, testProgram):
-        os.system('python2.4 %s' % testProgram) # we don't care about the 
-                                                # exit code here.
+    def execute(self, argv):
+        interp = "/usr/bin/python2.4"
+        if isinstance(argv, str):
+            cmd = '%s %s' % (interp, argv)
+        else:
+            cmd = [interp] + argv
+        retval = subprocess.call(cmd, env=self.environ)
+        return retval
 
     def getCoverage(self):
         if self.coverage:
@@ -42,8 +55,15 @@ class CoverageWrapper(object):
         coverage = imp.load_source('coverage', self._executable)
         coverage = coverage.the_coverage
         coverage.cacheDir = self._dataPath
-        coverage.restoreDir()
+        coverage.get_ready(restoreDir=True)
         return coverage
+
+    def compress(self):
+        coverage = self.getCoverage()
+        if os.path.exists(self._dataPath):
+            util.rmtree(self._dataPath)
+        util.mkdirChain(self._dataPath)
+        coverage.save()
 
     def displayReport(self, files, displayMissingLines=False):
         assert(not displayMissingLines)
