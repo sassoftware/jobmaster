@@ -21,6 +21,7 @@ import weakref
 
 from jobmaster import master_error
 from jobmaster import imagecache
+from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
 from jobmaster.util import rewriteFile, logCall
 
@@ -111,6 +112,7 @@ class MasterConfig(client.MCPClientConfig):
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     proxy = None
+    templateCache = os.path.join(basePath, 'anaconda-templates')
     scratchSize = 1024 * 10 # scratch disk space in MB
     lvmVolumeName = 'vg00'
 
@@ -322,6 +324,8 @@ class JobMaster(object):
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
+        self.templateServer = templateserver.getServer(self.cfg.templateCache, self.cfg.nodeName)
+
         log.info('started jobmaster: %s' % self.cfg.nodeName)
 
     @catchErrors
@@ -451,6 +455,7 @@ class JobMaster(object):
 
     def run(self):
         self.running = True
+        self.templateServer.start()
         try:
             while self.running:
                 self.checkHandlers()
@@ -460,6 +465,7 @@ class JobMaster(object):
         finally:
             self.response.masterOffline()
             self.disconnect()
+            self.templateServer.stop()
 
     def catchSignal(self, sig, frame):
         log.info('caught signal: %d' % sig)
