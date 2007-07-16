@@ -402,9 +402,6 @@ class AnacondaTemplate(object):
         self._call(cmds)
         self._call(['syslinux', output])
 
-    def _RUN_mksquashfs(self, inputDir, output):
-        cmd = ['mksquashfs', inputDir, output, '-all-root']
-        self._call(cmd)
 
 class TemplateUpdateCallback(callbacks.UpdateCallback):
     def requestingChangeSet(self):
