@@ -324,7 +324,7 @@ class JobMaster(object):
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
-        self.templateServer = templateserver.getServer(self.cfg.templateCache, self.cfg.nodeName)
+        self.templateServer = templateserver.getServer(self.cfg.templateCache, hostname=self.cfg.nodeName, tmpDir=os.path.join(self.cfg.basePath, 'tmp'))
 
         log.info('started jobmaster: %s' % self.cfg.nodeName)
 

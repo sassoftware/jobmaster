@@ -7,6 +7,7 @@ import SimpleHTTPServer
 import socket
 import SocketServer
 import subprocess
+import tempfile
 import threading
 import urlparse
 
@@ -25,6 +26,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     templateRoot = os.getcwd()
     hostname = ''
     port = 0
+    tmpDir = '/var/tmp'
 
     def do_POST(self):
         if self.path == '/makeTemplate':
@@ -45,7 +47,8 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             f = f[0]
 
             try:
-                at = templategen.AnacondaTemplate(v, f, self.templateRoot)
+                at = templategen.AnacondaTemplate(v, f, self.templateRoot,
+                        self.tmpDir)
             except TroveNotFound:
                 self.send_error(404) # HTTP 1.x / Not Found
                 return
@@ -77,7 +80,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
                     # get a new anaconda template object (with a new tmpdir)
                     at = templategen.AnacondaTemplate(v, f,
-                            self.templateRoot)
+                            self.templateRoot, self.tmpDir)
 
                     # start the generation
                     os._exit(at.generate())

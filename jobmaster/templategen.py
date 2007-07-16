@@ -125,6 +125,7 @@ class AnacondaTemplate(object):
             assert(self.tmpRoot)
             cfg = conarycfg.ConaryConfiguration()
             cfg.root = self.tmpRoot
+            cfg.tmpDir = self.tmpDir
             self._conaryClient = conaryclient.ConaryClient(cfg)
 
         return self._conaryClient
@@ -151,10 +152,10 @@ class AnacondaTemplate(object):
         self._fullTroveSpecHash = \
                 sha1helper.md5ToString(sha1helper.md5String(self._fullTroveSpec))
 
-    def __init__(self, version, flavor, cacheDir, tmpDir=None):
+    def __init__(self, version, flavor, cacheDir, tmpDir='/var/tmp'):
         self.troveSpec = 'anaconda-templates=%s[%s]' % (version, flavor)
         self.cacheDir = cacheDir
-        self.tmpDir = tmpDir or tempfile.tempdir
+        self.tmpDir = tmpDir
         self.tmpRoot = tempfile.mkdtemp(dir=self.tmpDir)
         self.templatePath = os.path.join(self.cacheDir,
             '%s.tar' % self.getFullTroveSpecHash())
