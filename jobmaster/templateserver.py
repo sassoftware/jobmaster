@@ -221,14 +221,23 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
         self.lock.release()
         self.join()
 
-def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT):
+def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
+        tmpDir='/var/tmp'):
     # due to the roundabout mechanisms here we need to modify the actual class
     # definition. This means only one imgserver instance can exist at a time.
     # unless all imgservers can agree on what the base path is.
     TemplateServerHandler.templateRoot = templateRoot
     TemplateServerHandler.hostname = hostname
     TemplateServerHandler.port = port
-    server = TemplateServer(('', port), TemplateServerHandler)
+    TemplateServerHandler.tmpDir = tmpDir
+    for port in range(port, port + 100):
+        try:
+            server = TemplateServer(('', port), TemplateServerHandler)
+        except socket.error, e:
+            if e.args[0] != 98:
+                raise
+        else:
+            break
     return server
 
 
