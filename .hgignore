@@ -1,0 +1,8 @@
+(^|/)\.hg($|/)
+^state$
+^state.journal$
+~$
+\.(pyc|pyo|o|so|swp|swo|orig|rej)$
+\.times
+test/\.(times|coverage)
+.*,cover
