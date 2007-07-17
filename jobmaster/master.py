@@ -215,7 +215,6 @@ class SlaveHandler(threading.Thread):
                     # creating temporary scratch space
                     log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (cfg.scratchSize, cfg.lvmVolumeName, self.slaveName))
 
-
                     logCall("lvcreate -n %s -L%dM %s" % (self.slaveName, cfg.scratchSize, cfg.lvmVolumeName))
                     logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
 
@@ -275,6 +274,10 @@ class SlaveHandler(threading.Thread):
 
                 log.info('booting slave: %s' % self.slaveName)
                 logCall('xm create %s' % self.cfgPath)
+
+                # unlink the slave image file immediately so that
+                # we're sure it gets cleaned up
+                os.unlink(self.imagePath)
             except:
                 exc, e, tb = sys.exc_info()
                 log.error(''.join(traceback.format_tb(tb)))
