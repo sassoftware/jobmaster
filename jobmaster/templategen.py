@@ -23,9 +23,6 @@ import time
 
 MSG_INTERVAL = 1 # second (for Update Callbacks posted to logs)
 
-GET_VERSION_SCRIPTLET = 'from conary.repository import netclient; ' \
-                        'print netclient.CLIENT_VERSIONS[-1]'
-
 def call(cmds, env=None, logPath=None, statusPath=None):
     msg = "Running " + " ".join(cmds)
     kwargs = {'env': env}
@@ -276,12 +273,13 @@ class AnacondaTemplate(object):
 
                 # Get the maximum netclient protocol version supported by this
                 # Anaconda Template and stash it away for later.
-                getVersionCmd = [ 'python', '-c', GET_VERSION_SCRIPTLET ]
-                getVersionEnv = { 'PYTHONPATH': os.path.join(self.tmpRoot,
-                    'netstg2.dir', 'usr', 'lib', 'python2.4', 'site-packages') }
-                templateData['netclient_protocol_version'] = \
-                        subprocess.Popen(getVersionCmd, stdout=subprocess.PIPE,
-                                env=getVersionEnv).communicate()[0].strip()
+
+                # XXX Right now, we are going to hardcode this to an older
+                #     version of Netclient Protocol to hint to the
+                #     Conary installed on the jobslave to generate old
+                #     filecontainers that are compatible with all versions of
+                #     Conary. (See RBL-1552.)
+                templateData['netclient_protocol_version'] = '38'
                 templateData['trovespec'] = self.getFullTroveSpec()
 
                 # Process the Anaconda template using the instructions in the
@@ -323,7 +321,7 @@ class AnacondaTemplate(object):
                 f = open(self.metadataPath, 'w')
                 f.write(cPickle.dumps(templateData))
                 f.close()
-                
+
                 log("Template created", self.logPath, self.statusPath)
             except Exception, e:
                 rc = 1
