@@ -20,7 +20,19 @@ LONGNAME="rBuilder Job Master"
 PIDFILE='/var/run/jobmaster.pid'
 DAEMON='/usr/bin/jobmaster'
 
+cleanLvm() {
+    for slaveLvm in $(sudo /usr/sbin/lvscan | cut -d "'" -f 2 | grep slave); do
+        slaveId=$(echo $slaveLvm | cut -d "/" -f 4)
+        /usr/sbin/xm domid $slaveId >& /dev/null
+        if [ $? -ne 0 ]; then
+            echo removing $slaveLvm due to dead slave
+            /usr/sbin/lvremove -f $slaveLvm
+        fi
+    done
+}
+
 start() {
+    cleanLvm
     echo -n "Starting $LONGNAME:"
     daemon $DAEMON
     echo ""
