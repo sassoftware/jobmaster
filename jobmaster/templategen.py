@@ -166,7 +166,10 @@ class AnacondaTemplate(object):
             '.%s.log' % self.getFullTroveSpecHash())
 
     def __del__(self):
+        # XXX workaround for CNY-1834
         if self._conaryClient:
+            if self._conaryClient.db:
+                self._conaryClient.db.close()
             del self._conaryClient
         if self.tmpRoot:
             util.rmtree(self.tmpRoot, ignore_errors=True)
