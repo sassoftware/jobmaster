@@ -279,6 +279,7 @@ class SlaveHandler(threading.Thread):
                 # we're sure it gets cleaned up
                 os.unlink(self.imagePath)
             except:
+                os.unlink(self.imagePath)
                 exc, e, tb = sys.exc_info()
                 log.error(''.join(traceback.format_tb(tb)))
                 log.error(e)
@@ -542,14 +543,15 @@ class JobMaster(object):
         self.handleSlaveStop(slaveId)
 
 
-def main():
-    cfg = MasterConfig()
-    cfg.read(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
-                          'config'))
+def main(cfg):
     jobMaster = JobMaster(cfg)
     jobMaster.run()
 
 def runDaemon():
+    cfg = MasterConfig()
+    cfg.read(os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
+                          'config'))
+
     pidFile = os.path.join(os.path.sep, 'var', 'run', 'jobmaster.pid')
     if os.path.exists(pidFile):
         f = open(pidFile)
@@ -582,5 +584,5 @@ def runDaemon():
             f = open(pidFile, 'w')
             f.write(str(os.getpid()))
             f.close()
-            main()
+            main(cfg)
             os.unlink(pidFile)
