@@ -113,7 +113,7 @@ class MasterConfig(client.MCPClientConfig):
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     proxy = None
     templateCache = os.path.join(basePath, 'anaconda-templates')
-    scratchSize = 1024 * 10 # scratch disk space in MB
+    scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
     lvmVolumeName = 'vg00'
 
 
