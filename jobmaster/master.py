@@ -111,6 +111,7 @@ class MasterConfig(client.MCPClientConfig):
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
+    reservedMemory = (cfgtypes.CfgInt, 512) # memory in MB
     proxy = None
     templateCache = os.path.join(basePath, 'anaconda-templates')
     scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
@@ -376,12 +377,32 @@ class JobMaster(object):
         if mem.isdigit():
             mem = int(mem)
         else:
-            return 1
+            log.error("can't determine host memory. assuming zero.")
+            mem = 0
         p.close()
-        count = mem / self.cfg.slaveMemory
-        # Enforce that the master has at least as much memory as half a slave.
-        if (mem % self.cfg.slaveMemory) < (self.cfg.slaveMemory / 2):
-            count -= 1
+        # reserve memory for non-slave usage
+        mem -= self.cfg.reservedMemory
+        count = max(0, mem / self.cfg.slaveMemory)
+        if not count:
+            log.error("not enough memory: jobmaster cannot support slaves at all")
+        return count
+
+    def realSlaveLimit(self):
+        # this function is desgined for xen. if we extend to remote slaves
+        # such as EC2 it will need reworking.
+        p = os.popen('xm info | grep free_memory | sed "s/.* //"')
+        mem = p.read().strip()
+        if mem.isdigit():
+            mem = int(mem)
+        else:
+            log.error("can't determine host memory. assuming zero.")
+            mem = 0
+        p.close()
+        # reserve memory for non-slave usage
+        mem -= self.cfg.reservedMemory
+        count = max(0, mem / self.cfg.slaveMemory)
+        if not count:
+            log.error("memory squeeze won't allow for more slaves")
         return count
 
     def resolveTroveSpec(self, troveSpec):
@@ -431,7 +452,8 @@ class JobMaster(object):
             del self.handlers[slaveName]
         if handler:
             handler.stop()
-            if (len(self.slaves) + len(self.handlers)) < self.cfg.slaveLimit:
+            currentSlaves = len(self.slaves) + len(self.handlers)
+            if (currentSlaves < self.cfg.slaveLimit) and (currentSlaves < self.realSlaveLimit()):
                 self.demandQueue.incrementLimit()
                 log.info('Setting limit of demand queue to: %s' % str(self.demandQueue.queueLimit))
         self.sendStatus()

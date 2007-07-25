@@ -121,6 +121,9 @@ class ThreadedJobMaster(master.JobMaster, threading.Thread):
         # needed for test suite purposes
         return 99999
 
+    def realSlaveLimit(self):
+        return 99999
+
 class JobMasterHelper(testhelp.TestCase):
     def DummySystem(self, command):
         self.callLog.append(command)

@@ -395,31 +395,47 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             assert key in data
             assert data[key] == val
 
-    def pipeSlaves(self, memory):
+    def pipeSlaves(self, memory, func = master.JobMaster.getMaxSlaves):
         def DummyPipe(*args, **kwargs):
             return StringIO.StringIO(memory)
         popen = os.popen
         try:
             os.popen = DummyPipe
-            return master.JobMaster.getMaxSlaves(self.jobMaster)
+            return func(self.jobMaster)
         finally:
             os.popen = popen
 
     def testGetNoSlaves(self):
-        slaves = self.pipeSlaves('767')
+        slaves = self.pipeSlaves('512')
         self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
 
     def testGetOneSlave(self):
-        slaves = self.pipeSlaves('768')
+        slaves = self.pipeSlaves('1024')
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
 
     def testGetSlavesTurnover(self):
         slaves = self.pipeSlaves('1280')
-        self.failIf(slaves != 2, "expected 2 slaves, got: %d" % slaves)
+        self.failIf(slaves != 1, "expected 1 slaves, got: %d" % slaves)
 
     def testGetSlavesBadPipe(self):
         slaves = self.pipeSlaves('NAN')
+        self.failIf(slaves != 0, "expected 0 slaves, got: %d" % slaves)
+
+    def testGetRealNoSlaves(self):
+        slaves = self.pipeSlaves('512', func = master.JobMaster.realSlaveLimit)
+        self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
+
+    def testGetRealOneSlave(self):
+        slaves = self.pipeSlaves('1024', func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
+
+    def testGetRealSlavesTurnover(self):
+        slaves = self.pipeSlaves('1280', func = master.JobMaster.realSlaveLimit)
+        self.failIf(slaves != 1, "expected 1 slaves, got: %d" % slaves)
+
+    def testGetRealSlavesBadPipe(self):
+        slaves = self.pipeSlaves('NAN', func = master.JobMaster.realSlaveLimit)
+        self.failIf(slaves != 0, "expected 0 slaves, got: %d" % slaves)
 
     def testMissingSlave(self):
         def DummyPipe(*args, **kwargs):
