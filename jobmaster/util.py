@@ -27,8 +27,8 @@ def logCall(cmd, ignoreErrors = False, **kwargs):
     p = subprocess.Popen(cmd, shell = True,
         stdout = subprocess.PIPE, stderr = subprocess.PIPE, **kwargs)
     while p.poll() is None:
-        [log.info("++ " + errLine) for errLine in p.stdout.readlines()]
-        [log.debug("++ " + errLine) for errLine in p.stderr.readlines()]
+        [log.info("++ " + errLine.strip()) for errLine in p.stdout.readlines()]
+        [log.debug("++ " + errLine.strip()) for errLine in p.stderr.readlines()]
 
     if p.returncode and not ignoreErrors:
         raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
