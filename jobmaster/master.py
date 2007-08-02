@@ -449,7 +449,7 @@ class JobMaster(object):
         self.handlers[handler.start()] = handler
 
     def handleSlaveStop(self, slaveId):
-        slaveName = slaveId.split(':')[1]
+        slaveName = slaveId.split(':')[-1]
         handler = None
         if slaveName in self.slaves:
             handler = self.slaves[slaveName]
@@ -499,9 +499,14 @@ class JobMaster(object):
                 self.checkControlTopic()
                 time.sleep(0.1)
         finally:
+            self.stopAllSlaves()
             self.response.masterOffline()
             self.disconnect()
             self.templateServer.stop()
+
+    def stopAllSlaves(self):
+        for slaveId in self.slaves.keys() + self.handlers.keys():
+            self.handleSlaveStop(slaveId)
 
     def catchSignal(self, sig, frame):
         log.info('caught signal: %d' % sig)
