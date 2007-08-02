@@ -120,11 +120,12 @@ class MasterConfig(client.MCPClientConfig):
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
-    def __init__(self, master, troveSpec):
+    def __init__(self, master, troveSpec, data):
         self.master = weakref.ref(master)
         self.imageCache = weakref.ref(master.imageCache)
         self.cfgPath = ''
         self.slaveName = None
+        self.data = data
         self.troveSpec = troveSpec
         self.jobQueueName = self.getJobQueueName()
         self.lock = threading.RLock()
@@ -245,6 +246,12 @@ class SlaveHandler(threading.Thread):
                         f.write('proxy %s' % cfg.proxy)
                     f.close()
 
+                    # insert jobData into slave
+                    dataPath = os.path.join(mntPoint, 'srv', 'jobslave', 'data')
+                    f = open(dataPath, 'w')
+                    f.write(simplejson.dumps(self.data))
+                    f.close()
+
                     # write init script settings
                     initSettings = os.path.join(mntPoint, 'etc', 'sysconfig',
                                                 'slave_runtime')
@@ -311,14 +318,14 @@ class JobMaster(object):
             cfg.nodeName = getIP() or '127.0.0.1'
         self.cfg = cfg
         xenmac.setMaxSeq(self.cfg.slaveLimit)
-        self.demandQueue = queue.MultiplexedQueue(cfg.queueHost, cfg.queuePort,
+        self.jobQueue = queue.MultiplexedQueue(cfg.queueHost, cfg.queuePort,
                                        namespace = cfg.namespace,
                                        timeOut = 0, queueLimit = cfg.slaveLimit)
         self.arch = os.uname()[-1]
         archs = getAvailableArchs(self.arch)
         assert archs, "Unknown machine architecture."
         for arch in archs:
-            self.demandQueue.addDest('demand:' + arch)
+            self.jobQueue.addDest('job:' + arch)
         self.controlTopic = queue.Topic(cfg.queueHost, cfg.queuePort,
                                        'control', namespace = cfg.namespace,
                                        timeOut = 0)
@@ -436,9 +443,9 @@ class JobMaster(object):
         log.info("Using %s to satisfy %s for slave" % (res, troveSpec))
         return res
 
-    def handleSlaveStart(self, troveSpec):
-        troveSpec = self.resolveTroveSpec(troveSpec)
-        handler = SlaveHandler(self, troveSpec)
+    def handleSlaveStart(self, data):
+        troveSpec = self.resolveTroveSpec(data['jobSlaveNVF'])
+        handler = SlaveHandler(self, troveSpec, data)
         self.handlers[handler.start()] = handler
 
     def handleSlaveStop(self, slaveId):
@@ -454,17 +461,17 @@ class JobMaster(object):
             handler.stop()
             currentSlaves = len(self.slaves) + len(self.handlers)
             if (currentSlaves < self.cfg.slaveLimit) and (currentSlaves < self.realSlaveLimit()):
-                self.demandQueue.incrementLimit()
-                log.info('Setting limit of demand queue to: %s' % str(self.demandQueue.queueLimit))
+                self.jobQueue.incrementLimit()
+                log.info('Setting limit of job queue to: %s' % str(self.jobQueue.queueLimit))
         self.sendStatus()
 
     @catchErrors
-    def checkDemandQueue(self):
-        dataStr = self.demandQueue.read()
+    def checkJobQueue(self):
+        dataStr = self.jobQueue.read()
         if dataStr:
             data = simplejson.loads(dataStr)
             if data['protocolVersion'] == 1:
-                self.handleSlaveStart(data['troveSpec'])
+                self.handleSlaveStart(data)
             else:
                 log.error('Invalid Protocol Version %d' % \
                               data['protocolVersion'])
@@ -488,7 +495,7 @@ class JobMaster(object):
         try:
             while self.running:
                 self.checkHandlers()
-                self.checkDemandQueue()
+                self.checkJobQueue()
                 self.checkControlTopic()
                 time.sleep(0.1)
         finally:
@@ -505,7 +512,7 @@ class JobMaster(object):
         for handler in self.handlers.values():
             handler.stop()
         self.running = False
-        self.demandQueue.disconnect()
+        self.jobQueue.disconnect()
         self.controlTopic.disconnect()
         del self.response
 
@@ -547,7 +554,7 @@ class JobMaster(object):
         self.sendStatus()
 
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)
-        self.demandQueue.setLimit(limit)
+        self.jobQueue.setLimit(limit)
 
     @controlMethod
     @protocols((1,))

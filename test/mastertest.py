@@ -23,7 +23,7 @@ from jobmaster import constants
 class DummyHandler(master.SlaveHandler):
     count = 0
     jobQueueName = 'job3.0.0-1-1:x86'
-    def __init__(self, master, troveSpec):
+    def __init__(self, master, troveSpec, data):
         self.master = weakref.ref(master)
         self.troveSpec = troveSpec
         threading.Thread.__init__(self)
@@ -103,7 +103,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.failIf(self.jobMaster.cfg.slaveLimit != limit + 1,
                     "Slave limit was not adjusted from %d to %d" % \
                         (limit, limit + 1))
-        assert self.jobMaster.demandQueue.queueLimit == (limit + 1)
+        assert self.jobMaster.jobQueue.queueLimit == (limit + 1)
 
     def testRunningSetSlaveLimit(self):
         # this is illegal, but not harmful when test case was written
@@ -111,7 +111,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 2)
         self.failIf(self.jobMaster.cfg.slaveLimit != 2,
                     "Slave limit was not set to 2")
-        assert self.jobMaster.demandQueue.queueLimit == 1, \
+        assert self.jobMaster.jobQueue.queueLimit == 1, \
             "setting slave limit did not account for running slaves"
 
     def testBuildingSetSlaveLimit(self):
@@ -120,7 +120,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 2)
         self.failIf(self.jobMaster.cfg.slaveLimit != 2,
                     "Slave limit was not set to 2")
-        assert self.jobMaster.demandQueue.queueLimit == 1, \
+        assert self.jobMaster.jobQueue.queueLimit == 1, \
             "setting slave limit did not account for slaves being built"
 
     def testAllSetSlaveLimit(self):
@@ -130,7 +130,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 3)
         self.failIf(self.jobMaster.cfg.slaveLimit != 3,
                     "Slave limit was not set to 3")
-        assert self.jobMaster.demandQueue.queueLimit == 1, \
+        assert self.jobMaster.jobQueue.queueLimit == 1, \
             "setting slave limit did not account for existing slaves"
 
     def testSlaveLimitEdge(self):
@@ -139,7 +139,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 1)
         self.failIf(self.jobMaster.cfg.slaveLimit != 1,
                     "Slave limit was not set to 1")
-        assert self.jobMaster.demandQueue.queueLimit == 0, \
+        assert self.jobMaster.jobQueue.queueLimit == 0, \
             "setting slave limit allowed negative value"
 
     def testNegativeSlaveLimit(self):
@@ -193,55 +193,55 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         # test that stopping a slave when the limit has been exceeded doesn't
         # trigger a request for another.
         dummyHandler = DummyHandler(self.jobMaster,
-                                    'trash=/test.rpath.local@rpl:1/1.0.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
         self.jobMaster.handlers[dummyHandler.start()] = dummyHandler
 
-        self.jobMaster.demandQueue.queueLimit = 0
+        self.jobMaster.jobQueue.queueLimit = 0
         self.jobMaster.handleSlaveStop( \
             self.cfg.nodeName + ':' + dummyHandler.slaveName)
-        assert self.jobMaster.demandQueue.queueLimit == 1
+        assert self.jobMaster.jobQueue.queueLimit == 1
 
     def testHandlerStopIncrement(self):
         dummyHandler = DummyHandler(self.jobMaster,
-                                    'trash=/test.rpath.local@rpl:1/1.0.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
         self.jobMaster.handlers[dummyHandler.start()] = dummyHandler
 
         dummyHandler = DummyHandler(self.jobMaster,
-                                    'trash=/test.rpath.local@rpl:1/1.0.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
         self.jobMaster.handlers[dummyHandler.start()] = dummyHandler
 
-        self.jobMaster.demandQueue.queueLimit = 0
+        self.jobMaster.jobQueue.queueLimit = 0
 
         self.jobMaster.handleSlaveStop( \
             self.cfg.nodeName + ':' + dummyHandler.slaveName)
-        assert self.jobMaster.demandQueue.queueLimit == 0
+        assert self.jobMaster.jobQueue.queueLimit == 0
 
     def testSlaveStopIncrement(self):
         dummyHandler = DummyHandler(self.jobMaster,
-                                    'trash=/test.rpath.local@rpl:1/1.0.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
         self.jobMaster.slaves[dummyHandler.start()] = dummyHandler
 
         dummyHandler = DummyHandler(self.jobMaster,
-                                    'trash=/test.rpath.local@rpl:1/1.0.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
         self.jobMaster.slaves[dummyHandler.start()] = dummyHandler
 
-        self.jobMaster.demandQueue.queueLimit = 0
+        self.jobMaster.jobQueue.queueLimit = 0
         self.jobMaster.cfg.slaveLimit = 1
 
         self.jobMaster.handleSlaveStop( \
             self.cfg.nodeName + ':' + dummyHandler.slaveName)
-        assert self.jobMaster.demandQueue.queueLimit == 0
+        assert self.jobMaster.jobQueue.queueLimit == 0
 
         self.jobMaster.handleSlaveStop( \
             self.cfg.nodeName + ':' + self.jobMaster.slaves.keys()[0])
-        assert self.jobMaster.demandQueue.queueLimit == 1
+        assert self.jobMaster.jobQueue.queueLimit == 1
 
     def testStartSlave(self):
         origSlaveHandler = master.SlaveHandler
         try:
             master.SlaveHandler = DummyHandler
             self.jobMaster.handleSlaveStart( \
-                'trash=/test.rpath.local@rpl:1/1.0-1-1')
+                {'jobSlaveNVF' : 'trash=/test.rpath.local@rpl:1/1.0-1-1'})
         finally:
             master.SlaveHandler = origSlaveHandler
 
@@ -250,7 +250,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testCheckHandlers(self):
         handler = DummyHandler(self.jobMaster,
-                               'trash=/test.rpath.local@rpl:1/1.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0-1-1', {})
         self.jobMaster.handlers[handler.start()] = handler
 
         handler.join()
@@ -261,9 +261,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testStopHandler(self):
         handler = DummyHandler(self.jobMaster,
-                               'trash=/test.rpath.local@rpl:1/1.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0-1-1', {})
         self.jobMaster.handlers[handler.start()] = handler
-        self.jobMaster.demandQueue.queueLimit = 0
+        self.jobMaster.jobQueue.queueLimit = 0
         self.jobMaster.response.response.connection.sent = []
         slaveId = self.cfg.nodeName + ':' + handler.slaveName
 
@@ -278,9 +278,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testStopSlave(self):
         handler = DummyHandler(self.jobMaster,
-                               'trash=/test.rpath.local@rpl:1/1.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0-1-1', {})
         self.jobMaster.slaves[handler.start()] = handler
-        self.jobMaster.demandQueue.queueLimit = 0
+        self.jobMaster.jobQueue.queueLimit = 0
         self.jobMaster.response.response.connection.sent = []
         slaveId = self.cfg.nodeName + ':' + handler.slaveName
         handler.join()
@@ -294,7 +294,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testStopMessage(self):
         handler = DummyHandler(self.jobMaster,
-                               'trash=/test.rpath.local@rpl:1/1.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0-1-1', {})
         self.jobMaster.slaves[handler.start()] = handler
         handler.join()
         self.jobMaster.response.response.connection.sent = []
@@ -319,7 +319,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                             event = "masterStatus")
 
         handler = DummyHandler(self.jobMaster,
-                               'trash=/test.rpath.local@rpl:1/1.0-1-1')
+            'trash=/test.rpath.local@rpl:1/1.0-1-1', {})
         self.jobMaster.slaves[handler.start()] = handler
         handler.join()
         slaveId = self.cfg.nodeName + ':' + handler.slaveName
