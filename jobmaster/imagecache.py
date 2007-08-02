@@ -5,6 +5,7 @@
 # All Rights Reserved
 #
 
+import errno
 import logging
 import os, sys
 import math
@@ -13,6 +14,7 @@ import re
 import urllib
 import shutil
 import tempfile
+import time
 
 from conary import conarycfg
 from conary import conaryclient
@@ -158,6 +160,29 @@ class ImageCache(object):
 
         self.tmpPath = os.path.join(os.path.split(cachePath)[0], 'tmp')
 
+    def startBuildingImage(self, hash, output = True):
+        # this function is designed to block if an image is being built already
+        lockPath = os.path.join(self.cachePath, hash + '.lock')
+        done = False
+        while not done:
+            while os.path.exists(lockPath):
+                if output:
+                    logging.info('Waiting for building lock: %s' % lockPath)
+                    output = False
+                time.sleep(1)
+            try:
+                os.mkdir(lockPath)
+                logging.info('Acquired slave building lock: %s' % lockPath)
+                done = True
+            except OSError, e:
+                if e.errno != errno.EEXIST:
+                    raise
+
+    def stopBuildingImage(self, hash):
+        lockPath = os.path.join(self.cachePath, hash + '.lock')
+        logging.info('Releasing slave building lock: %s' % lockPath)
+        os.rmdir(lockPath)
+
     def deleteAllImages(self):
         # this is for clearing the cache, eg. needed if entitlements changed
         for image in os.listdir(self.cachePath):
@@ -172,12 +197,20 @@ class ImageCache(object):
 
     def getImage(self, troveSpec):
         hash = md5sum(troveSpec)
+        imageFile = os.path.join(self.cachePath, hash)
         if hash in os.listdir(self.cachePath):
             logging.info("Found image in cache for %s" % troveSpec)
-            return os.path.join(self.cachePath, hash)
+            return imageFile
         else:
-            logging.info("Image not cached, creating image for %s" % troveSpec)
-            return self.makeImage(troveSpec, hash)
+            logging.info("Image not cached, creating image for %s" % \
+                    troveSpec)
+            self.startBuildingImage(hash)
+            try:
+                if os.path.exists(imageFile):
+                    return imageFile
+                return self.makeImage(troveSpec, hash)
+            finally:
+                self.stopBuildingImage(hash)
 
     def makeImage(self, troveSpec, hash):
         n, v, f = cmdline.parseTroveSpec(troveSpec)

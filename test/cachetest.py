@@ -12,6 +12,7 @@ import jobmaster_helper
 
 import os
 import tempfile
+import time
 
 from conary.lib import util
 from jobmaster import imagecache
@@ -52,6 +53,29 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             assert self.jobMaster.imageCache.getImage(troveSpec) == \
                 'makeImage was called successfully'
         finally:
+            self.jobMaster.imageCache.makeImage = origMakeImage
+
+    def testMissingImageCollide(self):
+        troveSpec = 'nonExistentImage'
+
+        lockDir = self.jobMaster.imageCache.imagePath(troveSpec) + '.lock'
+        util.mkdirChain(lockDir)
+
+        def stubMakeImage(troveSpec, hash):
+            return 'makeImage was called successfully'
+
+        def dummySleep(*args, **kwargs):
+            util.rmtree(lockDir)
+
+        sleep = time.sleep
+        origMakeImage = self.jobMaster.imageCache.makeImage
+        try:
+            time.sleep = dummySleep
+            self.jobMaster.imageCache.makeImage = stubMakeImage
+            assert self.jobMaster.imageCache.getImage(troveSpec) == \
+                'makeImage was called successfully'
+        finally:
+            time.sleep = sleep
             self.jobMaster.imageCache.makeImage = origMakeImage
 
     def testHaveImage(self):
