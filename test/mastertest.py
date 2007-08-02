@@ -462,6 +462,22 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         finally:
             self.cfg.nodeName = nodeName
 
+    def testStopAllSlaves(self):
+        dummyHandler = DummyHandler(self.jobMaster,
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
+        self.jobMaster.handlers[dummyHandler.start()] = dummyHandler
+        dummyHandler = DummyHandler(self.jobMaster,
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
+        self.jobMaster.slaves[dummyHandler.start()] = dummyHandler
+
+        self.jobMaster.stopAllSlaves()
+        self.failIf(self.jobMaster.handlers,
+                "handlers were not cleared upon jobmaster stop")
+        self.failIf(self.jobMaster.slaves,
+                "slaves were not cleared upon jobmaster stop")
+
+
+
 
 if __name__ == "__main__":
     testsuite.main()
