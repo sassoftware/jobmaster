@@ -33,24 +33,6 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         data = xenmac.readPipe('echo -n "foo"')
         self.failIf(data != 'foo', "readPipe did not function correctly")
 
-    def testMaxSeqLow(self):
-        MAX_SEQ = xenmac.MAX_SEQ
-        try:
-            xenmac.setMaxSeq(0)
-            self.failIf(xenmac.MAX_SEQ < 1,
-                        "max sequence underflow protection did not work")
-        finally:
-            xenmac.MAX_SEQ = MAX_SEQ
-
-    def testMaxSeqHigh(self):
-        MAX_SEQ = xenmac.MAX_SEQ
-        try:
-            xenmac.setMaxSeq(300)
-            self.failIf(xenmac.MAX_SEQ > 256,
-                        "max sequence overflow protection did not work")
-        finally:
-            xenmac.MAX_SEQ = MAX_SEQ
-
     def testCheckMac(self):
         readPipe = xenmac.readPipe
         try:
@@ -69,14 +51,14 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.close(fd)
             os.geteuid = lambda: 0
             xenmac.readPipe = lambda x: '192.168.1.1'
-            xenmac.setMaxSeq(5)
+            xenmac.MAX_SEQ = 5
             for i in range(2):
                 for i in range(5):
                     mac = xenmac.genMac()
                     self.failIf(mac != '00:16:3e:01:01:0%d' % i,
                                 "expected mac: 00:16:3e:01:01:0%d, but got: %s"\
                                     % (i, mac))
-            xenmac.setMaxSeq(1)
+            xenmac.MAX_SEQ = 1
             for i in range(2):
                 mac = xenmac.genMac()
                 self.failIf(mac != '00:16:3e:01:01:00',

@@ -13,12 +13,7 @@ import fcntl
 sequencePath = os.path.join(os.path.sep, 'var', 'run', 'xenmac.seq')
 ipSequencePath = os.path.join(os.path.sep, 'var', 'run', 'xenip.seq')
 
-MAX_SEQ = 1
-
-# ensure the value of MAX_SEQ is clamped. it's a divisor so it cannot be zero.
-# it represents the limit of 1 octet so it cannot be greater than 256
-def setMaxSeq(x):
-    sys.modules[__name__].MAX_SEQ = min(max(1, x), 256)
+MAX_SEQ = 256
 
 class SuperUser(Exception):
     def __str__(self):
@@ -82,9 +77,8 @@ def genMac():
             mac = ':'.join((xenPrefix, IP, strOneUp))
             done = checkMac(mac)
             oneUp = (int(oneUp) + 1) % MAX_SEQ
-            
             tries += 1
-            if tries > 15:
+            if tries > MAX_SEQ:
                 raise NoMACAddressAvailable
         return mac
     finally:

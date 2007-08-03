@@ -318,7 +318,6 @@ class JobMaster(object):
         if cfg.nodeName is None:
             cfg.nodeName = getIP() or '127.0.0.1'
         self.cfg = cfg
-        xenmac.setMaxSeq(self.cfg.slaveLimit)
         self.jobQueue = queue.MultiplexedQueue(cfg.queueHost, cfg.queuePort,
                                        namespace = cfg.namespace,
                                        timeOut = 0, queueLimit = cfg.slaveLimit)
@@ -407,7 +406,6 @@ class JobMaster(object):
             mem = 0
         p.close()
         # reserve memory for non-slave usage
-        mem -= self.cfg.reservedMemory
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("memory squeeze won't allow for more slaves")
@@ -556,7 +554,6 @@ class JobMaster(object):
         f = open(CONFIG_PATH, 'w')
         f.write('slaveLimit %d\n' % limit)
         f.close()
-        xenmac.setMaxSeq(self.cfg.slaveLimit)
         self.sendStatus()
 
         limit = max(limit - len(self.slaves) - len(self.handlers), 0)

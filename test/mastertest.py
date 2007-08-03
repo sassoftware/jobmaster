@@ -422,16 +422,16 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.failIf(slaves != 0, "expected 0 slaves, got: %d" % slaves)
 
     def testGetRealNoSlaves(self):
-        slaves = self.pipeSlaves('512', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves('511', func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
 
     def testGetRealOneSlave(self):
-        slaves = self.pipeSlaves('1024', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves('1023', func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
 
     def testGetRealSlavesTurnover(self):
-        slaves = self.pipeSlaves('1280', func = master.JobMaster.realSlaveLimit)
-        self.failIf(slaves != 1, "expected 1 slaves, got: %d" % slaves)
+        slaves = self.pipeSlaves('1024', func = master.JobMaster.realSlaveLimit)
+        self.failIf(slaves != 2, "expected 2 slaves, got: %d" % slaves)
 
     def testGetRealSlavesBadPipe(self):
         slaves = self.pipeSlaves('NAN', func = master.JobMaster.realSlaveLimit)
