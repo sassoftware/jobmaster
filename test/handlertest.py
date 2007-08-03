@@ -32,7 +32,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
     def testStartHandler(self):
         try:
             troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-            handler = master.SlaveHandler(self.jobMaster, troveSpec, {})
+            handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                    {'UUID': 'test.rpath.local-build-64'})
             handler.run = lambda: None
             genMac = xenmac.genMac
             genIP = xenip.genIP
@@ -53,7 +54,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             if not glob.glob("/boot/vmlinuz*"):
                 raise testsuite.SkipTestException("No kernel on this machine, skipping test")
             troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-            handler = master.SlaveHandler(self.jobMaster, troveSpec, {})
+            handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                    {'UUID' : 'test.rpath.local-build-65'})
 
             def dummyRun():
                 handler.pid = os.fork()
@@ -87,7 +89,8 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             raise SysExit(exitCode)
 
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-        handler = master.SlaveHandler(self.jobMaster, troveSpec, {})
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID' : 'test.rpath.local-build-55'})
 
         def dummyMakeImage(self, troveSpec, hash):
             filePath = os.path.join(handler.imageCache().cachePath, hash)

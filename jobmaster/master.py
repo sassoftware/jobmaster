@@ -132,9 +132,9 @@ class SlaveHandler(threading.Thread):
         threading.Thread.__init__(self)
         self.pid = None
 
-    def slaveStatus(self, status):
+    def slaveStatus(self, status, jobId = None):
         self.master().slaveStatus(self.slaveName, status,
-                                  self.jobQueueName.replace('job', ''))
+                                  self.jobQueueName.replace('job', ''), jobId)
 
     def start(self):
         fd, self.imagePath = tempfile.mkstemp( \
@@ -151,7 +151,7 @@ class SlaveHandler(threading.Thread):
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
         self.slaveName = xenCfg.cfg['name']
         self.ip = xenCfg.ip
-        self.slaveStatus(slavestatus.BUILDING)
+        self.slaveStatus(slavestatus.BUILDING, jobId = self.data['UUID'])
         fd, self.cfgPath = tempfile.mkstemp( \
             dir = os.path.join(self.master().cfg.basePath, 'tmp'))
         os.close(fd)
@@ -302,7 +302,8 @@ class SlaveHandler(threading.Thread):
                 # forcibly exit *now* sys.exit raises a SystemExit exception
                 os._exit(1)
             else:
-                self.slaveStatus(slavestatus.STARTED)
+                self.slaveStatus(slavestatus.STARTED,
+                        jobId = self.data['UUID'])
                 os._exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
@@ -528,11 +529,11 @@ class JobMaster(object):
             slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
                             self.slaves.keys() + self.handlers.keys()])
 
-    def slaveStatus(self, slaveName, status, slaveType):
+    def slaveStatus(self, slaveName, status, slaveType, jobId):
         log.info('sending slave status: %s %s %s' % \
                      (self.cfg.nodeName + ':' + slaveName, status, slaveType))
         self.response.slaveStatus(self.cfg.nodeName + ':' + slaveName,
-                                  status, slaveType)
+                                  status, slaveType, jobId)
 
     def getBestProtocol(self, protocols):
         common = PROTOCOL_VERSIONS.intersection(protocols)
