@@ -250,7 +250,7 @@ class ImageCache(object):
 
             conaryProxy = (self.masterCfg.conaryProxy or "")
             logCall(("conary update '%s' --root %s --replace-files " \
-                           "--tag-script=%s" %s) % \
+                           "--tag-script=%s %s") % \
                           (troveSpec, mntDir, tagScript, conaryProxy))
 
             shutil.move(tagScript, os.path.join(mntDir, 'root',
