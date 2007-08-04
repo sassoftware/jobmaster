@@ -149,8 +149,9 @@ def getRunningKernel():
     return p.read().strip()
 
 class ImageCache(object):
-    def __init__(self, cachePath):
+    def __init__(self, cachePath, masterCfg):
         self.cachePath = cachePath
+        self.masterCfg = masterCfg
         util.mkdirChain(self.cachePath)
 
         self.conarycfg = conarycfg.ConaryConfiguration(True)
@@ -247,17 +248,18 @@ class ImageCache(object):
             logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
+            conaryProxy == (self.masterCfg.conaryProxy or "")
             logCall(("conary update '%s' --root %s --replace-files " \
-                           "--tag-script=%s") % \
-                          (troveSpec, mntDir, tagScript))
+                           "--tag-script=%s" %s) % \
+                          (troveSpec, mntDir, tagScript, conaryProxy))
 
             shutil.move(tagScript, os.path.join(mntDir, 'root',
                 'conary-tag-script.in'))
 
             kernelSpec = getRunningKernel()
             logCall(("conary update '%s' --root %s --resolve " \
-                       "--keep-required --tag-script=%s" ) \
-                          % (kernelSpec, mntDir, kernelTagScript))
+                       "--keep-required --tag-script=%s %s" ) \
+                          % (kernelSpec, mntDir, kernelTagScript, conaryProxy))
 
             shutil.move(kernelTagScript, os.path.join(mntDir, 'root',
                                         'conary-tag-script-kernel'))

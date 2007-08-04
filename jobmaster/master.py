@@ -112,7 +112,7 @@ class MasterConfig(client.MCPClientConfig):
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     reservedMemory = (cfgtypes.CfgInt, 512) # memory in MB
-    proxy = None
+    conaryProxy = None
     templateCache = os.path.join(basePath, 'anaconda-templates')
     scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
     lvmVolumeName = 'vg00'
@@ -242,8 +242,8 @@ class SlaveHandler(threading.Thread):
                     f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
                                                         self.slaveName)))
                     f.write('jobQueueName %s\n' % self.jobQueueName)
-                    if cfg.proxy:
-                        f.write('proxy %s' % cfg.proxy)
+                    if cfg.conaryProxy:
+                        f.write('conaryProxy %s' % cfg.conaryProxy)
                     f.close()
 
                     # insert jobData into slave
@@ -331,7 +331,7 @@ class JobMaster(object):
                                        timeOut = 0)
         self.response = response.MCPResponse(self.cfg.nodeName, cfg)
         self.imageCache = imagecache.ImageCache(os.path.join(self.cfg.basePath,
-                                                             'imageCache'))
+                                                             'imageCache'), cfg)
         self.slaves = {}
         self.handlers = {}
         self.sendStatus()
