@@ -249,7 +249,7 @@ class ImageCache(object):
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
             conaryProxy = (self.masterCfg.conaryProxy and \
-                ("--config '%s'" % self.masterCfg.conaryProxy) or "")
+                ("--config 'conaryProxy %s'" % self.masterCfg.conaryProxy) or "")
             logCall(("conary update '%s' --root %s --replace-files " \
                            "--tag-script=%s %s") % \
                           (troveSpec, mntDir, tagScript, conaryProxy))
