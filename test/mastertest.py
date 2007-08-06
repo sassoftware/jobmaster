@@ -476,7 +476,28 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.failIf(self.jobMaster.slaves,
                 "slaves were not cleared upon jobmaster stop")
 
-
+    def testCheckSlaves(self):
+        dummyHandler = DummyHandler(self.jobMaster,
+            'trash=/test.rpath.local@rpl:1/1.0.0-1-1', {})
+        self.jobMaster.slaves[dummyHandler.start()] = dummyHandler
+        slaves = self.jobMaster.slaves.keys()
+        class MockPipe(object):
+            def readlines(x):
+                return []
+        def mockStop(slaveId):
+            self.stoppedSlaves.append(slaveId)
+        self.stoppedSlaves = []
+        popen = os.popen
+        handleSlaveStop = self.jobMaster.handleSlaveStop
+        try:
+            os.popen = lambda x: MockPipe()
+            self.jobMaster.handleSlaveStop = mockStop
+            self.jobMaster.checkSlaves()
+        finally:
+            os.popen = popen
+            self.jobMaster.handleSlaveStop = handleSlaveStop
+        self.failIf(self.stoppedSlaves != slaves,
+                'expected slaves to be stopped: %s' % str(slaves))
 
 
 if __name__ == "__main__":

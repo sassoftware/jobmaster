@@ -405,7 +405,6 @@ class JobMaster(object):
             log.error("can't determine host memory. assuming zero.")
             mem = 0
         p.close()
-        # reserve memory for non-slave usage
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("memory squeeze won't allow for more slaves")
@@ -488,6 +487,16 @@ class JobMaster(object):
             self.slaves[slaveName] = self.handlers[slaveName]
             del self.handlers[slaveName]
 
+    @catchErrors
+    def checkSlaves(self):
+        currentSlaves = [x for x in self.slaves]
+        if currentSlaves:
+            p = os.popen("xm list | awk '{print $1;}' | grep -v 'Name' | grep -v 'Domain-0'")
+            runningSlaves = [x.strip() for x in p.readlines()]
+            for slave in [x for x in currentSlaves if x not in runningSlaves]:
+                log.error('slave: %s unexpectedly died' % slave)
+                self.handleSlaveStop(slave)
+
     def run(self):
         self.running = True
         self.templateServer.start()
@@ -496,6 +505,7 @@ class JobMaster(object):
                 self.checkHandlers()
                 self.checkJobQueue()
                 self.checkControlTopic()
+                self.checkSlaves()
                 time.sleep(0.1)
         finally:
             self.stopAllSlaves()
