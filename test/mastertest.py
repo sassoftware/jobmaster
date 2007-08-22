@@ -13,12 +13,15 @@ import time
 import simplejson
 import StringIO
 import threading
+import tempfile
 import weakref
 
 import jobmaster_helper
 
 from jobmaster import master
 from jobmaster import constants
+
+from conary.lib import util
 
 class DummyHandler(master.SlaveHandler):
     count = 0
@@ -498,6 +501,33 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             self.jobMaster.handleSlaveStop = handleSlaveStop
         self.failIf(self.stoppedSlaves != slaves,
                 'expected slaves to be stopped: %s' % str(slaves))
+
+    def testWaitForSlave(self):
+        slaveId = 'slave00'
+        LVM_PATH = master.LVM_PATH
+        NEW_LVM_PATH = tempfile.mkdtemp()
+        popen = os.popen
+        class DummyPipe(object):
+            def __init__(x, retval):
+                x.retval = retval
+            def read(x):
+                return x.retval
+        def MockPopen(cmd):
+            self.count += 1
+            return DummyPipe((self.count % 2) and 'dummy retVal' or '')
+        self.count = 0
+        try:
+            master.LVM_PATH = NEW_LVM_PATH
+            f = open(os.path.join(NEW_LVM_PATH, 'vg00-%s' % slaveId), 'w')
+            f.write('')
+            f.close()
+            os.popen = MockPopen
+            master.waitForSlave(slaveId)
+            self.failIf(self.count != 2, "expected popen to be called twice")
+        finally:
+            util.rmtree(NEW_LVM_PATH)
+            LVM_PATH = LVM_PATH
+            os.popen = popen
 
 
 if __name__ == "__main__":

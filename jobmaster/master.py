@@ -40,6 +40,8 @@ from conary import versions
 CONFIG_PATH = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
                            'config.d', 'runtime')
 
+LVM_PATH = os.path.join(os.path.sep, 'dev', 'mapper')
+
 def getAvailableArchs(arch):
     if arch in ('i686', 'i586', 'i486', 'i386'):
         return ('x86',)
@@ -117,6 +119,14 @@ class MasterConfig(client.MCPClientConfig):
     scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
     lvmVolumeName = 'vg00'
 
+def waitForSlave(slaveName):
+    paths = os.listdir(LVM_PATH)
+    fileName = [x for x in paths if slaveName in x][0]
+    path = os.path.join(LVM_PATH, fileName)
+    p = os.popen('fuser %s' % path)
+    while p.read():
+        time.sleep(0.1)
+        p = os.popen('fuser %s' % path)
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -176,6 +186,8 @@ class SlaveHandler(threading.Thread):
 
         log.info("destroying slave")
         logCall('xm destroy %s' % self.slaveName, ignoreErrors = True)
+
+        waitForSlave(self.slaveName)
 
         log.info("destroying scratch space")
         logCall("sleep 2; lvremove -f /dev/%s/%s" % (self.master().cfg.lvmVolumeName, self.slaveName),
