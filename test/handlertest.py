@@ -140,6 +140,48 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
 
         util.rmtree(handler.imagePath, ignore_errors = True)
 
+    def testWriteSlaveConfig(self):
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID' : 'test.rpath.local-build-55'})
+
+        fd, cfgPath = tempfile.mkstemp()
+        os.close(fd)
+        handler.slaveName = 'xen44'
+
+        cfg = master.MasterConfig()
+        cfg.queueHost = '127.0.0.1'
+        cfg.nodeName = 'testMaster'
+        cfg.jobQueueName = 'job1-1-1:x86'
+        cfg.conaryProxy = '127.0.0.1'
+
+        getIP = master.getIP
+        ref1 = '\n'.join(( \
+            'queueHost 192.168.0.1', 'queuePort 61613',
+            'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
+            'conaryProxy 192.168.0.1', 'watchdog False', ''))
+        ref2 = '\n'.join(( \
+            'queueHost 192.168.0.1', 'queuePort 61613',
+            'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
+            'watchdog True', ''))
+        try:
+            master.getIP = lambda: '192.168.0.1'
+            handler.writeSlaveConfig(cfgPath, cfg)
+            res = open(cfgPath).read()
+            self.failIf(ref1 != res,
+                    "EXPECTED:\n%s\nBUT GOT:\n%s" % (ref1, res))
+
+            # Make a second pass, tweaking some options
+            cfg.conaryProxy = None
+            cfg.debugMode = True
+            handler.writeSlaveConfig(cfgPath, cfg)
+            res = open(cfgPath).read()
+            self.failIf(ref2 != res,
+                    "EXPECTED:\n%s\nBUT GOT:\n%s" % (ref2, res))
+        finally:
+            util.rmtree(cfgPath, ignore_errors = True)
+            master.getIP = getIP
+
 
 if __name__ == "__main__":
     testsuite.main()

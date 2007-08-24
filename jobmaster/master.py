@@ -118,6 +118,7 @@ class MasterConfig(client.MCPClientConfig):
     templateCache = os.path.join(basePath, 'anaconda-templates')
     scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
     lvmVolumeName = 'vg00'
+    debugMode = (cfgtypes.CfgBool, False)
 
 def waitForSlave(slaveName):
     paths = os.listdir(LVM_PATH)
@@ -127,6 +128,7 @@ def waitForSlave(slaveName):
     while p.read():
         time.sleep(0.1)
         p = os.popen('fuser %s' % path)
+
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
@@ -210,6 +212,26 @@ class SlaveHandler(threading.Thread):
                 break
         return 'job%s:%s' % (jsVersion, arch)
 
+    def writeSlaveConfig(self, cfgPath, cfg):
+        f = open(cfgPath, 'w')
+
+        # It never makes sense to direct a remote machine to
+        # 127.0.0.1
+        f.write('queueHost %s\n' % ((cfg.queueHost != '127.0.0.1') \
+                                        and cfg.queueHost \
+                                        or getIP()))
+
+        f.write('queuePort %s\n' % str(cfg.queuePort))
+        f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
+                                            self.slaveName)))
+        f.write('jobQueueName %s\n' % self.jobQueueName)
+        if cfg.conaryProxy:
+            f.write('conaryProxy %s\n' % \
+                    ((cfg.conaryProxy != '127.0.0.1') \
+                        and cfg.conaryProxy or getIP()))
+        f.write('watchdog %s\n' % str(cfg.debugMode))
+        f.close()
+
     def run(self):
         self.pid = os.fork()
         if not self.pid:
@@ -242,21 +264,7 @@ class SlaveHandler(threading.Thread):
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
                                           'runtime')
                     util.mkdirChain(os.path.split(cfgPath)[0])
-                    f = open(cfgPath, 'w')
-
-                    # It never makes sense to direct a remote machine to
-                    # 127.0.0.1
-                    f.write('queueHost %s\n' % ((cfg.queueHost != '127.0.0.1') \
-                                                    and cfg.queueHost \
-                                                    or getIP()))
-
-                    f.write('queuePort %s\n' % str(cfg.queuePort))
-                    f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
-                                                        self.slaveName)))
-                    f.write('jobQueueName %s\n' % self.jobQueueName)
-                    if cfg.conaryProxy:
-                        f.write('conaryProxy %s' % cfg.conaryProxy)
-                    f.close()
+                    self.writeSlaveConfig(cfgPath, cfg)
 
                     # insert jobData into slave
                     dataPath = os.path.join(mntPoint, 'srv', 'jobslave', 'data')
@@ -598,7 +606,6 @@ class JobMaster(object):
     def stopSlave(self, slaveId):
         log.info('stopping slave: %s' % slaveId)
         self.handleSlaveStop(slaveId)
-
 
 def main(cfg):
     jobMaster = JobMaster(cfg)
