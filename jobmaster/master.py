@@ -229,7 +229,7 @@ class SlaveHandler(threading.Thread):
             f.write('conaryProxy %s\n' % \
                     ((cfg.conaryProxy != '127.0.0.1') \
                         and cfg.conaryProxy or getIP()))
-        f.write('watchdog %s\n' % str(cfg.debugMode))
+        f.write('watchdog %s\n' % str(not cfg.debugMode))
         f.close()
 
     def run(self):
