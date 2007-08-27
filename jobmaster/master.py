@@ -121,12 +121,13 @@ class MasterConfig(client.MCPClientConfig):
 
 def waitForSlave(slaveName):
     paths = os.listdir(LVM_PATH)
-    fileName = [x for x in paths if slaveName in x][0]
-    path = os.path.join(LVM_PATH, fileName)
-    p = os.popen('fuser %s' % path)
-    while p.read():
-        time.sleep(0.1)
+    fileNames = [x for x in paths if slaveName in x]
+    if fileNames:
+        path = os.path.join(LVM_PATH, fileNames[0])
         p = os.popen('fuser %s' % path)
+        while p.read():
+            time.sleep(0.1)
+            p = os.popen('fuser %s' % path)
 
 
 class SlaveHandler(threading.Thread):
