@@ -116,7 +116,6 @@ class MasterConfig(client.MCPClientConfig):
     reservedMemory = (cfgtypes.CfgInt, 512) # memory in MB
     conaryProxy = None
     templateCache = os.path.join(basePath, 'anaconda-templates')
-    scratchSize = (cfgtypes.CfgInt, 1024 * 10) # scratch disk space in MB
     lvmVolumeName = 'vg00'
     debugMode = (cfgtypes.CfgBool, False)
 
@@ -232,6 +231,53 @@ class SlaveHandler(threading.Thread):
         f.write('watchdog %s\n' % str(not cfg.debugMode))
         f.close()
 
+    def getTroveSize(self):
+        protocolVersion = self.data.get('protocolVersion')
+        assert protocolVersion in (1,), "Unknown protocol version %s" % \
+                str(protocolVersion)
+        cc = conaryclient.ConaryClient()
+        repos = cc.getRepos()
+        n = self.data.get('troveName')
+        v = versions.ThawVersion(self.data['troveVersion'])
+        f = deps.ThawFlavor(self.data.get('troveFlavor'))
+        NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
+        trove = repos.getTrove(*NVF)
+        return trove.troveInfo.size()
+
+    def addMountSizes(self):
+        mountDict = self.data.get('jobData', {}).get('mountDict', {})
+        # this ends up double counting if both freeSpace and requested size
+        # are used in combination. requested size is often double counted with
+        # respect to actual trove contents. This is simply an estimate. if we
+        # must err, we need to overestimate, so it's fine.
+
+        # mountDict is in MB. other measurements are in bytes
+        return sum([x[0] + x[1] for x in mountDict.values()]) * 1024 * 1024
+
+    def estimateScratchSize(self):
+        protocolVersion = self.data.get('protocolVersion')
+        troveSize = self.getTroveSize()
+
+        # these two handle legacy formats
+        freeSpace = self.data.get('jobData', {}).get('freeSpace', 0)
+        swapSize = self.data.get('jobData', {}).get('swapSize', 0)
+
+        mountOverhead = self.addMountSizes()
+
+        size = troveSize + freeSpace + swapSize + mountOverhead
+        size = int(math.ceil((size + 20 * 1024 * 1024) / 0.87))
+        # partition offset is being ignored for our purposes. we're going to be
+        # pretty generous so it shouldn't matter
+        # we're not rounding up for cylinder size. LVM will do that
+        # multiply scratch size by 4. LiveCDs could potentially consume that
+        # much overhead. (base + z-tree + inner ISO + outer ISO) this is
+        # almost definitely too much in the general case, but there's pretty
+        # little harm in overesitmation.
+        size *= 4
+        blockSize = 1024 * 1024
+        size /= blockSize + ((size % blockSize) and 1 or 0)
+        return size
+
     def run(self):
         self.pid = os.fork()
         if not self.pid:
@@ -252,9 +298,10 @@ class SlaveHandler(threading.Thread):
 
                 try:
                     # creating temporary scratch space
-                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (cfg.scratchSize, cfg.lvmVolumeName, self.slaveName))
+                    scratchSize = self.estimateScratchSize()
+                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, self.slaveName))
 
-                    logCall("lvcreate -n %s -L%dM %s" % (self.slaveName, cfg.scratchSize, cfg.lvmVolumeName))
+                    logCall("lvcreate -n %s -L%dM %s" % (self.slaveName, scratchSize, cfg.lvmVolumeName))
                     logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
 
                     log.info('inserting runtime settings into slave')

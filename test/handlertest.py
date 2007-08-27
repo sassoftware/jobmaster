@@ -21,6 +21,7 @@ from jobmaster import xenmac, xenip
 from jobmaster import imagecache
 
 from conary.lib import util
+from conary import conaryclient
 
 class HandlerTest(jobmaster_helper.JobMasterHelper):
     def testTroveSpec(self):
@@ -118,6 +119,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             xenmac.genMac = lambda: '00:16:3e:00:01:66'
             xenip.genIP = lambda: '10.0.0.1'
             os._exit = dummyExit
+            handler.estimateScratchSize = lambda *args, **kwargs: 10240
             try:
                 handler.run()
             except SysExit, e:
@@ -181,6 +183,36 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         finally:
             util.rmtree(cfgPath, ignore_errors = True)
             master.getIP = getIP
+
+    def testEsitmateTroveSize(self):
+        troveName = 'group-test'
+        troveVersion = '/test.rpath.local@rpl:1/0.0:1-1-1'
+        troveFlavor = '1#x86'
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID' : 'test.rpath.local-build-55', 'troveName': troveName,
+                    'troveVersion': troveVersion, 'troveFlavor': troveFlavor,
+                    'protocolVersion': 1})
+
+        handler.slaveName = 'xen44'
+
+        ConaryClient = conaryclient.ConaryClient
+        class MockClient(object):
+            def __init__(x):
+                x.getRepos = lambda *args, **kwargs: x
+                x.findTrove = lambda *args, **kwargs: [[x]]
+                x.getTrove = lambda *args, **kwargs: x
+                x.troveInfo = x
+                x.cfg = x
+                x.flavor = None
+                x.size = lambda *args, **kwargs: 55 * 1024 * 1024 # 55M trove
+        try:
+            conaryclient.ConaryClient = MockClient
+            res = handler.estimateScratchSize()
+            self.failIf(res != 344,
+                    "scratch calculation did not match expected value")
+        finally:
+            conaryclient.ConaryClient = ConaryClient
 
 
 if __name__ == "__main__":
