@@ -36,6 +36,9 @@ start() {
     echo -n "Starting $LONGNAME:"
     daemon $DAEMON
     echo ""
+
+    # Enable IP forwarding for NATted slaves
+    echo 1 >/proc/sys/net/ipv4/conf/all/forwarding
 }
 
 stop() {
