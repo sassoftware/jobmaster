@@ -249,8 +249,8 @@ class ImageCache(object):
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
             proxy_address = self.masterCfg.conaryProxy
-            if proxy_address == '127.0.0.1':
-                proxy_address = self.getIP()
+            if proxy_address == 'self':
+                proxy_address = 'http://%s/' % getIP()
 
             conaryProxy = proxy_address and "--config 'conaryProxy %s'" % proxy_address or ""
 

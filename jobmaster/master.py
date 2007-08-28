@@ -220,9 +220,10 @@ class SlaveHandler(threading.Thread):
                                             self.slaveName)))
         f.write('jobQueueName %s\n' % self.jobQueueName)
         if cfg.conaryProxy:
-            f.write('conaryProxy %s\n' % \
-                    ((cfg.conaryProxy != '127.0.0.1') \
-                        and cfg.conaryProxy or getIP()))
+            if cfg.conaryProxy == 'self':
+                f.write('conaryProxy http://%s/\n' % getIP())
+            else:
+                f.write('conaryProxy %s\n' % cfg.conaryProxy)
         f.write('watchdog %s\n' % str(not cfg.debugMode))
         f.close()
 
