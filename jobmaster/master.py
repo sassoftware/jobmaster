@@ -23,7 +23,7 @@ from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
-from jobmaster.util import rewriteFile, logCall
+from jobmaster.util import rewriteFile, logCall, getIP
 
 from mcp import queue
 from mcp import response
@@ -47,12 +47,6 @@ def getAvailableArchs(arch):
         return ('x86',)
     elif arch == 'x86_64':
         return ('x86', 'x86_64')
-
-def getIP():
-    p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
-    data = p.read().strip()
-    p.close()
-    return data
 
 def controlMethod(func):
     func._controlMethod = True

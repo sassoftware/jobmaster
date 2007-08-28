@@ -21,7 +21,7 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.lib import util
 
-from jobmaster.util import logCall
+from jobmaster.util import logCall, getIP
 
 SWAP_SIZE = 268435456 # 256 MB in bytes
 TAGSCRIPT_GROWTH = 20971520 # 20MB in bytes
@@ -249,7 +249,8 @@ class ImageCache(object):
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
             conaryProxy = (self.masterCfg.conaryProxy and \
-                ("--config 'conaryProxy %s'" % self.masterCfg.conaryProxy) or "")
+                ("--config 'conaryProxy %s'" % self.masterCfg.conaryProxy != '127.0.0.1' and \
+                    self.masterCfg.conaryProxy or self.getIP()) or "")
             logCall(("conary update '%s' --root %s --replace-files " \
                            "--tag-script=%s %s") % \
                           (troveSpec, mntDir, tagScript, conaryProxy))
