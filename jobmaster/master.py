@@ -238,9 +238,9 @@ class SlaveHandler(threading.Thread):
                 str(protocolVersion)
         cc = conaryclient.ConaryClient()
         repos = cc.getRepos()
-        n = self.data.get('troveName')
-        v = versions.ThawVersion(self.data['troveVersion'])
-        f = deps.ThawFlavor(self.data.get('troveFlavor'))
+        n = self.data['troveName'].encode('utf8')
+        v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
+        f = deps.ThawFlavor(self.data.get('troveFlavor').encode('utf8'))
         NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
         trove = repos.getTrove(*NVF)
         return trove.troveInfo.size()
