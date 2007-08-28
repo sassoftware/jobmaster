@@ -2,7 +2,7 @@
 #
 # jobmaster:  Starts the rBuilder Job Master.
 #
-# chkconfig: 2345 24 15
+# chkconfig: 2345 99 01
 # description: Controls rBuilder Slave Appliances.
 # processname: jobmaster
 # config: /usr/bin
