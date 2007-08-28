@@ -248,9 +248,12 @@ class ImageCache(object):
             logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
-            conaryProxy = (self.masterCfg.conaryProxy and \
-                ("--config 'conaryProxy %s'" % self.masterCfg.conaryProxy != '127.0.0.1' and \
-                    self.masterCfg.conaryProxy or self.getIP()) or "")
+            proxy_address = self.masterCfg.conaryProxy
+            if proxy_address == '127.0.0.1':
+                proxy_address = self.getIP()
+
+            conaryProxy = proxy_address and "--config 'conaryProxy %s'" % proxy_address or ""
+
             logCall(("conary update '%s' --root %s --replace-files " \
                            "--tag-script=%s %s") % \
                           (troveSpec, mntDir, tagScript, conaryProxy))
