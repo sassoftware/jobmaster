@@ -78,6 +78,12 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testInitialStatus(self):
         # test that the MCP reports status during init phase
         jobMaster = master.JobMaster(self.cfg)
+        savedTime = time.time
+        try:
+            time.time = lambda: 300
+            jobMaster.heartbeat()
+        finally:
+            time.time = savedTime
 
         self.assertResponse(responseSent = \
                                 jobMaster.response.response.connection.sent,
@@ -85,6 +91,8 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                             limit = 1,
                             slaves = [],
                             event = "masterStatus")
+        self.failIf(jobMaster.lastHeartbeat != 300,
+                "timestamp of heartbeat was not saved")
 
     def testStatus(self):
         self.jobMaster.status(protocolVersion = 1)

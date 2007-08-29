@@ -401,7 +401,6 @@ class JobMaster(object):
                                                              'imageCache'), cfg)
         self.slaves = {}
         self.handlers = {}
-        self.sendStatus()
 
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
@@ -409,6 +408,7 @@ class JobMaster(object):
         self.templateServer = templateserver.getServer(self.cfg.templateCache, hostname=self.cfg.nodeName, tmpDir=os.path.join(self.cfg.basePath, 'tmp'))
 
         log.info('started jobmaster: %s' % self.cfg.nodeName)
+        self.lastHeartbeat = 0
 
     @catchErrors
     def checkControlTopic(self):
@@ -564,6 +564,13 @@ class JobMaster(object):
                 log.error('slave: %s unexpectedly died' % slave)
                 self.handleSlaveStop(slave)
 
+    @catchErrors
+    def heartbeat(self):
+        curTime = time.time()
+        if (curTime - self.lastHeartbeat) > 30:
+            self.lastHeartbeat = curTime
+            self.sendStatus()
+
     def run(self):
         self.running = True
         self.templateServer.start()
@@ -573,6 +580,7 @@ class JobMaster(object):
                 self.checkJobQueue()
                 self.checkControlTopic()
                 self.checkSlaves()
+                self.heartbeat()
                 time.sleep(0.1)
         finally:
             self.stopAllSlaves()
