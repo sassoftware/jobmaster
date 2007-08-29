@@ -34,3 +34,10 @@ def logCall(cmd, ignoreErrors = False, **kwargs):
         raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
     else:
         return p.returncode
+
+def getIP():
+    p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
+    data = p.read().strip()
+    p.close()
+    return data
+

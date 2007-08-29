@@ -23,7 +23,7 @@ from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
-from jobmaster.util import rewriteFile, logCall
+from jobmaster.util import rewriteFile, logCall, getIP
 
 from mcp import queue
 from mcp import response
@@ -47,12 +47,6 @@ def getAvailableArchs(arch):
         return ('x86',)
     elif arch == 'x86_64':
         return ('x86', 'x86_64')
-
-def getIP():
-    p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
-    data = p.read().strip()
-    p.close()
-    return data
 
 def controlMethod(func):
     func._controlMethod = True
@@ -121,12 +115,13 @@ class MasterConfig(client.MCPClientConfig):
 
 def waitForSlave(slaveName):
     paths = os.listdir(LVM_PATH)
-    fileName = [x for x in paths if slaveName in x][0]
-    path = os.path.join(LVM_PATH, fileName)
-    p = os.popen('fuser %s' % path)
-    while p.read():
-        time.sleep(0.1)
+    fileNames = [x for x in paths if slaveName in x]
+    if fileNames:
+        path = os.path.join(LVM_PATH, fileNames[0])
         p = os.popen('fuser %s' % path)
+        while p.read():
+            time.sleep(0.1)
+            p = os.popen('fuser %s' % path)
 
 
 class SlaveHandler(threading.Thread):
@@ -225,9 +220,10 @@ class SlaveHandler(threading.Thread):
                                             self.slaveName)))
         f.write('jobQueueName %s\n' % self.jobQueueName)
         if cfg.conaryProxy:
-            f.write('conaryProxy %s\n' % \
-                    ((cfg.conaryProxy != '127.0.0.1') \
-                        and cfg.conaryProxy or getIP()))
+            if cfg.conaryProxy == 'self':
+                f.write('conaryProxy http://%s/\n' % getIP())
+            else:
+                f.write('conaryProxy %s\n' % cfg.conaryProxy)
         f.write('watchdog %s\n' % str(not cfg.debugMode))
         f.close()
 
@@ -237,9 +233,9 @@ class SlaveHandler(threading.Thread):
                 str(protocolVersion)
         cc = conaryclient.ConaryClient()
         repos = cc.getRepos()
-        n = self.data.get('troveName')
-        v = versions.ThawVersion(self.data['troveVersion'])
-        f = deps.ThawFlavor(self.data.get('troveFlavor'))
+        n = self.data['troveName'].encode('utf8')
+        v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
+        f = deps.ThawFlavor(self.data.get('troveFlavor').encode('utf8'))
         NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
         trove = repos.getTrove(*NVF)
         return trove.troveInfo.size()
