@@ -155,13 +155,13 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         cfg.queueHost = '127.0.0.1'
         cfg.nodeName = 'testMaster'
         cfg.jobQueueName = 'job1-1-1:x86'
-        cfg.conaryProxy = '127.0.0.1'
+        cfg.conaryProxy = 'self'
 
         getIP = master.getIP
         ref1 = '\n'.join(( \
             'queueHost 192.168.0.1', 'queuePort 61613',
             'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
-            'conaryProxy 192.168.0.1', 'watchdog True', ''))
+            'conaryProxy http://192.168.0.1/', 'watchdog True', ''))
         ref2 = '\n'.join(( \
             'queueHost 192.168.0.1', 'queuePort 61613',
             'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
