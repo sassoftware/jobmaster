@@ -231,14 +231,18 @@ class SlaveHandler(threading.Thread):
         protocolVersion = self.data.get('protocolVersion')
         assert protocolVersion in (1,), "Unknown protocol version %s" % \
                 str(protocolVersion)
-        cc = conaryclient.ConaryClient()
-        repos = cc.getRepos()
-        n = self.data['troveName'].encode('utf8')
-        v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
-        f = deps.ThawFlavor(self.data.get('troveFlavor').encode('utf8'))
-        NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
-        trove = repos.getTrove(*NVF)
-        return trove.troveInfo.size()
+        if self.data['type'] == 'build':
+            cc = conaryclient.ConaryClient()
+            repos = cc.getRepos()
+            n = self.data['troveName'].encode('utf8')
+            v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
+            f = deps.ThawFlavor(self.data.get('troveFlavor').encode('utf8'))
+            NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
+            trove = repos.getTrove(*NVF)
+            return trove.troveInfo.size()
+        else:
+            # currently the only non-build job is a cook. assuming 1G
+            return 1024 * 1024 * 1024
 
     def addMountSizes(self):
         mountDict = self.data.get('jobData', {}).get('mountDict', {})

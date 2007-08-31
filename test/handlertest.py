@@ -192,7 +192,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
                 {'UUID' : 'test.rpath.local-build-55', 'troveName': troveName,
                     'troveVersion': troveVersion, 'troveFlavor': troveFlavor,
-                    'protocolVersion': 1})
+                    'type': 'build', 'protocolVersion': 1})
 
         handler.slaveName = 'xen44'
 
@@ -213,6 +213,21 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     "scratch calculation did not match expected value")
         finally:
             conaryclient.ConaryClient = ConaryClient
+
+    def testEsitmateCookSize(self):
+        troveName = 'group-test'
+        troveVersion = '/test.rpath.local@rpl:1/0.0:1-1-1'
+        troveFlavor = '1#x86'
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID' : 'test.rpath.local-cook-55-1',
+                    'type': 'cook', 'protocolVersion': 1})
+
+        handler.slaveName = 'xen44'
+
+        res = handler.estimateScratchSize()
+        self.failIf(res != 4800,
+                "scratch calculation did not match expected value")
 
 
 if __name__ == "__main__":
