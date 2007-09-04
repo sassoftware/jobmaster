@@ -233,8 +233,13 @@ class SlaveHandler(threading.Thread):
         protocolVersion = self.data.get('protocolVersion')
         assert protocolVersion in (1,), "Unknown protocol version %s" % \
                 str(protocolVersion)
+
         if self.data['type'] == 'build':
-            cc = conaryclient.ConaryClient()
+            # parse the configuration passed in from the job
+            ccfg = conarycfg.ConaryConfiguration()
+            [ccfg.configLine(x) for x in self.data['project']['conaryCfg'].split("\n")]
+
+            cc = conaryclient.ConaryClient(ccfg)
             repos = cc.getRepos()
             n = self.data['troveName'].encode('utf8')
             v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
