@@ -152,6 +152,7 @@ class JobMasterHelper(testhelp.TestCase):
         self.cfg.nodeName = 'testMaster'
         self.cfg.nameSpace = 'test'
         self.cfg.basePath = self.basePath
+        self.cfg.logFile = os.path.join(self.basePath, 'logs', 'jobmaster.log')
         self.jobMaster = ThreadedJobMaster(self.cfg)
         # ensure bootup messages don't interfere with tests
         self.jobMaster.response.response.connection.sent = []
@@ -173,5 +174,5 @@ class JobMasterHelper(testhelp.TestCase):
         subprocess.Popen = self.oldSubprocessPopen
 
     def assertLogContent(self, content):
-        f = open(os.path.join(self.cfg.basePath, 'logs', 'jobmaster.log'))
+        f = open(self.cfg.logFile)
         assert content in f.read(), "'%s' did not appear in log" % content

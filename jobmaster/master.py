@@ -104,6 +104,7 @@ def catchErrors(func):
 
 class MasterConfig(client.MCPClientConfig):
     basePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster')
+    logFile = os.path.join(os.path.sep, 'var', 'log', 'rbuilder', 'jobmaster.log')
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
@@ -379,7 +380,7 @@ class JobMaster(object):
     def __init__(self, cfg):
         logging.basicConfig(level=logging.DEBUG,
             format ='%(asctime)s %(levelname)s %(message)s',
-            filename = os.path.join(cfg.basePath, 'logs', 'jobmaster.log'),
+            filename = cfg.logFile,
             filemode='a')
 
         if cfg.nodeName is None:
