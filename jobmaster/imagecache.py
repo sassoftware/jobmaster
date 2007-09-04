@@ -12,6 +12,7 @@ import math
 import md5
 import re
 import urllib
+import signal
 import shutil
 import tempfile
 import time
@@ -148,6 +149,10 @@ def getRunningKernel():
     p = os.popen('conary q kernel:runtime --full-versions --flavors | grep %s' % ver)
     return p.read().strip()
 
+def signalHandler(*args, **kwargs):
+    # change signals into exceptions
+    raise RuntimeError('process killed')
+
 class ImageCache(object):
     def __init__(self, cachePath, masterCfg):
         self.cachePath = cachePath
@@ -205,6 +210,8 @@ class ImageCache(object):
         else:
             logging.info("Image not cached, creating image for %s" % \
                     troveSpec)
+            signal.signal(signal.SIGTERM, signalHandler)
+            signal.signal(signal.SIGINT, signalHandler)
             self.startBuildingImage(hash)
             try:
                 if os.path.exists(imageFile):

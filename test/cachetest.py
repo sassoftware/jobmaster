@@ -11,6 +11,7 @@ testsuite.setup()
 import jobmaster_helper
 
 import os
+import signal
 import tempfile
 import time
 
@@ -172,6 +173,30 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             self.failUnlessEqual(
                 set(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig'))),
                 set(['keyboard', 'network', 'network-scripts']))
+        finally:
+            util.rmtree(tmpDir)
+
+    def testMakeImageKill(self):
+        tmpDir = tempfile.mkdtemp()
+        troveSpec = 'test=test.rpath.local@rpl:1'
+        def waitForever(*args, **kwargs):
+            while True:
+                time.sleep(1)
+        try:
+            imageCache = imagecache.ImageCache(tmpDir, self.cfg)
+            imageCache.makeImage = waitForever
+            lockPath = imageCache.imagePath(troveSpec) + '.lock'
+            pid = os.fork()
+            if not pid:
+                try:
+                    imageCache.getImage(troveSpec)
+                finally:
+                    os._exit(0)
+            while not os.path.exists(lockPath):
+                time.sleep(1)
+            os.kill(pid, signal.SIGINT)
+            self.failIf(os.path.exists(lockPath),
+                    "building lock was not removed by signal")
         finally:
             util.rmtree(tmpDir)
 
