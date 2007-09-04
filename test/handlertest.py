@@ -67,15 +67,18 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             handler.run = dummyRun
             genMac = xenmac.genMac
             genIP = xenip.genIP
+            waitForSlave = master.waitForSlave
             try:
+                master.waitForSlave = lambda *args, **kwargs: None
                 xenmac.genMac = lambda: '00:16:3e:00:01:22'
                 xenip.genIP = lambda: '10.0.0.1'
                 handler.start()
                 handler.stop()
             finally:
+                master.waitForSlave = waitForSlave
                 xenmac.genMac = genMac
                 xenip.genIP = genIP
-            self.failUnlessEqual(self.callLog, ['xm destroy slave22', 'sleep 2; lvremove -f /dev/vg00/slave22'])
+            self.failUnlessEqual(self.callLog, ['xm destroy slave22', 'lvremove -f /dev/vg00/slave22-scratch', 'lvremove -f /dev/vg00/slave22-base'])
         except IndexError: # from getBootPaths, kernel/boot dir mismatch
             raise testsuite.SkipTestException("running kernel mismatch with /boot, skipping test")
 
@@ -105,6 +108,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         handler.slaveName = 'xen44'
         handler.cfgPath = '/tmp/test-config'
         handler.ip = '10.0.0.1'
+        waitForSlave = master.waitForSlave
 
         makeImage = imagecache.ImageCache.makeImage
         genMac = xenmac.genMac
@@ -113,6 +117,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         setsid = os.setsid
         exit = os._exit
         try:
+            master.waitForSlave = lambda *args, **kwargs: None
             imagecache. ImageCache.makeImage = dummyMakeImage
             os.fork = lambda: 0
             os.setsid = lambda: None
@@ -126,6 +131,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                 self.failIf(e.exitCode != 0,
                             "Run exited abnormally: exit code %d" % e.exitCode)
         finally:
+            master.waitForSlave = waitForSlave
             imagecache.ImageCache.makeImage = makeImage
             xenmac.genMac = genMac
             xenip.genIP = genIP
@@ -133,7 +139,9 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             os.setsid = setsid
             os._exit = exit
 
-        syscalls = ('lvcreate -n [^\s]* -L10240M vg00',
+        syscalls = ('lvcreate -n [^\s]*-base -L0M vg00',
+                    'dd if=[^\s]* of=[^\s]*',
+                    'lvcreate -n [^\s]*-scratch -L10240M vg00',
                     'mke2fs -m0 /dev/vg00/[^\s]',
                     'mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
                     'xm create /tmp/test-config$')

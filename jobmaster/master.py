@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#/usr/bin/python
 #
 # Copyright (c) 2005-2006 rPath, Inc.
 #
@@ -17,6 +17,7 @@ import time
 import traceback
 import shutil
 import signal
+import stat
 import weakref
 
 from jobmaster import master_error
@@ -115,14 +116,12 @@ class MasterConfig(client.MCPClientConfig):
     debugMode = (cfgtypes.CfgBool, False)
 
 def waitForSlave(slaveName):
-    paths = os.listdir(LVM_PATH)
-    fileNames = [x for x in paths if slaveName in x]
-    if fileNames:
-        path = os.path.join(LVM_PATH, fileNames[0])
-        p = os.popen('fuser %s' % path)
-        while p.read():
-            time.sleep(0.1)
-            p = os.popen('fuser %s' % path)
+    done = False
+    while not done:
+        p = os.popen("lvdisplay -c")
+        data = p.read()
+        c = [int(x.split(':')[5]) for x in data.splitlines() if slaveName in x]
+        done = not (c and max(c))
 
 
 class SlaveHandler(threading.Thread):
@@ -150,13 +149,15 @@ class SlaveHandler(threading.Thread):
 
         kernel, initrd = getBootPaths()
 
-        xenCfg = xencfg.XenCfg(self.imagePath,
+        xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
+            'dev', self.master().cfg.lvmVolumeName),
                                {'memory' : self.master().cfg.slaveMemory,
                                 'kernel': kernel,
                                 'initrd': initrd,
                                 'root': '/dev/xvda1 ro'},
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
         self.slaveName = xenCfg.cfg['name']
+        self.imagePath = '/dev/%s/%s-base' % (self.master().cfg.lvmVolumeName, self.slaveName)
         self.ip = xenCfg.ip
         self.slaveStatus(slavestatus.BUILDING, jobId = self.data['UUID'])
         fd, self.cfgPath = tempfile.mkstemp( \
@@ -187,8 +188,8 @@ class SlaveHandler(threading.Thread):
         waitForSlave(self.slaveName)
 
         log.info("destroying scratch space")
-        logCall("sleep 2; lvremove -f /dev/%s/%s" % (self.master().cfg.lvmVolumeName, self.slaveName),
-            ignoreErrors = True)
+        logCall("lvremove -f /dev/%s/%s-scratch" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
+        logCall("lvremove -f /dev/%s/%s-base" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
 
         if os.path.exists(self.imagePath):
             util.rmtree(self.imagePath, ignore_errors = True)
@@ -290,7 +291,12 @@ class SlaveHandler(threading.Thread):
                 cachedImage = self.imageCache().getImage(self.troveSpec)
                 log.info("Making runtime copy of cached image at: %s" % \
                              self.imagePath)
-                shutil.copyfile(cachedImage, self.imagePath)
+                slaveSize = os.stat(cachedImage)[stat.ST_SIZE]
+                # size was given in bytes, but we need megs
+                slaveSize = slaveSize / (1024 * 1024) + \
+                        ((slaveSize % (1024 * 1024)) and 1)
+                logCall("lvcreate -n %s-base -L%dM %s" % (self.slaveName, slaveSize, cfg.lvmVolumeName))
+                logCall("dd if=%s of=%s" % (cachedImage, self.imagePath))
                 log.info("making mount point")
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp(\
@@ -300,9 +306,10 @@ class SlaveHandler(threading.Thread):
                 try:
                     # creating temporary scratch space
                     scratchSize = self.estimateScratchSize()
-                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, self.slaveName))
+                    scratchName = "%s-scratch" % self.slaveName
+                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, scratchName))
 
-                    logCall("lvcreate -n %s -L%dM %s" % (self.slaveName, scratchSize, cfg.lvmVolumeName))
+                    logCall("lvcreate -n %s -L%dM %s" % (scratchName, scratchSize, cfg.lvmVolumeName))
                     logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
 
                     log.info('inserting runtime settings into slave')

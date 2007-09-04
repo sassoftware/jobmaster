@@ -522,7 +522,8 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                 return x.retval
         def MockPopen(cmd):
             self.count += 1
-            return DummyPipe((self.count % 2) and 'dummy retVal' or '')
+            return DummyPipe((self.count % 2) and \
+                '/dev/vg00/slave00:vg00:3:1:-1:1:4784128:73:-1:0:0:253:4' or '')
         self.count = 0
         try:
             master.LVM_PATH = NEW_LVM_PATH

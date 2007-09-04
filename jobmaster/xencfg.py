@@ -39,17 +39,8 @@ class XenCfg(object):
         self.cfg.setdefault('name', 'slave%s' % \
                             self.cfg['vif'][0].split(':')[-1])
 
-        p = os.popen('file -k %s' % imgPath)
-        data = p.read()
-        p.close()
-        if 'filesystem' in data:
-            suffix = '1'
-        elif 'boot sector' in data:
-            suffix = ''
-        else:
-            suffix = '1'
-            #raise UnrecognizedImage('%s is not a recognized image' % imgPath)
-        disks = self.cfg.setdefault('disk', ['tap:aio:%s,xvda%s,w' % (imgPath, suffix)])
+        filePath = os.path.join(imgPath, self.cfg['name'] + '-base')
+        disks = self.cfg.setdefault('disk', ['phy:%s,xvda1,w' % filePath])
         if extraDiskTemplate:
             disks.append('phy:%s,xvda2,w' % (extraDiskTemplate % self.cfg['name']))
 
