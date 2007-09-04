@@ -193,8 +193,17 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
                 finally:
                     os._exit(0)
             while not os.path.exists(lockPath):
-                time.sleep(1)
+                time.sleep(0.1)
             os.kill(pid, signal.SIGINT)
+
+            count = 0
+            while os.path.exists(lockPath):
+                time.sleep(0.1)
+                count += 1
+
+                if count > 100:
+                    break
+
             self.failIf(os.path.exists(lockPath),
                     "building lock was not removed by signal")
         finally:
