@@ -232,8 +232,13 @@ class SlaveHandler(threading.Thread):
         protocolVersion = self.data.get('protocolVersion')
         assert protocolVersion in (1,), "Unknown protocol version %s" % \
                 str(protocolVersion)
+
         if self.data['type'] == 'build':
-            cc = conaryclient.ConaryClient()
+            # parse the configuration passed in from the job
+            ccfg = conarycfg.ConaryConfiguration()
+            [ccfg.configLine(x) for x in self.data['project']['conaryCfg'].split("\n")]
+
+            cc = conaryclient.ConaryClient(ccfg)
             repos = cc.getRepos()
             n = self.data['troveName'].encode('utf8')
             v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
@@ -309,10 +314,10 @@ class SlaveHandler(threading.Thread):
                     log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, scratchName))
 
                     logCall("lvcreate -n %s -L%dM %s" % (scratchName, scratchSize, cfg.lvmVolumeName))
-                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
+                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, scratchName))
 
                     log.info('inserting runtime settings into slave')
-                    logCall('mount -o loop %s %s' % (self.imagePath, mntPoint))
+                    logCall('mount %s %s' % (self.imagePath, mntPoint))
 
                     # write python SlaveConfig
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',

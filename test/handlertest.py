@@ -143,7 +143,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     'dd if=[^\s]* of=[^\s]*',
                     'lvcreate -n [^\s]*-scratch -L10240M vg00',
                     'mke2fs -m0 /dev/vg00/[^\s]',
-                    'mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
+                    'mount [^\s]* [^\s]*$', 'umount [^\s]*$',
                     'xm create /tmp/test-config$')
         for index, (rgx, cmd) in [x for x in enumerate(zip(syscalls, self.callLog))]:
             self.failIf(not re.match(rgx, cmd), "Unexpected command sent to system at position %d: %s" % (index, cmd))
@@ -192,7 +192,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             util.rmtree(cfgPath, ignore_errors = True)
             master.getIP = getIP
 
-    def testEsitmateTroveSize(self):
+    def testEstimateTroveSize(self):
         troveName = 'group-test'
         troveVersion = '/test.rpath.local@rpl:1/0.0:1-1-1'
         troveFlavor = '1#x86'
@@ -200,20 +200,22 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
                 {'UUID' : 'test.rpath.local-build-55', 'troveName': troveName,
                     'troveVersion': troveVersion, 'troveFlavor': troveFlavor,
-                    'type': 'build', 'protocolVersion': 1})
+                    'type': 'build', 'protocolVersion': 1, 'project': {'conaryCfg': 'name RonaldFrobnitz'}})
 
         handler.slaveName = 'xen44'
 
         ConaryClient = conaryclient.ConaryClient
         class MockClient(object):
-            def __init__(x):
+            def __init__(x, y = None):
                 x.getRepos = lambda *args, **kwargs: x
                 x.findTrove = lambda *args, **kwargs: [[x]]
                 x.getTrove = lambda *args, **kwargs: x
                 x.troveInfo = x
-                x.cfg = x
+                x.cfg = y
                 x.flavor = None
                 x.size = lambda *args, **kwargs: 55 * 1024 * 1024 # 55M trove
+
+                self.failUnlessEqual(y.name, "RonaldFrobnitz")
         try:
             conaryclient.ConaryClient = MockClient
             res = handler.estimateScratchSize()

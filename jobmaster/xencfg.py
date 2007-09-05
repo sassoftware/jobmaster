@@ -42,7 +42,7 @@ class XenCfg(object):
         filePath = os.path.join(imgPath, self.cfg['name'] + '-base')
         disks = self.cfg.setdefault('disk', ['phy:%s,xvda1,w' % filePath])
         if extraDiskTemplate:
-            disks.append('phy:%s,xvda2,w' % (extraDiskTemplate % self.cfg['name']))
+            disks.append('phy:%s-scratch,xvda2,w' % (extraDiskTemplate % self.cfg['name']))
 
     def write(self, f = sys.stdout):
         for key, val in self.cfg.iteritems():
