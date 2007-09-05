@@ -407,8 +407,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             assert data[key] == val
 
     def pipeSlaves(self, memory, func = master.JobMaster.getMaxSlaves):
+        self.memList = memory[:]
         def DummyPipe(*args, **kwargs):
-            return StringIO.StringIO(memory)
+            return StringIO.StringIO(self.memList.pop())
         popen = os.popen
         try:
             os.popen = DummyPipe
@@ -417,35 +418,38 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.popen = popen
 
     def testGetNoSlaves(self):
-        slaves = self.pipeSlaves('512')
+        slaves = self.pipeSlaves(['512', '512'])
         self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
 
     def testGetOneSlave(self):
-        slaves = self.pipeSlaves('1024')
+        slaves = self.pipeSlaves(['512', '1024'])
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
 
     def testGetSlavesTurnover(self):
-        slaves = self.pipeSlaves('1280')
+        slaves = self.pipeSlaves(['512', '1280'])
         self.failIf(slaves != 1, "expected 1 slaves, got: %d" % slaves)
 
     def testGetSlavesBadPipe(self):
-        slaves = self.pipeSlaves('NAN')
+        slaves = self.pipeSlaves(['NAN', 'NAN'])
         self.failIf(slaves != 0, "expected 0 slaves, got: %d" % slaves)
 
     def testGetRealNoSlaves(self):
-        slaves = self.pipeSlaves('511', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves(['512', '511'], func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 0, "expected no slaves, got: %d" % slaves)
 
     def testGetRealOneSlave(self):
-        slaves = self.pipeSlaves('1023', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves(['512', '1088'],
+                func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
 
     def testGetRealSlavesTurnover(self):
-        slaves = self.pipeSlaves('1024', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves(['512', '1600'],
+                func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 2, "expected 2 slaves, got: %d" % slaves)
 
     def testGetRealSlavesBadPipe(self):
-        slaves = self.pipeSlaves('NAN', func = master.JobMaster.realSlaveLimit)
+        slaves = self.pipeSlaves(['NAN', 'NAN'],
+                func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 0, "expected 0 slaves, got: %d" % slaves)
 
     def testMissingSlave(self):

@@ -109,7 +109,6 @@ class MasterConfig(client.MCPClientConfig):
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
-    reservedMemory = (cfgtypes.CfgInt, 512) # memory in MB
     conaryProxy = None
     templateCache = os.path.join(basePath, 'anaconda-templates')
     lvmVolumeName = 'vg00'
@@ -452,8 +451,6 @@ class JobMaster(object):
             dataStr = self.controlTopic.read()
 
     def getMaxSlaves(self):
-        # this function is desgined for xen. if we extend to remote slaves
-        # such as EC2 it will need reworking.
         p = os.popen('xm info | grep total_memory | sed "s/.* //"')
         mem = p.read().strip()
         if mem.isdigit():
@@ -462,17 +459,28 @@ class JobMaster(object):
             log.error("can't determine host memory. assuming zero.")
             mem = 0
         p.close()
+
+        # get the dom0 used mem.
+        # note, we need to assume this value is constant so it doesn't play
+        # well with the balloon driver.
+        p = os.popen("xm list 0 | tail -n 1 | awk '{print $3};'")
+        dom0Mem = p.read().strip()
+        if dom0Mem.isdigit():
+            dom0Mem = int(dom0Mem)
+        else:
+            log.error("can't determine host dom0 Memory. assuming zero.")
+            dom0Mem = 0
+        p.close()
+
         # reserve memory for non-slave usage
-        mem -= self.cfg.reservedMemory
+        mem -= dom0Mem
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("not enough memory: jobmaster cannot support slaves at all")
         return count
 
     def realSlaveLimit(self):
-        # this function is desgined for xen. if we extend to remote slaves
-        # such as EC2 it will need reworking.
-        p = os.popen('xm info | grep free_memory | sed "s/.* //"')
+        p = os.popen('xm info | grep total_memory | sed "s/.* //"')
         mem = p.read().strip()
         if mem.isdigit():
             mem = int(mem)
@@ -480,6 +488,22 @@ class JobMaster(object):
             log.error("can't determine host memory. assuming zero.")
             mem = 0
         p.close()
+
+        # add up the total memory of all domains
+        # tradeoff. more complex bash script for far less complex test cases
+        p = os.popen("n = 0; for x in `xm list | grep -v 'Mem(MiB)' | awk '{print $3}'`; do n=$(( $n + $x )); done; echo $n")
+        domMem = p.read().strip()
+        if domMem.isdigit():
+            domMem = int(domMem)
+        else:
+            log.error("can't determine domain memory. assuming zero.")
+            domMem = 0
+        p.close()
+
+        mem -= domMem
+        # we need to put some swag into this number for the sake of xen.
+        # we simply cannot eat *all* the RAM on the box
+        mem -= 64
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("memory squeeze won't allow for more slaves")
@@ -533,9 +557,12 @@ class JobMaster(object):
         if handler:
             handler.stop()
             currentSlaves = len(self.slaves) + len(self.handlers)
-            if (currentSlaves < self.cfg.slaveLimit) and (currentSlaves < self.realSlaveLimit()):
-                self.jobQueue.incrementLimit()
-                log.info('Setting limit of job queue to: %s' % str(self.jobQueue.queueLimit))
+            # we must calculate each time in order to prevent transient memory
+            # issues from permanently dropping the amount of slaves available
+            slaveLimit = max(0, min(self.cfg.slaveLimit - currentSlaves,
+                    self.realSlaveLimit()))
+            log.info('Setting limit of job queue to: %s' % str(slaveLimit))
+            self.jobQueue.setLimit(slaveLimit)
         self.sendStatus()
 
     @catchErrors
