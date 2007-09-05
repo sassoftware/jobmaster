@@ -143,7 +143,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     'dd if=[^\s]* of=[^\s]*',
                     'lvcreate -n [^\s]*-scratch -L10240M vg00',
                     'mke2fs -m0 /dev/vg00/[^\s]',
-                    'mount -o loop [^\s]* [^\s]*$', 'umount [^\s]*$',
+                    'mount [^\s]* [^\s]*$', 'umount [^\s]*$',
                     'xm create /tmp/test-config$')
         for index, (rgx, cmd) in [x for x in enumerate(zip(syscalls, self.callLog))]:
             self.failIf(not re.match(rgx, cmd), "Unexpected command sent to system at position %d: %s" % (index, cmd))

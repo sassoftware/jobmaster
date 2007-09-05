@@ -315,10 +315,10 @@ class SlaveHandler(threading.Thread):
                     log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, scratchName))
 
                     logCall("lvcreate -n %s -L%dM %s" % (scratchName, scratchSize, cfg.lvmVolumeName))
-                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, self.slaveName))
+                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, scratchName))
 
                     log.info('inserting runtime settings into slave')
-                    logCall('mount -o loop %s %s' % (self.imagePath, mntPoint))
+                    logCall('mount %s %s' % (self.imagePath, mntPoint))
 
                     # write python SlaveConfig
                     cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
