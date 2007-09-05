@@ -26,6 +26,7 @@ from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
 from jobmaster.util import rewriteFile, logCall, getIP
 
+from mcp import mcp_log
 from mcp import queue
 from mcp import response
 from mcp import client
@@ -389,7 +390,7 @@ class SlaveHandler(threading.Thread):
 
 class JobMaster(object):
     def __init__(self, cfg):
-        logging.basicConfig(level=logging.DEBUG,
+        mcp_log.addRootLogger(level=logging.DEBUG,
             format ='%(asctime)s %(levelname)s %(message)s',
             filename = cfg.logFile,
             filemode='a')
