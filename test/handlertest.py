@@ -169,11 +169,11 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         ref1 = '\n'.join(( \
             'queueHost 192.168.0.1', 'queuePort 61613',
             'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
-            'conaryProxy http://192.168.0.1/', 'watchdog True', ''))
+            'conaryProxy http://192.168.0.1/', 'debugMode False', ''))
         ref2 = '\n'.join(( \
             'queueHost 192.168.0.1', 'queuePort 61613',
             'nodeName testMaster:xen44', 'jobQueueName job1-1-1:x86',
-            'watchdog False', ''))
+            'debugMode True', ''))
         try:
             master.getIP = lambda: '192.168.0.1'
             handler.writeSlaveConfig(cfgPath, cfg)
