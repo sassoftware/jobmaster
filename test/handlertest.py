@@ -224,7 +224,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         finally:
             conaryclient.ConaryClient = ConaryClient
 
-    def testEsitmateCookSize(self):
+    def testEstimateCookSize(self):
         troveName = 'group-test'
         troveVersion = '/test.rpath.local@rpl:1/0.0:1-1-1'
         troveFlavor = '1#x86'
