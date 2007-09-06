@@ -226,7 +226,7 @@ class SlaveHandler(threading.Thread):
                 f.write('conaryProxy http://%s/\n' % getIP())
             else:
                 f.write('conaryProxy %s\n' % cfg.conaryProxy)
-        f.write('watchdog %s\n' % str(not cfg.debugMode))
+        f.write('debugMode %s\n' % str(cfg.debugMode))
         f.close()
 
     def getTroveSize(self):
