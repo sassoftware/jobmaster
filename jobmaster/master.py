@@ -647,7 +647,7 @@ class JobMaster(object):
         del self.response
 
     def sendStatus(self):
-        log.info('sending master status')
+        log.debug('sending master status')
         self.response.masterStatus( \
             arch = self.arch, limit = self.cfg.slaveLimit,
             slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
