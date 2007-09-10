@@ -570,7 +570,8 @@ class JobMaster(object):
         if currentSlaves < self.cfg.slaveLimit:
             slaveLimit = max(0, min(self.cfg.slaveLimit - currentSlaves,
                     self.realSlaveLimit() - len(self.handlers)))
-            log.info('Setting limit of job queue to: %s' % str(slaveLimit))
+            if slaveLimit != self.jobQueue.queueLimit:
+                log.info('Setting limit of job queue to: %s' % str(slaveLimit))
             self.jobQueue.setLimit(slaveLimit)
 
     @catchErrors
