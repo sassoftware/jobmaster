@@ -80,6 +80,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         jobMaster = master.JobMaster(self.cfg)
         savedTime = time.time
         try:
+            jobMaster.checkSlaveCount = lambda: None
             time.time = lambda: 300
             jobMaster.heartbeat()
         finally:
@@ -150,13 +151,28 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 1)
         self.failIf(self.jobMaster.cfg.slaveLimit != 1,
                     "Slave limit was not set to 1")
-        assert self.jobMaster.jobQueue.queueLimit == 0, \
-            "setting slave limit allowed negative value"
 
     def testNegativeSlaveLimit(self):
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = -1)
         self.failIf(self.jobMaster.cfg.slaveLimit != 0,
                     "Slave limit of -1 was not adjusted to 0")
+
+    def testCheckSlaveCount(self):
+        # test that slave count checks account for slaves currently being
+        # built when determining the proper number to ask for.
+        self.jobMaster.slaves['test1'] = None
+        self.jobMaster.slaves['test2'] = None
+        self.jobMaster.handlers['test3'] = None
+        realSlaveLimit = self.jobMaster.realSlaveLimit
+        try:
+            self.jobMaster.realSlaveLimit = lambda: 2
+            self.jobMaster.jobQueue.setLimit(0)
+            self.jobMaster.cfg.slaveLimit = 5
+            self.jobMaster.checkSlaveCount()
+            self.failIf(self.jobMaster.jobQueue.queueLimit != 1,
+                    "Expected slave limit to be corrected to 1")
+        finally:
+            self.jobMaster.realSlaveLimit = realSlaveLimit
 
     def testBestProtocol(self):
         assert self.jobMaster.getBestProtocol(protocols = []) == 0

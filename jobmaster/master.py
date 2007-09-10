@@ -562,14 +562,16 @@ class JobMaster(object):
             del self.handlers[slaveName]
         if handler:
             handler.stop()
-            currentSlaves = len(self.slaves) + len(self.handlers)
-            # we must calculate each time in order to prevent transient memory
-            # issues from permanently dropping the amount of slaves available
+            self.checkSlaveCount()
+        self.sendStatus()
+
+    def checkSlaveCount(self):
+        currentSlaves = len(self.slaves) + len(self.handlers)
+        if currentSlaves < self.cfg.slaveLimit:
             slaveLimit = max(0, min(self.cfg.slaveLimit - currentSlaves,
-                    self.realSlaveLimit()))
+                    self.realSlaveLimit() - len(self.handlers)))
             log.info('Setting limit of job queue to: %s' % str(slaveLimit))
             self.jobQueue.setLimit(slaveLimit)
-        self.sendStatus()
 
     @catchErrors
     def checkJobQueue(self):
@@ -610,6 +612,7 @@ class JobMaster(object):
         curTime = time.time()
         if (curTime - self.lastHeartbeat) > 30:
             self.lastHeartbeat = curTime
+            self.checkSlaveCount()
             self.sendStatus()
 
     def run(self):
@@ -674,16 +677,20 @@ class JobMaster(object):
         log.info('asked to set slave limit to %d' % limit)
         # ensure we don't exceed environmental constraints
 
-        limit = min(limit, self.getMaxSlaves())
+        newLimit = min(limit, self.getMaxSlaves())
+        if limit != newLimit:
+            log.warning('System cannot support %d. setting slave limit to %d' \
+                    % (limit, newLimit))
+        limit = newLimit
         self.cfg.slaveLimit = max(limit, 0)
+
 
         f = open(CONFIG_PATH, 'w')
         f.write('slaveLimit %d\n' % limit)
         f.close()
         self.sendStatus()
 
-        limit = max(limit - len(self.slaves) - len(self.handlers), 0)
-        self.jobQueue.setLimit(limit)
+        self.checkSlaveCount()
 
     @controlMethod
     @protocols((1,))
