@@ -301,7 +301,7 @@ class SlaveHandler(threading.Thread):
                 slaveSize = slaveSize / (1024 * 1024) + \
                         ((slaveSize % (1024 * 1024)) and 1)
                 logCall("lvcreate -n %s-base -L%dM %s" % (self.slaveName, slaveSize, cfg.lvmVolumeName))
-                logCall("dd if=%s of=%s" % (cachedImage, self.imagePath))
+                logCall("dd if=%s of=%s bs=16K" % (cachedImage, self.imagePath))
                 log.info("making mount point")
                 # now add per-instance settings. such as path to MCP
                 mntPoint = tempfile.mkdtemp(\
