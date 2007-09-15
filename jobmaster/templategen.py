@@ -53,7 +53,7 @@ def log(msg, logPath=None, statusPath=None, truncateLog=False):
 
     finally:
         for f in (statF, logF):
-            if f and (f.fileno() > sys.stderr):
+            if f and (f.fileno() > sys.stderr.fileno()):
                 f.close()
 
 
@@ -211,7 +211,7 @@ class AnacondaTemplate(object):
             try:
                 f = open(self.metadataPath, 'r')
                 metadata = cPickle.load(f)
-            except OSError, e:
+            except (OSError, IOError), e:
                 log("ERROR: Failed to read metadata file %s (%s)" % \
                         (self.metadataPath, str(e)))
         finally:
@@ -224,14 +224,15 @@ class AnacondaTemplate(object):
         templateData = {}
         if self.exists():
             log("Found a cached template based on %s in %s; exiting" % \
-                        (self.getFullTroveSpec(), self.cacheDir))
+                        (self.getFullTroveSpec(), self.cacheDir),
+                        self.logPath, self.statusPath)
             return 2
 
-        if not os.path.exists(self.cacheDir):
-            util.mkdirChain(self.cacheDir)
+        util.mkdirChain(self.cacheDir)
 
         if not self._lock():
-            log("Someone else is building a matching anaconda template")
+            log("Someone else is building a matching anaconda template",
+                    self.logPath, self.statusPath)
             return 3
 
         # Create our logfile and status file
@@ -337,7 +338,7 @@ class AnacondaTemplate(object):
             self._unlock()
             if self.templateWorkDir:
                 log("Cleaning up template working directory %s" % \
-                        self.templateWorkDir)
+                        self.templateWorkDir, self.logPath, self.statusPath)
                 util.rmtree(self.templateWorkDir, ignore_errors=True)
 
         return rc
@@ -458,7 +459,7 @@ class AnacondaTemplateGenerator(object):
     _args = None
     _options = None
 
-    def handle_args(self):
+    def handle_args(self, args):
         usage = "%prog [options] output_dir"
         op = optparse.OptionParser(usage=usage)
         op.add_option("-V", "--version",
@@ -467,7 +468,7 @@ class AnacondaTemplateGenerator(object):
         op.add_option("-F", "--flavor",
                 dest = "flavor", default = "is: x86",
                 help = "which flavor of anaconda templates to generate")
-        (self._options, self._args) = op.parse_args()
+        (self._options, self._args) = op.parse_args(args)
         if len(self._args) < 1:
             op.error("missing output directory")
             return False
@@ -483,8 +484,8 @@ class AnacondaTemplateGenerator(object):
             print >> sys.stderr, "anaconda-templates not found with version %s, flavor %s; exiting" % (self._options.version, self._options.flavor)
             return 1
 
-    def __init__(self):
-        self.handle_args()
+    def __init__(self, args = sys.argv):
+        self.handle_args(args)
 
 if __name__ == '__main__':
     atg = AnacondaTemplateGenerator()
