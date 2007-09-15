@@ -69,21 +69,24 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             else:
                 pid = os.fork()
                 if not pid:
-                    # close the socket as the child won't be talking
-                    # back to the webserver
-                    os.close(self.rfile.fileno())
+                    try:
+                        # close the socket as the child won't be talking
+                        # back to the webserver
+                        os.close(self.rfile.fileno())
 
-                    # kill the old anaconda template object reference
-                    # (the parent will be dumping his ref, and you need
-                    # one with a fresh conaryclient, anyways)
-                    del at
+                        # kill the old anaconda template object reference
+                        # (the parent will be dumping his ref, and you need
+                        # one with a fresh conaryclient, anyways)
+                        del at
 
-                    # get a new anaconda template object (with a new tmpdir)
-                    at = templategen.AnacondaTemplate(v, f,
-                            self.templateRoot, self.tmpDir)
+                        # get a new anaconda template object (with a new tmpdir)
+                        at = templategen.AnacondaTemplate(v, f,
+                                self.templateRoot, self.tmpDir)
 
-                    # start the generation
-                    os._exit(at.generate())
+                        # start the generation
+                        os._exit(at.generate())
+                    except:
+                        os._exit(1)
 
                 # parent sends back a response
                 self.send_response(202) # HTTP 1.x / Accepted
@@ -124,7 +127,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         except IOError:
             # If the status file isn't there, check to see if the
             # template and metadata exist. If so, instruct the client
-            # to go get the damn template.
+            # to retrieve the template
             if os.path.exists(tarballPath) and os.path.exists(metadataPath):
                 self.send_response(303) # HTTP 1.x / See Also
                 self.send_header("Location", "http://%s:%s/%s" % \
@@ -193,11 +196,15 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
         threading.Thread.__init__(self)
         BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
         self.running = True
+        self.started = False
         self.lock = threading.RLock()
         self.socket.settimeout(TIMEOUT)
 
     def get_request(self):
-        running = True
+        self.lock.acquire()
+        self.started = True
+        running = self.running
+        self.lock.release()
         while running:
             # Using exceptions like this is tacky. if there were a better method
             # we'd be using it. that's why the socket timeout is in seconds.
@@ -220,9 +227,11 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
 
     def stop(self):
         self.lock.acquire()
+        started = self.started
         self.running = False
         self.lock.release()
-        self.join()
+        if started:
+            self.join()
 
 def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
         tmpDir='/var/tmp'):

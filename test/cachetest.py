@@ -12,6 +12,7 @@ import jobmaster_helper
 
 import os
 import signal
+import StringIO
 import tempfile
 import time
 
@@ -209,6 +210,26 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         finally:
             util.rmtree(tmpDir)
 
+    def testGetRunningKernel(self):
+        self.count = 0
+        def FakePopen(*args, **kwargs):
+            try:
+                if self.count:
+                    assert '2.6.22.4-0.0.1' in args[0]
+                    return StringIO.StringIO('kernel version from conary')
+                else:
+                    return StringIO.StringIO( \
+                            '2.6.22.4-0.0.1.smp.gcc3.4.x86.i686')
+            finally:
+                self.count += 1
+
+        popen = os.popen
+        try:
+            os.popen = FakePopen
+            res = imagecache.getRunningKernel()
+            self.assertEquals('kernel version from conary', res)
+        finally:
+            os.popen = popen
 
 if __name__ == "__main__":
     testsuite.main()
