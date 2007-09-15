@@ -139,6 +139,13 @@ class JobMasterHelper(testhelp.TestCase):
             def poll(self2):
                 return True
 
+            def wait(self2):
+                return 0
+
+            def communicate(self2):
+                # used in the templategen generate function
+                return 'fake_sha1'
+
         self.basePath = tempfile.mkdtemp()
         os.mkdir(os.path.join(self.basePath, 'imageCache'))
         os.mkdir(os.path.join(self.basePath, 'logs'))
@@ -176,3 +183,11 @@ class JobMasterHelper(testhelp.TestCase):
     def assertLogContent(self, content):
         f = open(self.cfg.logFile)
         assert content in f.read(), "'%s' did not appear in log" % content
+
+    def touch(self, fn, contents = ''):
+       if not os.path.exists(fn):
+           util.mkdirChain(os.path.split(fn)[0])
+           f = open(fn, 'w')
+           f.write(contents)
+           f.close()
+

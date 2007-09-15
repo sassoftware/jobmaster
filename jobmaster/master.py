@@ -179,7 +179,7 @@ class SlaveHandler(threading.Thread):
             except OSError, e:
                 # ignore race condition where child died right after we recorded
                 # it's pid
-                if errno != 3:
+                if e.errno != 3:
                     raise
 
         log.info("destroying slave")
