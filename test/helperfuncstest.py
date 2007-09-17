@@ -11,8 +11,10 @@ testsuite.setup()
 import testhelp
 
 import os
+import tempfile
 
 from jobmaster import master, master_error
+from jobmaster import util as masterUtil
 
 class HelperFuncsTest(testhelp.TestCase):
     def testArch(self):
@@ -42,6 +44,23 @@ class HelperFuncsTest(testhelp.TestCase):
 
         self.assertRaises(master_error.ProtocolError, stubFunction,
                           self, protocolVersion = -1)
+
+    def testRewriteFile(self):
+        fn, src = tempfile.mkstemp()
+        os.close(fn)
+        f = open(src, 'w')
+        f.write('%(test)s')
+        f.close()
+        fn, dest = tempfile.mkstemp()
+        os.close(fn)
+        try:
+            masterUtil.rewriteFile(src, dest, {'test': 'foo'})
+            data = open(dest).read()
+            self.failIf(data != 'foo')
+        finally:
+            if os.path.exists(src):
+                os.unlink(src)
+            os.unlink(dest)
 
 
 if __name__ == '__main__':
