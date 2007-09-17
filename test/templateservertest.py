@@ -34,19 +34,20 @@ class TemplateServerTest(testsuite.TestCase):
         util.rmtree(self.templateRoot)
         templateserver.TIMEOUT = self.TIMEOUT
 
-    def testNormalStop(self):
+    def testStop(self):
+        self.started = False
+        class FakeSocket(object):
+            def accept(x):
+                self.started = True
+                raise socket.timeout
+        self.srv.socket = FakeSocket()
         self.srv.start()
         started = False
         while not started:
+            # use the templateserver's lock, to prevent race conditions
             self.srv.lock.acquire()
-            started = self.srv.started
+            started = self.started
             self.srv.lock.release()
-            time.sleep(0.1)
-        self.srv.stop()
-
-    def testStopWithoutStart(self):
-        # historically this used to raise an asserion error from the threading
-        # module. calling stop and not getting an error exercises this.
         self.srv.stop()
 
     def testRunAfterStopped(self):
@@ -61,6 +62,17 @@ class TemplateServerTest(testsuite.TestCase):
         self.srv.socket = FakeSocket()
         self.srv.run()
 
+    def testSocketError(self):
+        class FakeServer(object):
+            def __init__(x, *args, **kwargs):
+                exc = socket.error(101)
+                raise exc
+        TemplateServer = templateserver.TemplateServer
+        try:
+            templateserver.TemplateServer = FakeServer
+            self.assertRaises(socket.error, templateserver.getServer, '/tmp')
+        finally:
+            templateserver.TemplateServer = TemplateServer
 
 class StubHandler(templateserver.TemplateServerHandler):
     def __init__(self, path, templateRoot = None, *args, **kwargs):

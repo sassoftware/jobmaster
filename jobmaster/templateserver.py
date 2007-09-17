@@ -196,13 +196,11 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
         threading.Thread.__init__(self)
         BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
         self.running = True
-        self.started = False
         self.lock = threading.RLock()
         self.socket.settimeout(TIMEOUT)
 
     def get_request(self):
         self.lock.acquire()
-        self.started = True
         running = self.running
         self.lock.release()
         while running:
@@ -227,11 +225,9 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
 
     def stop(self):
         self.lock.acquire()
-        started = self.started
         self.running = False
         self.lock.release()
-        if started:
-            self.join()
+        self.join()
 
 def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
         tmpDir='/var/tmp'):
