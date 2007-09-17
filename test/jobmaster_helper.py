@@ -10,6 +10,7 @@ import testhelp
 import subprocess
 
 from jobmaster import master
+from jobmaster import templateserver
 
 import tempfile
 import threading
@@ -108,11 +109,21 @@ class DummyTopic(DummyQueue):
 class DummyMultiplexedTopic(DummyMultiplexedQueue):
     type = 'topic'
 
+class DummyTemplateServer(object):
+    __init__ = lambda *args, **kwargs: None
+    start = lambda *args, **kwargs: None
+    stop = lambda *args, **kwargs: None
 
 class ThreadedJobMaster(master.JobMaster, threading.Thread):
     def __init__(self, *args, **kwargs):
         threading.Thread.__init__(self)
-        master.JobMaster.__init__(self, *args, **kwargs)
+        TemplateServer = templateserver.TemplateServer
+        try:
+            templateserver.TemplateServer = DummyTemplateServer
+            master.JobMaster.__init__(self, *args, **kwargs)
+        finally:
+            templateserver.TemplateServer = TemplateServer
+
 
     def resolveTroveSpec(self, troveSpec):
         return troveSpec
