@@ -42,6 +42,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             f = cgi.parse_qs(paramStr).get('f')
             if not (v and f):
                 self.send_error(400) # HTTP 1.x / Bad Request
+                return
 
             v = v[0]
             f = f[0]

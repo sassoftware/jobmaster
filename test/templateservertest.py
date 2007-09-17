@@ -11,12 +11,15 @@ testsuite.setup()
 import cPickle
 import os
 import socket
+import StringIO
 import tempfile
 import time
 
 from jobmaster import templateserver
+from jobmaster import templategen
 
 from conary.lib import util
+from conary.errors import TroveNotFound
 
 class TemplateServerTest(testsuite.TestCase):
     def setUp(self):
@@ -74,15 +77,25 @@ class TemplateServerTest(testsuite.TestCase):
         finally:
             templateserver.TemplateServer = TemplateServer
 
+class StubHeaders(object):
+    def __init__(self):
+        self.headers = {'content-length': '100'}
+    def getheader(self, key):
+        return self.headers.get(key)
+    def setheader(self, key, val):
+        self.headers[key] = val
+
 class StubHandler(templateserver.TemplateServerHandler):
     def __init__(self, path, templateRoot = None, *args, **kwargs):
         self.templateRoot = templateRoot
         self.path = path
+        self.headers = StubHeaders()
         self.errors = []
-        self.headers = []
         self.responses = []
+        self.responseHeaders = []
         self.hostname = 'local.test'
         self.port = '8100'
+        self.rfile = StringIO.StringIO()
 
     def send_error(self, code, msg = ''):
         self.errors.append((code, msg))
@@ -91,7 +104,7 @@ class StubHandler(templateserver.TemplateServerHandler):
         self.responses.append(code)
 
     def send_header(self, key, val):
-        self.headers.append((key, val))
+        self.responseHeaders.append((key, val))
 
     def end_headers(self):
         pass
@@ -148,7 +161,7 @@ class TemplateServerHandlerTest(testsuite.TestCase):
             hdlr = StubHandler('/stuff?h=hash', templateRoot = tmpDir)
             hdlr.status()
             self.assertEquals(hdlr.responses, [303])
-            self.assertEquals(hdlr.headers, \
+            self.assertEquals(hdlr.responseHeaders, \
                     [('Location', 'http://local.test:8100/hash')])
         finally:
             util.rmtree(tmpDir)
@@ -160,7 +173,7 @@ class TemplateServerHandlerTest(testsuite.TestCase):
             hdlr = StubHandler('/stuff?h=hash', templateRoot = tmpDir)
             hdlr.status()
             self.assertEquals(hdlr.responses, [200])
-            self.assertEquals(hdlr.headers,
+            self.assertEquals(hdlr.responseHeaders,
                     [('Content-Type', 'text/plain'), ('Content-Length', '5')])
         finally:
             util.rmtree(tmpDir)
@@ -172,7 +185,7 @@ class TemplateServerHandlerTest(testsuite.TestCase):
             hdlr = StubHandler('/status?h=hash', templateRoot = tmpDir)
             hdlr.send_head()
             self.assertEquals(hdlr.responses, [200])
-            self.assertEquals(hdlr.headers,
+            self.assertEquals(hdlr.responseHeaders,
                     [('Content-Type', 'text/plain'), ('Content-Length', '5')])
         finally:
             util.rmtree(tmpDir)
@@ -200,7 +213,7 @@ class TemplateServerHandlerTest(testsuite.TestCase):
             ref = [('Content-Type', 'application/x-tar'),
                     ('Content-Length', '8'),
                     ('X-custom-header', 'stuff')]
-            self.assertEquals(hdlr.headers, ref)
+            self.assertEquals(hdlr.responseHeaders, ref)
         finally:
             util.rmtree(tmpDir)
 
@@ -218,8 +231,142 @@ class TemplateServerHandlerTest(testsuite.TestCase):
             ref = [('Content-Type', 'application/x-tar'),
                     ('Content-Length', '8'),
                     ('X-custom-header', 'stuff')]
-            self.assertEquals(hdlr.headers, ref)
+            self.assertEquals(hdlr.responseHeaders, ref)
         finally:
+            util.rmtree(tmpDir)
+
+    def testMakeTemplateVersions(self):
+        tmpDir = tempfile.mkdtemp()
+        try:
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.errors, [(400, '')])
+        finally:
+            util.rmtree(tmpDir)
+
+    def testMakeTemplate404(self):
+        class DummyAnacondaTemplate(object):
+            def __init__(self, *args, **kwargs):
+                raise TroveNotFound
+        tmpDir = tempfile.mkdtemp()
+        AnacondaTemplate = templategen.AnacondaTemplate
+        try:
+            templategen.AnacondaTemplate = DummyAnacondaTemplate
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.rfile = StringIO.StringIO('v=/test.rpath.local@rpl:1/1-1-1&f=[is: x86]')
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.errors, [(404, '')])
+        finally:
+            templategen.AnacondaTemplate = AnacondaTemplate
+            util.rmtree(tmpDir)
+
+    def testMakeTemplateDone(self):
+        class DummyAnacondaTemplate(object):
+            __init__ = lambda *args, **kwargs: None
+            getFullTroveSpecHash = lambda *args, **kwargs: '12345'
+            status = lambda *args, **kwargs: (False, '')
+            exists = lambda *args, **kwargs: True
+        tmpDir = tempfile.mkdtemp()
+        AnacondaTemplate = templategen.AnacondaTemplate
+        try:
+            templategen.AnacondaTemplate = DummyAnacondaTemplate
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.rfile = StringIO.StringIO('v=/test.rpath.local@rpl:1/1-1-1&f=[is: x86]')
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.responses, [303])
+            self.assertEquals(hdlr.responseHeaders,
+                    [('Location', 'http://local.test:8100/12345')])
+        finally:
+            templategen.AnacondaTemplate = AnacondaTemplate
+            util.rmtree(tmpDir)
+
+    def testMakeTemplateRunning(self):
+        class DummyAnacondaTemplate(object):
+            __init__ = lambda *args, **kwargs: None
+            getFullTroveSpecHash = lambda *args, **kwargs: '12345'
+            status = lambda *args, **kwargs: (True, 'status')
+            exists = lambda *args, **kwargs: False
+        tmpDir = tempfile.mkdtemp()
+        AnacondaTemplate = templategen.AnacondaTemplate
+        try:
+            templategen.AnacondaTemplate = DummyAnacondaTemplate
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.rfile = StringIO.StringIO('v=/test.rpath.local@rpl:1/1-1-1&f=[is: x86]')
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.responses, [303])
+            self.assertEquals(hdlr.responseHeaders,
+                    [('Location', 'http://local.test:8100/status?h=12345')])
+        finally:
+            templategen.AnacondaTemplate = AnacondaTemplate
+            util.rmtree(tmpDir)
+
+    def testMakeTemplate(self):
+        class DummyAnacondaTemplate(object):
+            __init__ = lambda *args, **kwargs: None
+            getFullTroveSpecHash = lambda *args, **kwargs: '12345'
+            getFullTroveSpec = lambda *args, **kwargs: '12345'
+            status = lambda *args, **kwargs: (False, '')
+            exists = lambda *args, **kwargs: False
+            generate = lambda *args, **kwargs: None
+        tmpDir = tempfile.mkdtemp()
+        AnacondaTemplate = templategen.AnacondaTemplate
+        fork = os.fork
+        _exit = os._exit
+        close = os.close
+        try:
+            os.fork = lambda *args, **kwargs: None
+            os._exit = lambda *args, **kwargs: None
+            os.close = lambda *args, **kwargs: None
+            templategen.AnacondaTemplate = DummyAnacondaTemplate
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.rfile = StringIO.StringIO('v=/test.rpath.local@rpl:1/1-1-1&f=[is: x86]')
+            hdlr.rfile.fileno = lambda *args, **kwargs: 0
+            hdlr.wfile = StringIO.StringIO()
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.responses, [202])
+            self.assertEquals(hdlr.responseHeaders,
+                    [('X-Full-Trove-Spec-Hash', '12345'),
+                        ('Location', 'http://local.test:8100/status?h=12345'),
+                        ('Content-Type', 'text/html'),
+                        ('Content-Length', 217)])
+        finally:
+            os.close = close
+            os._exit = _exit
+            os.fork = fork
+            templategen.AnacondaTemplate = AnacondaTemplate
+            util.rmtree(tmpDir)
+
+    def testMakeTemplateError(self):
+        class DummyAnacondaTemplate(object):
+            __init__ = lambda *args, **kwargs: None
+            getFullTroveSpecHash = lambda *args, **kwargs: '12345'
+            getFullTroveSpec = lambda *args, **kwargs: '12345'
+            status = lambda *args, **kwargs: (False, '')
+            exists = lambda *args, **kwargs: False
+            def generate(*args, **kwargs):
+                raise RuntimeError, "testing a codepath"
+        def fake_exit(code):
+            raise RuntimeError, "error code: %d" % code
+        tmpDir = tempfile.mkdtemp()
+        AnacondaTemplate = templategen.AnacondaTemplate
+        fork = os.fork
+        _exit = os._exit
+        close = os.close
+        try:
+            os.fork = lambda *args, **kwargs: None
+            os._exit = fake_exit
+            os.close = lambda *args, **kwargs: None
+            templategen.AnacondaTemplate = DummyAnacondaTemplate
+            hdlr = StubHandler('/hash', templateRoot = tmpDir)
+            hdlr.rfile = StringIO.StringIO('v=/test.rpath.local@rpl:1/1-1-1&f=[is: x86]')
+            hdlr.rfile.fileno = lambda *args, **kwargs: 0
+            hdlr.makeTemplate()
+            self.assertEquals(hdlr.errors, [(500, 'error code: 1')])
+        finally:
+            os.close = close
+            os._exit = _exit
+            os.fork = fork
+            templategen.AnacondaTemplate = AnacondaTemplate
             util.rmtree(tmpDir)
 
 
