@@ -539,7 +539,7 @@ class JobMaster(object):
             refTrove = troves[0]
             for trv in troves:
                 if trv != refTrove:
-                    if f.satisfies(trv[2].difference(refTrove[2])):
+                    if (trv[2].difference(refTrove[2])).satisfies(f):
                         refTrove = trv
             troves = [refTrove]
         res = '%s=%s[%s]' % troves[0]
