@@ -1,0 +1,11 @@
+/var/log/rbuilder/jobmaster.log {
+    missingok
+    notifempty
+    compress
+    compresscmd /usr/bin/bzip2
+    compressext .bz2
+    size 50M
+    postrotate
+                    kill -HUP `cat /var/run/jobmaster.pid`
+    endscript
+}
