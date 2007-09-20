@@ -48,6 +48,8 @@ stop() {
     if [ "$1" = "--wait" ]; then
         echo -n "Waiting for $LONGNAME server to terminate..."
         while [ -f "$PIDFILE" ]; do sleep 1; done
+        # wait for the templateserver port to be free
+        while [ "`netstat -an | awk '{print $4};' | grep ":8000"`" != "" ]; do sleep 1; done
         echo "done."
     fi
 }
