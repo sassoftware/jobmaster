@@ -567,7 +567,8 @@ class JobMaster(object):
 
     def checkSlaveCount(self):
         currentSlaves = len(self.slaves) + len(self.handlers)
-        if currentSlaves < self.cfg.slaveLimit:
+        totalCount = self.jobQueue.queueLimit + currentSlaves
+        if totalCount != self.cfg.slaveLimit:
             slaveLimit = max(0, min(self.cfg.slaveLimit - currentSlaves,
                     self.realSlaveLimit() - len(self.handlers)))
             if slaveLimit != self.jobQueue.queueLimit:
@@ -682,8 +683,9 @@ class JobMaster(object):
         if limit != newLimit:
             log.warning('System cannot support %d. setting slave limit to %d' \
                     % (limit, newLimit))
-        limit = newLimit
-        self.cfg.slaveLimit = max(limit, 0)
+            limit = newLimit
+        limit = max(limit, 0)
+        self.cfg.slaveLimit = limit
 
 
         f = open(CONFIG_PATH, 'w')

@@ -117,6 +117,22 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                         (limit, limit + 1))
         assert self.jobMaster.jobQueue.queueLimit == (limit + 1)
 
+    def testSetSlaveLimitError(self):
+        # this code ends up testing two things, that the slave limit is
+        # honored, and also that checkSlaveLimit will reduce the demand count
+        # as well as increase it.
+        limit = self.jobMaster.cfg.slaveLimit
+        getMaxSlaves = self.jobMaster.getMaxSlaves
+        try:
+            self.jobMaster.getMaxSlaves = lambda *args, **kwargs: 2
+            self.jobMaster.slaveLimit(protocolVersion = 1, limit = 0)
+        finally:
+            self.jobMaster.getMaxSlaves = getMaxSlaves
+        self.failIf(self.jobMaster.cfg.slaveLimit,
+                "Expected a slaveLimit of 0, but got %d" % \
+                        self.jobMaster.cfg.slaveLimit)
+        assert self.jobMaster.jobQueue.queueLimit == 0
+
     def testRunningSetSlaveLimit(self):
         # this is illegal, but not harmful when test case was written
         self.jobMaster.slaves['testSlave'] = None
