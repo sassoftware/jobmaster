@@ -333,13 +333,13 @@ class AnacondaTemplate(object):
                         (str(e), self.getFullTroveSpec()),
                         self.logPath, self.statusPath)
         finally:
-            if self.statusPath:
-                os.unlink(self.statusPath)
-            self._unlock()
             if self.templateWorkDir:
                 log("Cleaning up template working directory %s" % \
                         self.templateWorkDir, self.logPath, self.statusPath)
                 util.rmtree(self.templateWorkDir, ignore_errors=True)
+            if self.statusPath:
+                os.unlink(self.statusPath)
+            self._unlock()
 
         return rc
 
