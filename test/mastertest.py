@@ -20,6 +20,10 @@ import jobmaster_helper
 
 from jobmaster import master
 from jobmaster import constants
+from jobmaster import xenmac
+from jobmaster import xenip
+
+from mcp import slavestatus
 
 from conary.lib import util
 
@@ -589,6 +593,69 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             util.rmtree(NEW_LVM_PATH)
             LVM_PATH = LVM_PATH
             os.popen = popen
+
+    def testBadStatusReport(self):
+        def FakeHeartbeat(*args, **kwargs):
+            # set up running to be a simple countdown
+            if self.jobMaster.running is True:
+                self.jobMaster.running = 2
+            self.jobMaster.running -= 1
+            return self.jobMaster._heartbeat(*args, **kwargs)
+
+        def FakeHandlerRun(x):
+            x.slaveStatus(slavestatus.OFFLINE)
+
+        jobData = simplejson.dumps({'protocolVersion': 1,
+            'UUID' : 'test.rpath.local-build-42',
+            'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
+        sleep = master.time.sleep
+        getJobQueueName = master.SlaveHandler.getJobQueueName
+        genMac = xenmac.genMac
+        genIP = xenip.genIP
+        handlerRun = master.SlaveHandler.run
+        try:
+            master.SlaveHandler.run = FakeHandlerRun
+            xenip.genIP = lambda *args, **kwargs: '10.5.6.1'
+            xenmac.genMac = lambda *args, **kwargs: '00:16:3e:00:01:01'
+            master.SlaveHandler.getJobQueueName = lambda *args, **kwargs: \
+                    "job4.0.0:x86"
+            self.jobMaster._heartbeat = self.jobMaster.heartbeat
+            self.jobMaster.heartbeat = FakeHeartbeat
+            time.sleep = lambda *args, **kwargs: None
+            resp = self.jobMaster.response
+            self.jobMaster.jobQueue.inbound = [jobData]
+            self.captureOutput(self.jobMaster.run)
+            state = 'testStart'
+            respawnCount = 0
+            for message in [x[1] for x in \
+                    reversed(resp.response.connection.sent)]:
+                data = simplejson.loads(message)
+                if data['event'] == 'slaveStatus':
+                    if data['status'] != slavestatus.OFFLINE:
+                        state = 'up'
+                    else:
+                        if state == 'up':
+                            respawnCount += 1
+                        state = 'down'
+                elif data['event'] == 'masterOffline':
+                    if state == 'up':
+                        respawnCount += 1
+                    state = 'down'
+                elif data['event'] == 'masterStatus':
+                    if 'testMaster:slave01' in data['slaves']:
+                        state = 'up'
+                    else:
+                        if state == 'up':
+                            respawnCount += 1
+                        state = 'down'
+            self.failIf(respawnCount != 1, \
+                    'expected 1 respawn, but observed: %d' % respawnCount)
+        finally:
+            master.SlaveHandler.run = handlerRun
+            xenip.genIP = genIP
+            xenmac.genMac = genMac
+            master.SlaveHandler.getJobQueueName = getJobQueueName 
+            master.time.sleep = sleep
 
 
 if __name__ == "__main__":

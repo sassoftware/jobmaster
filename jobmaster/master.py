@@ -622,9 +622,9 @@ class JobMaster(object):
         self.templateServer.start()
         try:
             while self.running:
-                self.checkHandlers()
                 self.checkJobQueue()
                 self.checkControlTopic()
+                self.checkHandlers()
                 self.checkSlaves()
                 self.heartbeat()
                 time.sleep(0.1)
