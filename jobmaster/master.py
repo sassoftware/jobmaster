@@ -106,7 +106,10 @@ def catchErrors(func):
 
 class MasterConfig(client.MCPClientConfig):
     basePath = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster')
+
     logFile = os.path.join(os.path.sep, 'var', 'log', 'rbuilder', 'jobmaster.log')
+    logLevel = (mcp_log.CfgLogLevel, 'INFO')
+
     slaveLimit = (cfgtypes.CfgInt, 1)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
@@ -390,7 +393,7 @@ class SlaveHandler(threading.Thread):
 
 class JobMaster(object):
     def __init__(self, cfg):
-        mcp_log.addRootLogger(level=logging.DEBUG,
+        mcp_log.addRootLogger(level=cfg.logLevel,
             format ='%(asctime)s %(levelname)s %(message)s',
             filename = cfg.logFile,
             filemode='a')
