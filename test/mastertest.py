@@ -11,6 +11,7 @@ testsuite.setup()
 import os
 import time
 import simplejson
+import signal
 import StringIO
 import threading
 import tempfile
@@ -725,6 +726,33 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.setpgid = setpgid
             os._exit = _exit
             os.fork = fork
+
+    def testFlushJobs(self):
+        jobData = simplejson.dumps({'protocolVersion': 1,
+            'UUID' : 'test.rpath.local-build-88',
+            'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
+        self.jobMaster.jobQueue.inbound = [jobData]
+        self.jobMaster.flushJobs()
+        for status in (slavestatus.BUILDING, slavestatus.OFFLINE):
+            addy, event = \
+                    self.jobMaster.response.response.connection.sent.pop()
+            data = simplejson.loads(event)
+            self.assertEquals(data.get('event'), 'slaveStatus')
+            self.assertEquals(data.get('jobId'), 'test.rpath.local-build-88')
+            self.assertEquals(data.get('slaveId'), 'testMaster:deadSlave0')
+            self.assertEquals(data.get('status'), status)
+
+    def testFlushJobProtocols(self):
+        jobData = simplejson.dumps({'protocolVersion': -1,
+            'UUID' : 'test.rpath.local-build-88',
+            'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
+        self.jobMaster.jobQueue.inbound = [jobData]
+        self.jobMaster.flushJobs()
+        self.assertEquals(self.jobMaster.response.response.connection.sent, [])
+
+    def testCatchSignal(self):
+        self.jobMaster.catchSignal(signal.SIGTERM, None)
+        self.assertEquals(self.jobMaster.running, False)
 
 
 if __name__ == "__main__":

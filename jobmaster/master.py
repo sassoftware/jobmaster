@@ -634,7 +634,26 @@ class JobMaster(object):
             self.disconnect()
             self.templateServer.stop()
 
+    def flushJobs(self):
+        self.jobQueue.setLimit(0)
+        dataStr = self.jobQueue.read()
+        count = 0
+        while dataStr:
+            data = simplejson.loads(dataStr)
+            if data.get('protocolVersion') == 1:
+                jobId = data['UUID']
+                slaveName = 'deadSlave%d' % count
+                count += 1
+                self.slaveStatus(slaveName, slavestatus.BUILDING, '', jobId)
+                self.slaveStatus(slaveName, slavestatus.OFFLINE, '', jobId)
+            else:
+                # need to tell the mcp a job was lost
+                log.error('Invalid Protocol Version %d' % \
+                              data['protocolVersion'])
+            dataStr = self.jobQueue.read()
+
     def stopAllSlaves(self):
+        self.flushJobs()
         for slaveId in self.slaves.keys() + self.handlers.keys():
             self.handleSlaveStop(slaveId)
 
@@ -644,8 +663,6 @@ class JobMaster(object):
 
     def disconnect(self):
         log.info('stopping jobmaster')
-        for handler in self.handlers.values():
-            handler.stop()
         self.running = False
         self.jobQueue.disconnect()
         self.controlTopic.disconnect()
