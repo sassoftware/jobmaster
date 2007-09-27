@@ -1,4 +1,6 @@
-/usr/sbin/tmpwatch 240 /srv/rbuilder/jobmaster/imageCache/
-/usr/sbin/tmpwatch 24 /srv/rbuilder/jobmaster/tmp
-/usr/sbin/tmpwatch 24 /srv/rbuilder/jobmaster/finished-images
+# Jobslaves - 10 days
+/usr/sbin/tmpwatch  240 /srv/rbuilder/jobmaster/imageCache/
+# Templates - 90 days
 /usr/sbin/tmpwatch 2160 /srv/rbuilder/jobmaster/anaconda-templates
+# Temporary data - 1 day
+/usr/sbin/tmpwatch   24 /srv/rbuilder/jobmaster/tmp
