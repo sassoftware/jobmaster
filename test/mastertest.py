@@ -33,6 +33,8 @@ class DummyHandler(master.SlaveHandler):
     def __init__(self, master, troveSpec, data):
         self.master = weakref.ref(master)
         self.troveSpec = troveSpec
+        self.lock = threading.RLock()
+        self.offline = False
         threading.Thread.__init__(self)
 
     def start(self):
@@ -47,6 +49,9 @@ class DummyHandler(master.SlaveHandler):
 
     def stop(self):
         self.slaveStatus('stopped')
+
+    def isOnline(self):
+        return not self.offline
 
 class MasterTest(jobmaster_helper.JobMasterHelper):
     def setUp(self):
@@ -102,6 +107,26 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testStatus(self):
         self.jobMaster.status(protocolVersion = 1)
         assert self.jobMaster.response.response.connection.sent
+        dataStr = self.jobMaster.response.response.connection.sent.pop()[1]
+        data = simplejson.loads(dataStr)
+        self.failIf(data['event'] != 'masterStatus')
+
+    def testDownStatus(self):
+        troveSpec = 'test=test.rpath.local@rpl:1[is: x86]'
+        self.jobMaster.handlers['testSlave'] = \
+                DummyHandler(self.jobMaster, troveSpec, {})
+        self.jobMaster.handlers['testSlave'].offline = True
+        self.jobMaster.handlers['testSlave2'] = \
+                DummyHandler(self.jobMaster, troveSpec, {})
+        self.jobMaster.status(protocolVersion = 1)
+        assert self.jobMaster.response.response.connection.sent
+        dataStr = self.jobMaster.response.response.connection.sent.pop()[1]
+        data = simplejson.loads(dataStr)
+        self.failIf(data['event'] != 'masterStatus')
+        refSlaves = ['testMaster:testSlave2']
+        self.failIf(data['slaves'] != refSlaves, \
+                "Expected %s, but found %s" % \
+                (str(data['slaves']), str(refSlaves)))
 
     def testClearImageCache(self):
         cachePath = os.path.join(self.cfg.basePath, 'imageCache')
@@ -164,7 +189,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testBuildingSetSlaveLimit(self):
         # this is illegal, but not harmful when test case was written
-        self.jobMaster.handlers['testSlave'] = None
+        troveSpec = 'test=test.rpath.local@rpl:1[is: x86]'
+        self.jobMaster.handlers['testSlave'] = \
+                DummyHandler(self.jobMaster, troveSpec, {})
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 2)
         self.failIf(self.jobMaster.cfg.slaveLimit != 2,
                     "Slave limit was not set to 2")
@@ -174,7 +201,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testAllSetSlaveLimit(self):
         # this is illegal, but not harmful when test case was written
         self.jobMaster.slaves['testSlave'] = None
-        self.jobMaster.handlers['testSlave'] = None
+        troveSpec = 'test=test.rpath.local@rpl:1[is: x86]'
+        self.jobMaster.handlers['testSlave'] = \
+                DummyHandler(self.jobMaster, troveSpec, {})
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 3)
         self.failIf(self.jobMaster.cfg.slaveLimit != 3,
                     "Slave limit was not set to 3")
@@ -183,7 +212,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testSlaveLimitEdge(self):
         self.jobMaster.slaves['testSlave'] = None
-        self.jobMaster.handlers['testSlave'] = None
+        troveSpec = 'test=test.rpath.local@rpl:1[is: x86]'
+        self.jobMaster.handlers['testSlave'] = \
+                DummyHandler(self.jobMaster, troveSpec, {})
         self.jobMaster.slaveLimit(protocolVersion = 1, limit = 1)
         self.failIf(self.jobMaster.cfg.slaveLimit != 1,
                     "Slave limit was not set to 1")
@@ -656,6 +687,44 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             xenmac.genMac = genMac
             master.SlaveHandler.getJobQueueName = getJobQueueName 
             master.time.sleep = sleep
+
+    def testHandlerOnline(self):
+        class FakeHandler(master.SlaveHandler):
+            def __init__(x, offline):
+                x.offline = offline
+                x.lock = threading.RLock()
+
+        self.assertEquals(FakeHandler(True).isOnline(), False)
+        self.assertEquals(FakeHandler(False).isOnline(), True)
+
+    def testFailedHandlerRun(self):
+        class FakeHandler(master.SlaveHandler):
+            def __init__(x):
+                x.offline = False
+                x.lock = threading.RLock()
+            def slaveStatus(x, status):
+                x.lastStatus = status
+
+        hdlr = FakeHandler()
+        fork = os.fork
+        _exit = os._exit
+        setpgid = os.setpgid
+        waitpid = os.waitpid
+        try:
+            os.setpgid = lambda *args: None
+            os.fork = lambda: 0
+            os._exit = lambda *args, **kwargs: None
+            os.waitpid = lambda *args, **kwargs: None
+            hdlr.run()
+            self.assertEquals(hdlr.lastStatus, slavestatus.OFFLINE)
+            self.assertEquals(hdlr.offline, True)
+            self.failIf(hdlr.pid is not None, "expected None, but got: '%s'" \
+                    % str(hdlr.pid))
+        finally:
+            os.waitpid = waitpid
+            os.setpgid = setpgid
+            os._exit = _exit
+            os.fork = fork
 
 
 if __name__ == "__main__":

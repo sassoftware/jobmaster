@@ -137,16 +137,13 @@ class SlaveHandler(threading.Thread):
         self.lock = threading.RLock()
         threading.Thread.__init__(self)
         self.pid = None
+        self.offline = False
 
     def slaveStatus(self, status, jobId = None):
         self.master().slaveStatus(self.slaveName, status,
                                   self.jobQueueName.replace('job', ''), jobId)
 
     def start(self):
-        fd, self.imagePath = tempfile.mkstemp( \
-            dir = os.path.join(self.master().cfg.basePath, 'tmp'))
-        os.close(fd)
-
         kernel, initrd = getBootPaths()
 
         xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
@@ -191,8 +188,6 @@ class SlaveHandler(threading.Thread):
         logCall("lvremove -f /dev/%s/%s-scratch" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
         logCall("lvremove -f /dev/%s/%s-base" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
 
-        if os.path.exists(self.imagePath):
-            util.rmtree(self.imagePath, ignore_errors = True)
         self.slaveStatus(slavestatus.OFFLINE)
         self.join()
 
@@ -285,6 +280,13 @@ class SlaveHandler(threading.Thread):
         size /= blockSize + ((size % blockSize) and 1 or 0)
         return size
 
+    def isOnline(self):
+        self.lock.acquire()
+        try:
+            return not self.offline
+        finally:
+            self.lock.release()
+
     def run(self):
         self.pid = os.fork()
         if not self.pid:
@@ -365,16 +367,14 @@ class SlaveHandler(threading.Thread):
 
                 log.info('booting slave: %s' % self.slaveName)
                 logCall('xm create %s' % self.cfgPath)
-
-                # unlink the slave image file immediately so that
-                # we're sure it gets cleaned up
-                os.unlink(self.imagePath)
             except:
-                os.unlink(self.imagePath)
                 exc, e, tb = sys.exc_info()
                 log.error(''.join(traceback.format_tb(tb)))
                 log.error(e)
                 try:
+                    self.lock.acquire()
+                    self.offline = True
+                    self.lock.release()
                     self.slaveStatus(slavestatus.OFFLINE)
                 except Exception, innerException:
                     # this process must exit regardless of failure to log.
@@ -653,10 +653,12 @@ class JobMaster(object):
 
     def sendStatus(self):
         log.debug('sending master status')
+        slaves = self.slaves.keys()
+        handlers = [x[0] for x in self.handlers.iteritems() if x[1].isOnline()]
         self.response.masterStatus( \
             arch = self.arch, limit = self.cfg.slaveLimit,
             slaveIds = ['%s:%s' % (self.cfg.nodeName, x) for x in \
-                            self.slaves.keys() + self.handlers.keys()])
+                            (slaves + handlers)])
 
     def slaveStatus(self, slaveName, status, slaveType, jobId):
         log.info('sending slave status: %s %s %s' % \
