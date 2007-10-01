@@ -19,7 +19,6 @@ import types
 import unittest
 import __builtin__
 
-archivePath = None
 testPath = None
 
 #from pychecker import checker
@@ -58,54 +57,27 @@ def setup():
     if _setupPath:
         return _setupPath
     global testPath
-    global archivePath
 
-    # set default CONARY_POLICY_PATH is it was not set.
-    conaryPolicy = os.getenv('CONARY_POLICY_PATH', '/usr/lib/conary/policy')
-    os.environ['CONARY_POLICY_PATH'] = conaryPolicy
-
-    # set default paths, if it was not set.
     if not os.environ.has_key('MCP_PATH'):
         print "please set MCP_PATH"
         sys.exit(1)
-    mcpPath = os.getenv('MCP_PATH')
-    if mcpPath not in sys.path:
-        sys.path.insert(0, mcpPath)
-
-    parDir = '/'.join(os.path.realpath(__file__).split('/')[:-2])
-    jobMasterPath = os.getenv('JOB_MASTER_PATH', parDir)
-    os.environ['JOB_MASTER_PATH'] = jobMasterPath
-    if jobMasterPath not in sys.path:
-        sys.path.insert(0, jobMasterPath)
-    # end setting default paths
-
     if not os.environ.has_key('CONARY_PATH'):
-	print "please set CONARY_PATH"
-	sys.exit(1)
-    paths = (os.environ['JOB_MASTER_PATH'],
-             os.environ['JOB_MASTER_PATH'] + '/test',
-             os.environ['CONARY_PATH'],
-             os.path.normpath(os.environ['CONARY_PATH'] + "/../rmake"),
-             os.path.normpath(os.environ['CONARY_PATH'] + "/../conary-test"),)
-    pythonPath = os.getenv('PYTHONPATH') or ""
-    for p in reversed(paths):
-        if p in sys.path:
-            sys.path.remove(p)
-        sys.path.insert(0, p)
-    for p in paths:
-        if p not in pythonPath:
-            pythonPath = os.pathsep.join((pythonPath, p))
-    os.environ['PYTHONPATH'] = pythonPath
+        print "please set CONARY_PATH"
+        sys.exit(1)
 
-    if isIndividual():
-        serverDir = '/tmp/conary-server'
-        if os.path.exists(serverDir) and not os.path.access(serverDir, os.W_OK):
-            serverDir = serverDir + '-' + pwd.getpwuid(os.getuid())[0]
-        os.environ['SERVER_FILE_PATH'] = serverDir
+    conaryPath      = os.getenv('CONARY_PATH')
+    conaryTestPath  = os.getenv('CONARY_TEST_PATH',     os.path.join(conaryPath, '..', 'conary-test'))
+    mcpPath         = os.getenv('MCP_PATH',             '../../mcp')
+    jobmasterPath   = os.getenv('JOB_MASTER_PATH',      '..')
+    jmTestPath      = os.getenv('JOB_MASTER_TEST_PATH', '.')
+
+    sys.path = [os.path.realpath(x) for x in (jobmasterPath, jmTestPath, mcpPath, conaryPath, conaryTestPath)] + sys.path
+    os.environ.update(dict(CONARY_PATH=conaryPath, CONARY_TEST_PATH=conaryTestPath,
+        MCP_PATH=mcpPath, JOB_MASTER_PATH=jobmasterPath, JOB_MASTER_TEST_PATH=jmTestPath,
+        PYTHONPATH=(':'.join(sys.path))))
+
     import testhelp
     testPath = testhelp.getTestPath()
-    archivePath = testPath + '/' + "archive"
-    parent = os.path.dirname(testPath)
 
     global conaryDir
     conaryDir = os.environ['CONARY_PATH']
