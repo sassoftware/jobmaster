@@ -769,7 +769,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                 ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
                 '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img'))
         finally:
-            os.open = oldPopen
+            os.popen = oldPopen
             os.listdir = oldListdir
 
 if __name__ == "__main__":
