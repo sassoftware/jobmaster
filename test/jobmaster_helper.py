@@ -185,6 +185,11 @@ class JobMasterHelper(testhelp.TestCase):
         # Don't spend all day creating 256MB swap images
         imagecache.SWAP_SIZE = 1048576
 
+        master._getBootPaths = master.getBootPaths
+        master.getBootPaths = lambda: \
+            ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
+                '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img')
+
     def tearDown(self):
         import logging
         for x in logging._handlers:
@@ -194,6 +199,8 @@ class JobMasterHelper(testhelp.TestCase):
         testhelp.TestCase.tearDown(self)
         os.system = self.oldOsSystem
         subprocess.Popen = self.oldSubprocessPopen
+
+        master.getBootPaths = master._getBootPaths
 
     def assertLogContent(self, content):
         f = open(self.cfg.logFile)

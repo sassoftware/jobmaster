@@ -645,7 +645,6 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         genMac = xenmac.genMac
         genIP = xenip.genIP
         handlerRun = master.SlaveHandler.run
-        getBootPaths = master.getBootPaths
         try:
             master.SlaveHandler.run = FakeHandlerRun
             xenip.genIP = lambda *args, **kwargs: '10.5.6.1'
@@ -653,9 +652,6 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             master.SlaveHandler.getJobQueueName = lambda *args, **kwargs: \
                     "job4.0.0:x86"
             self.jobMaster._heartbeat = self.jobMaster.heartbeat
-            master.getBootPaths = lambda: \
-                    ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
-                        '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img')
             self.jobMaster.heartbeat = FakeHeartbeat
             time.sleep = lambda *args, **kwargs: None
             resp = self.jobMaster.response
@@ -687,7 +683,6 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             self.failIf(respawnCount != 1, \
                     'expected 1 respawn, but observed: %d' % respawnCount)
         finally:
-            master.getBootPaths = getBootPaths 
             master.SlaveHandler.run = handlerRun
             xenip.genIP = genIP
             xenmac.genMac = genMac
@@ -759,6 +754,23 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.catchSignal(signal.SIGTERM, None)
         self.assertEquals(self.jobMaster.running, False)
 
+    def testGetBootPaths(self):
+        def popen(cmd):
+            return StringIO.StringIO('2.6.22.4-0.0.1.smp.gcc3.4.x86.i686')
+        def listdir(path):
+            return ['vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
+                    'initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img']
+
+        oldPopen, os.popen      = os.popen, popen
+        oldListdir, os.listdir  = os.listdir, listdir
+        try:
+            # using the "real" getBootPaths, not the stubbed out one
+            self.assertEquals(master._getBootPaths(),
+                ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
+                '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img'))
+        finally:
+            os.open = oldPopen
+            os.listdir = oldListdir
 
 if __name__ == "__main__":
     testsuite.main()

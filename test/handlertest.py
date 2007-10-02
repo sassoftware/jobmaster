@@ -31,56 +31,50 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                     "Slave Handler should not alter troveSpec")
 
     def testStartHandler(self):
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID': 'test.rpath.local-build-64'})
+        handler.run = lambda: None
+        genMac = xenmac.genMac
+        genIP = xenip.genIP
         try:
-            troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-            handler = master.SlaveHandler(self.jobMaster, troveSpec,
-                    {'UUID': 'test.rpath.local-build-64'})
-            handler.run = lambda: None
-            genMac = xenmac.genMac
-            genIP = xenip.genIP
-            try:
-                xenmac.genMac = lambda: '00:16:3e:00:01:34'
-                xenip.genIP = lambda: '10.0.0.1'
-                slaveName = handler.start()
-            finally:
-                xenmac.genMac = genMac
-                xenip.genIP = genIP
-            self.failIf(slaveName != 'slave34',
-                        "Expected slaveName of slave34, got %s" % slaveName)
-        except IndexError: # from getBootPaths, kernel/boot dir mismatch
-            raise testsuite.SkipTestException("running kernel mismatch with /boot, skipping test")
+            xenmac.genMac = lambda: '00:16:3e:00:01:34'
+            xenip.genIP = lambda: '10.0.0.1'
+            slaveName = handler.start()
+        finally:
+            xenmac.genMac = genMac
+            xenip.genIP = genIP
+        self.failIf(slaveName != 'slave34',
+                    "Expected slaveName of slave34, got %s" % slaveName)
 
     def testStopHandler(self):
+        if not glob.glob("/boot/vmlinuz*"):
+            raise testsuite.SkipTestException("No kernel on this machine, skipping test")
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                {'UUID' : 'test.rpath.local-build-65'})
+
+        def dummyRun():
+            handler.pid = os.fork()
+            if not handler.pid:
+                os.setsid()
+                time.sleep(10)
+
+        handler.run = dummyRun
+        genMac = xenmac.genMac
+        genIP = xenip.genIP
+        waitForSlave = master.waitForSlave
         try:
-            if not glob.glob("/boot/vmlinuz*"):
-                raise testsuite.SkipTestException("No kernel on this machine, skipping test")
-            troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-            handler = master.SlaveHandler(self.jobMaster, troveSpec,
-                    {'UUID' : 'test.rpath.local-build-65'})
-
-            def dummyRun():
-                handler.pid = os.fork()
-                if not handler.pid:
-                    os.setsid()
-                    time.sleep(10)
-
-            handler.run = dummyRun
-            genMac = xenmac.genMac
-            genIP = xenip.genIP
-            waitForSlave = master.waitForSlave
-            try:
-                master.waitForSlave = lambda *args, **kwargs: None
-                xenmac.genMac = lambda: '00:16:3e:00:01:22'
-                xenip.genIP = lambda: '10.0.0.1'
-                handler.start()
-                handler.stop()
-            finally:
-                master.waitForSlave = waitForSlave
-                xenmac.genMac = genMac
-                xenip.genIP = genIP
-            self.failUnlessEqual(self.callLog, ['xm destroy slave22', 'lvremove -f /dev/vg00/slave22-scratch', 'lvremove -f /dev/vg00/slave22-base'])
-        except IndexError: # from getBootPaths, kernel/boot dir mismatch
-            raise testsuite.SkipTestException("running kernel mismatch with /boot, skipping test")
+            master.waitForSlave = lambda *args, **kwargs: None
+            xenmac.genMac = lambda: '00:16:3e:00:01:22'
+            xenip.genIP = lambda: '10.0.0.1'
+            handler.start()
+            handler.stop()
+        finally:
+            master.waitForSlave = waitForSlave
+            xenmac.genMac = genMac
+            xenip.genIP = genIP
+        self.failUnlessEqual(self.callLog, ['xm destroy slave22', 'lvremove -f /dev/vg00/slave22-scratch', 'lvremove -f /dev/vg00/slave22-base'])
 
     def testRunHandler(self):
         class SysExit(Exception):
