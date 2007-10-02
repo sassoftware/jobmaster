@@ -645,6 +645,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         genMac = xenmac.genMac
         genIP = xenip.genIP
         handlerRun = master.SlaveHandler.run
+        getBootPaths = master.getBootPaths
         try:
             master.SlaveHandler.run = FakeHandlerRun
             xenip.genIP = lambda *args, **kwargs: '10.5.6.1'
@@ -652,6 +653,9 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             master.SlaveHandler.getJobQueueName = lambda *args, **kwargs: \
                     "job4.0.0:x86"
             self.jobMaster._heartbeat = self.jobMaster.heartbeat
+            master.getBootPaths = lambda: \
+                    ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
+                        '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img')
             self.jobMaster.heartbeat = FakeHeartbeat
             time.sleep = lambda *args, **kwargs: None
             resp = self.jobMaster.response
@@ -683,6 +687,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             self.failIf(respawnCount != 1, \
                     'expected 1 respawn, but observed: %d' % respawnCount)
         finally:
+            master.getBootPaths = getBootPaths 
             master.SlaveHandler.run = handlerRun
             xenip.genIP = genIP
             xenmac.genMac = genMac
