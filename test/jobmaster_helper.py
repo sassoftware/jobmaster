@@ -11,6 +11,7 @@ import subprocess
 
 from jobmaster import master
 from jobmaster import templateserver
+from jobmaster import imagecache
 
 import tempfile
 import threading
@@ -180,6 +181,9 @@ class JobMasterHelper(testhelp.TestCase):
         self.callLog = []
         os.system = self.DummySystem
         subprocess.Popen = FakePopen
+
+        # Don't spend all day creating 256MB swap images
+        imagecache.SWAP_SIZE = 1048576
 
     def tearDown(self):
         import logging

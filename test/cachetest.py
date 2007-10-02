@@ -104,9 +104,13 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         assert not self.jobMaster.imageCache.haveImage(troveSpec)
 
     def testImageSize(self):
-        assert imagecache.roundUpSize(0) == 332881920
-        assert imagecache.roundUpSize(100000) == 332881920
-        assert imagecache.roundUpSize(300 * 1024 * 1024) == 694665216
+        # Put the default 256MB swap size back temporarily
+        # (it's reduced since some tests actually create files)
+        oldSwapSize, imagecache.SWAP_SIZE = imagecache.SWAP_SIZE, 256 * 1048576
+        self.assertEquals(imagecache.roundUpSize(0), 332881920)
+        self.assertEquals(imagecache.roundUpSize(100000), 332881920)
+        self.assertEquals(imagecache.roundUpSize(300 * 1024 * 1024), 694665216)
+        imagecache.SWAP_SIZE = oldSwapSize
 
     def testCreateBlank(self):
         fd, tmpFile = tempfile.mkstemp()
