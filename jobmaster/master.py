@@ -371,23 +371,27 @@ class SlaveHandler(threading.Thread):
                 log.info('booting slave: %s' % self.slaveName)
                 logCall('xm create %s' % self.cfgPath)
             except:
-                exc, e, tb = sys.exc_info()
-                log.error(''.join(traceback.format_tb(tb)))
-                log.error(e)
                 try:
-                    self.lock.acquire()
-                    self.offline = True
-                    self.lock.release()
-                    self.slaveStatus(slavestatus.OFFLINE)
-                except Exception, innerException:
-                    # this process must exit regardless of failure to log.
-                    log.error("Error setting slave status to OFFLINE: " + str(innerException))
+                    exc, e, tb = sys.exc_info()
+                    log.error(''.join(traceback.format_tb(tb)))
+                    log.error(e)
+                    try:
+                        self.lock.acquire()
+                        self.offline = True
+                        self.lock.release()
+                        self.slaveStatus(slavestatus.OFFLINE)
+                    except Exception, innerException:
+                        # this process must exit regardless of failure to log.
+                        log.error("Error setting slave status to OFFLINE: " + str(innerException))
                 # forcibly exit *now* sys.exit raises a SystemExit exception
-                os._exit(1)
+                finally:
+                    os._exit(1)
             else:
-                self.slaveStatus(slavestatus.STARTED,
-                        jobId = self.data['UUID'])
-                os._exit(0)
+                try:
+                    self.slaveStatus(slavestatus.STARTED,
+                            jobId = self.data['UUID'])
+                finally:
+                    os._exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
 
