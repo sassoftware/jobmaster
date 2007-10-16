@@ -298,7 +298,7 @@ class SlaveHandler(threading.Thread):
                 cfg = self.master().cfg
                 # don't use original. make a backup
                 log.info('Getting slave image: %s' % self.troveSpec)
-                cachedImage = self.imageCache().getImage(self.troveSpec)
+                cachedImage = self.imageCache().getImage(self.troveSpec, cfg.debugMode)
                 log.info("Making runtime copy of cached image at: %s" % \
                              self.imagePath)
                 slaveSize = os.stat(cachedImage)[stat.ST_SIZE]

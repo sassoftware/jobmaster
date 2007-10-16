@@ -201,10 +201,10 @@ class ImageCache(object):
         hash = md5sum(troveSpec)
         return os.path.join(self.cachePath, hash)
 
-    def getImage(self, troveSpec):
+    def getImage(self, troveSpec, debugMode=False):
         hash = md5sum(troveSpec)
         imageFile = os.path.join(self.cachePath, hash)
-        if hash in os.listdir(self.cachePath):
+        if hash in os.listdir(self.cachePath) and not debugMode:
             logging.info("Found image in cache for %s" % troveSpec)
             return imageFile
         else:
