@@ -638,7 +638,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             x.slaveStatus(slavestatus.OFFLINE)
 
         jobData = simplejson.dumps({'protocolVersion': 1,
-            'UUID' : 'test.rpath.local-build-42',
+            'UUID' : 'test.rpath.local-build-42-3',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         sleep = master.time.sleep
         getJobQueueName = master.SlaveHandler.getJobQueueName
@@ -729,7 +729,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testFlushJobs(self):
         jobData = simplejson.dumps({'protocolVersion': 1,
-            'UUID' : 'test.rpath.local-build-88',
+            'UUID' : 'test.rpath.local-build-88-0',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         self.jobMaster.jobQueue.inbound = [jobData]
         self.jobMaster.flushJobs()
@@ -738,13 +738,13 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                     self.jobMaster.response.response.connection.sent.pop()
             data = simplejson.loads(event)
             self.assertEquals(data.get('event'), 'slaveStatus')
-            self.assertEquals(data.get('jobId'), 'test.rpath.local-build-88')
+            self.assertEquals(data.get('jobId'), 'test.rpath.local-build-88-0')
             self.assertEquals(data.get('slaveId'), 'testMaster:deadSlave0')
             self.assertEquals(data.get('status'), status)
 
     def testFlushJobProtocols(self):
         jobData = simplejson.dumps({'protocolVersion': -1,
-            'UUID' : 'test.rpath.local-build-88',
+            'UUID' : 'test.rpath.local-build-88-4',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         self.jobMaster.jobQueue.inbound = [jobData]
         self.jobMaster.flushJobs()
