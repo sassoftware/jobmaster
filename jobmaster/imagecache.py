@@ -17,6 +17,7 @@ import shutil
 import tempfile
 import time
 
+from conary import callbacks
 from conary import conarycfg
 from conary import conaryclient
 from conary.conaryclient import cmdline
@@ -221,10 +222,10 @@ class ImageCache(object):
                 self.stopBuildingImage(hash)
 
     def makeImage(self, troveSpec, hash):
-        n, v, f = cmdline.parseTroveSpec(troveSpec)
-        NVF = self.nc.findTrove(None, (n, v, f), self.conarycfg.flavor)[0]
+        spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
+        n, v, f = self.nc.findTrove(None, (spec_n, spec_v, spec_f), self.conarycfg.flavor)[0]
 
-        trv = self.nc.getTrove(NVF[0], NVF[1], NVF[2], withFiles = False)
+        trv = self.nc.getTrove(n, v, f, withFiles = False)
 
         size = trv.getSize()
         size = roundUpSize(size)
@@ -236,11 +237,8 @@ class ImageCache(object):
                                          dir = self.tmpPath)
         os.close(fd)
 
-        fd, kernelTagScript = tempfile.mkstemp(prefix = "kernel-tagscript",
-                                               dir = self.tmpPath)
-        os.close(fd)
-
         mntDir = tempfile.mkdtemp(dir = self.tmpPath)
+        client = None
         try:
             mkBlankFile(fn, size)
 
@@ -255,42 +253,54 @@ class ImageCache(object):
             logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
 
-            proxy_address = self.masterCfg.conaryProxy
-            if proxy_address == 'self':
-                proxy_address = 'http://%s/' % getIP()
-
-            conaryProxy = proxy_address and "--config 'conaryProxy %s'" % proxy_address or ""
-
-            logCall(("conary update '%s' --root %s --replace-files " \
-                           "--tag-script=%s %s") % \
-                          (troveSpec, mntDir, tagScript, conaryProxy))
-
-            shutil.move(tagScript, os.path.join(mntDir, 'root',
-                'conary-tag-script.in'))
+            # Prepare conary client
+            cfg = conarycfg.ConaryConfiguration(True)
+            if self.masterCfg.conaryProxy:
+                proxy = self.masterCfg.conaryProxy
+                if proxy == 'self':
+                    proxy = 'http://%s/' % getIP()
+                cfg.conaryProxy['http']  = proxy
+                cfg.conaryProxy['https'] = proxy
+            cfg.root = mntDir
+            client = conaryclient.ConaryClient(cfg)
+            client.setUpdateCallback(UpdateCallback())
 
             kernelSpec = getRunningKernel()
-            logCall(("conary update '%s' --root %s --resolve " \
-                       "--keep-required --tag-script=%s %s" ) \
-                          % (kernelSpec, mntDir, kernelTagScript, conaryProxy))
+            k_n, k_v, k_f = cmdline.parseTroveSpec(kernelSpec)
 
-            shutil.move(kernelTagScript, os.path.join(mntDir, 'root',
-                                        'conary-tag-script-kernel'))
+            # Install jobslave root and kernel
+            job = client.newUpdateJob()
+            logging.info('Preparing update job')
+            client.prepareUpdateJob(job, (
+                (n,   (None, None), (v,   f),    True), # root
+                (k_n, (None, None), (k_v, k_f),  True), # kernel
+                ))
+            logging.info('Applying update job')
+            client.applyUpdateJob(job, tagScript=tagScript)
+
+            # Create various filesystem pieces
             fsOddsNEnds(mntDir)
 
+            # Assemble tag script and run it
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
-            inScript = outScript + '.in'
-            logCall('echo "/sbin/ldconfig" > %s; cat %s | sed "s|/sbin/ldconfig||g" | grep -vx "" >> %s' % (outScript, inScript, outScript))
-            os.unlink(os.path.join(mntDir, 'root', 'conary-tag-script.in'))
+            outScriptInRoot = os.path.join('', 'root', 'conary-tag-script')
+            outScriptOutput = os.path.join('', 'root',
+                'conary-tag-script.output')
 
-            for tagScript in ('conary-tag-script', 'conary-tag-script-kernel'):
-                tagPath = util.joinPaths(os.path.sep, 'root', tagScript)
-                if os.path.exists(util.joinPaths(mntDir, tagPath)):
-                    util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % \
-                                     (mntDir, tagPath, tagPath + '.output'))
+            tagScriptFile = open(tagScript, 'r')
+            outScriptFile = open(outScript, 'w')
+            outScriptFile.write('/sbin/ldconfig\n')
+            for line in tagScriptFile:
+                if line.startswith('/sbin/ldconfig'):
+                    continue
+                outScriptFile.write(line)
+            tagScriptFile.close()
+            outScriptFile.close()
 
-            # FIXME: long term this code would be needed for remote slaves
-            #os.system("conary update --sync-to-parents kernel:runtime "
-            #          "--root %s" % mntDir)
+            os.unlink(tagScript)
+
+            util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % (
+                    mntDir, outScriptInRoot, outScriptOutput))
 
             # the preload wrapper isn't working yet, work around until we know why
             #safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
@@ -303,6 +313,9 @@ class ImageCache(object):
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
         finally:
+            if client:
+                client.close()
+                del job
             logCall('umount %s' % os.path.join(mntDir, 'proc'))
             logCall('umount %s' % os.path.join(mntDir, 'sys'))
             logCall('sync')
@@ -311,3 +324,11 @@ class ImageCache(object):
             util.rmtree(mntDir, ignore_errors = True)
         shutil.move(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)
+
+class UpdateCallback(callbacks.UpdateCallback):
+    def eatMe(*P, **K):
+        pass
+
+    tagHandlerOutput = troveScriptOutput = troveScriptFailure = eatMe
+
+    # TODO: maybe log something useful occasionally when loglevel >= DEBUG
