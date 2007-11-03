@@ -308,7 +308,9 @@ class ImageCache(object):
             # authconfig can whack the domainname in certain circumstances
             oldDomainname = os.popen('domainname').read().strip() # save old domainname
             logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
-            logCall("domainname %s" % oldDomainname) # restore it
+            # Only restore the domain if it was set in the first place.
+            if oldDomainname:
+                logCall("domainname %s" % oldDomainname)
 
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
