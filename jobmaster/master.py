@@ -249,8 +249,10 @@ class SlaveHandler(threading.Thread):
             if troveSize:
                 return troveSize
             else:
-                # Not sure how we got here, but better to return 0 than None
-                return 0
+                # Not sure how we got here, but better to return something
+                # reasonable than None
+                log.warning('Failed to get size of trove %r', NVF)
+                return 1024 * 1024 * 1024
         else:
             # currently the only non-build job is a cook. assuming 1G
             return 1024 * 1024 * 1024
