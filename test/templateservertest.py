@@ -77,6 +77,42 @@ class TemplateServerTest(testsuite.TestCase):
         finally:
             templateserver.TemplateServer = TemplateServer
 
+    def testCleanStaleLocks(self):
+        '''
+        Ensure that stale lockfiles are deleted on server start.
+        Tests RBL-2155
+        '''
+        def listdir(dir):
+            self.assertEquals(dir, self.templateRoot)
+            return ['.00112233445566778899aabbccddeeff.status',
+                     '112233445566778899aabbccddeeff00.tar']
+        def unlink(path):
+            self.assertEquals(path, os.path.join(self.templateRoot,
+                '.00112233445566778899aabbccddeeff.status'),
+                'Attempted to delete the wrong file')
+            templateserver._file_deleted = True
+
+        class FakeSocket(object):
+            def accept(*args, **kwargs):
+                self.srv.running = False
+                raise socket.timeout
+
+        _listdir = os.listdir
+        _unlink = os.unlink
+        try:
+            templateserver.os.listdir = listdir
+            templateserver.os.unlink = unlink
+            templateserver._file_deleted = False
+
+            self.srv.socket = FakeSocket()
+            self.srv.run()
+        finally:
+            templateserver.os.listdir = _listdir
+            templateserver.os.unlink = _unlink
+
+        self.assertEquals(templateserver._file_deleted, True,
+            'Template building lock was not deleted')
+
 class StubHeaders(object):
     def __init__(self):
         self.headers = {'content-length': '100'}

@@ -193,12 +193,13 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
 class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, templateRoot, *args, **kwargs):
         threading.Thread.__init__(self)
         BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
         self.running = True
         self.lock = threading.RLock()
         self.socket.settimeout(TIMEOUT)
+        self.templateRoot = templateRoot
 
     def get_request(self):
         self.lock.acquire()
@@ -218,6 +219,7 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
         raise ServerStopped
 
     def run(self):
+        self.eraseLocks()
         try:
             while True:
                 self.handle_request()
@@ -230,6 +232,12 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
         self.lock.release()
         self.join()
 
+    def eraseLocks(self):
+        '''Delete all template-building lockfiles on startup.'''
+        for x in os.listdir(self.templateRoot):
+            if x[0] == '.' and x.endswith('.status'):
+                os.unlink(os.path.join(self.templateRoot, x))
+
 def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
         tmpDir='/var/tmp'):
     # due to the roundabout mechanisms here we need to modify the actual class
@@ -241,7 +249,7 @@ def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
     TemplateServerHandler.tmpDir = tmpDir
     for port in range(port, port + 100):
         try:
-            server = TemplateServer(('', port), TemplateServerHandler)
+            server = TemplateServer(templateRoot, ('', port), TemplateServerHandler)
         except socket.error, e:
             if e.args[0] != 98:
                 raise
