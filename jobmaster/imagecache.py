@@ -160,11 +160,6 @@ class ImageCache(object):
         self.masterCfg = masterCfg
         util.mkdirChain(self.cachePath)
 
-        self.conarycfg = conarycfg.ConaryConfiguration(True)
-
-        self.cc = conaryclient.ConaryClient(self.conarycfg)
-        self.nc = self.cc.getRepos()
-
         self.tmpPath = os.path.join(os.path.split(cachePath)[0], 'tmp')
 
     def startBuildingImage(self, hash, output = True):
@@ -222,10 +217,15 @@ class ImageCache(object):
                 self.stopBuildingImage(hash)
 
     def makeImage(self, troveSpec, hash):
-        spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
-        n, v, f = self.nc.findTrove(None, (spec_n, spec_v, spec_f), self.conarycfg.flavor)[0]
+        ccfg = conarycfg.ConaryConfiguration(True)
 
-        trv = self.nc.getTrove(n, v, f, withFiles = False)
+        cc = conaryclient.ConaryClient(ccfg)
+        nc = cc.getRepos()
+
+        spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
+        n, v, f = nc.findTrove(None, (spec_n, spec_v, spec_f), ccfg.flavor)[0]
+
+        trv = nc.getTrove(n, v, f, withFiles = False)
 
         size = trv.getSize()
         size = roundUpSize(size)
