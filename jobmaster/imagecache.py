@@ -309,7 +309,7 @@ class ImageCache(object):
             oldDomainname = os.popen('domainname').read().strip() # save old domainname
             logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
             # Only restore the domain if it was set in the first place.
-            if oldDomainname:
+            if oldDomainname != "" and oldDomainname != "(none)":
                 logCall("domainname %s" % oldDomainname)
 
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
