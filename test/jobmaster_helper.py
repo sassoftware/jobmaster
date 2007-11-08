@@ -156,7 +156,7 @@ class JobMasterHelper(testhelp.TestCase):
 
             def communicate(self2):
                 # used in the templategen generate function
-                return 'fake_sha1'
+                return '', ''
 
         self.basePath = tempfile.mkdtemp()
         os.mkdir(os.path.join(self.basePath, 'imageCache'))
