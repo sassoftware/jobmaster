@@ -6,6 +6,7 @@
 
 import os
 import logging
+import select
 import subprocess
 log = logging
 
