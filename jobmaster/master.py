@@ -258,7 +258,7 @@ class SlaveHandler(threading.Thread):
             return 1024 * 1024 * 1024
 
     def addMountSizes(self):
-        mountDict = self.data.get('jobData', {}).get('mountDict', {})
+        mountDict = self.data.get('data', {}).get('mountDict', {})
         # this ends up double counting if both freeSpace and requested size
         # are used in combination. requested size is often double counted with
         # respect to actual trove contents. This is simply an estimate. if we
@@ -270,10 +270,12 @@ class SlaveHandler(threading.Thread):
     def estimateScratchSize(self):
         protocolVersion = self.data.get('protocolVersion')
         troveSize = self.getTroveSize()
+        if self.data.get('type') == 'cook':
+            return troveSize / (1024 * 1024)
 
         # these two handle legacy formats
-        freeSpace = self.data.get('jobData', {}).get('freeSpace', 0)
-        swapSize = self.data.get('jobData', {}).get('swapSize', 0)
+        freeSpace = int(self.data.get('data', {}).get('freespace', 0))
+        swapSize = int(self.data.get('data', {}).get('swapSize', 0))
 
         mountOverhead = self.addMountSizes()
 

@@ -772,5 +772,19 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.popen = oldPopen
             os.listdir = oldListdir
 
+    def testEstimateScratchSize(self):
+        class ScratchHandler(master.SlaveHandler):
+            def __init__(self, data):
+                self.data = data
+
+        jobData = {'type': 'build', 'protocolVersion': 1,
+                'data' : {'freespace' : 750, 'swapSize' : 250}}
+        hdlr = ScratchHandler(jobData)
+        hdlr.getTroveSize = lambda: 1024 * 1024 * 1024
+        self.assertEquals(hdlr.estimateScratchSize(), 4799)
+        jobData['type'] = 'cook'
+        self.assertEquals(hdlr.estimateScratchSize(), 1024)
+
+
 if __name__ == "__main__":
     testsuite.main()
