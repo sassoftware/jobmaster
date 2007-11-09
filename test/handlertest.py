@@ -230,7 +230,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         handler.slaveName = 'xen44'
 
         res = handler.estimateScratchSize()
-        self.failIf(res != 4800,
+        self.failIf(res != 1024,
                 "scratch calculation did not match expected value")
 
 
