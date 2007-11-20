@@ -509,6 +509,15 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         slaves = self.pipeSlaves(['512', '1024'])
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
 
+    def testGetMaxSlaves(self):
+        self.jobMaster.cfg.maxSlaveLimit = 2
+        slaves = self.pipeSlaves(['512', '4096'])
+        self.assertEquals(slaves, 2)
+
+        self.jobMaster.cfg.maxSlaveLimit = 0
+        slaves = self.pipeSlaves(['512', '4095'])
+        self.assertEquals(slaves, 6)
+
     def testGetSlavesTurnover(self):
         slaves = self.pipeSlaves(['512', '1280'])
         self.failIf(slaves != 1, "expected 1 slaves, got: %d" % slaves)
@@ -525,6 +534,17 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         slaves = self.pipeSlaves(['512', '1088'],
                 func = master.JobMaster.realSlaveLimit)
         self.failIf(slaves != 1, "expected 1 slave, got: %d" % slaves)
+
+    def testGetRealMaxSlaves(self):
+        self.jobMaster.cfg.maxSlaveLimit = 2
+        slaves = self.pipeSlaves(['512', '4096'],
+                func = master.JobMaster.realSlaveLimit)
+        self.assertEquals(slaves, 2)
+
+        self.jobMaster.cfg.maxSlaveLimit = 0
+        slaves = self.pipeSlaves(['512', '4096'],
+                func = master.JobMaster.realSlaveLimit)
+        self.assertEquals(slaves, 6)
 
     def testGetRealSlavesTurnover(self):
         slaves = self.pipeSlaves(['512', '1600'],

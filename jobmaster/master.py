@@ -111,6 +111,8 @@ class MasterConfig(client.MCPClientConfig):
     logLevel = (mcp_log.CfgLogLevel, 'INFO')
 
     slaveLimit = (cfgtypes.CfgInt, 1)
+    # maxSlaveLimit == 0 means unlimited
+    maxSlaveLimit = (cfgtypes.CfgInt, 0)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     conaryProxy = None
@@ -500,6 +502,8 @@ class JobMaster(object):
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("not enough memory: jobmaster cannot support slaves at all")
+        if self.cfg.maxSlaveLimit:
+            count = min(max(0, self.cfg.maxSlaveLimit), count)
         return count
 
     def realSlaveLimit(self):
@@ -530,6 +534,8 @@ class JobMaster(object):
         count = max(0, mem / self.cfg.slaveMemory)
         if not count:
             log.error("memory squeeze won't allow for more slaves")
+        if self.cfg.maxSlaveLimit:
+            count = min(max(0, self.cfg.maxSlaveLimit), count)
         return count
 
     def resolveTroveSpec(self, troveSpec):
