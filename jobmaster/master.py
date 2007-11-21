@@ -115,7 +115,7 @@ class MasterConfig(client.MCPClientConfig):
     maxSlaveLimit = (cfgtypes.CfgInt, 0)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
-    conaryProxy = None
+    conaryProxy = 'self' # "self" for same machine, otherwise a URL
     templateCache = os.path.join(basePath, 'anaconda-templates')
     lvmVolumeName = 'vg00'
     debugMode = (cfgtypes.CfgBool, False)
