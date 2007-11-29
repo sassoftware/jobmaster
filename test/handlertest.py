@@ -170,6 +170,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             'debugMode True', ''))
         try:
             master.getIP = lambda: '192.168.0.1'
+            cfg.conaryProxy = 'http://192.168.0.1/'
             handler.writeSlaveConfig(cfgPath, cfg)
             res = open(cfgPath).read()
             self.failIf(ref1 != res,

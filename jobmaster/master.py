@@ -115,10 +115,14 @@ class MasterConfig(client.MCPClientConfig):
     maxSlaveLimit = (cfgtypes.CfgInt, 0)
     nodeName = (cfgtypes.CfgString, None)
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
-    conaryProxy = 'self' # "self" for same machine, otherwise a URL
     templateCache = os.path.join(basePath, 'anaconda-templates')
     lvmVolumeName = 'vg00'
     debugMode = (cfgtypes.CfgBool, False)
+
+    # This should either be the URI of a rBuilder, or "self" to use the
+    # local IP. It must be an rBuilder since the template generation code
+    # assumes it can find a conaryrc file here.
+    conaryProxy = 'self'
 
 def waitForSlave(slaveName):
     done = False
@@ -222,10 +226,7 @@ class SlaveHandler(threading.Thread):
                                             self.slaveName)))
         f.write('jobQueueName %s\n' % self.jobQueueName)
         if cfg.conaryProxy:
-            if cfg.conaryProxy == 'self':
-                f.write('conaryProxy http://%s/\n' % getIP())
-            else:
-                f.write('conaryProxy %s\n' % cfg.conaryProxy)
+            f.write('conaryProxy %s\n' % cfg.conaryProxy)
         f.write('debugMode %s\n' % str(cfg.debugMode))
         f.close()
 
@@ -416,6 +417,11 @@ class JobMaster(object):
 
         if cfg.nodeName is None:
             cfg.nodeName = getIP() or '127.0.0.1'
+        if cfg.conaryProxy == 'self':
+            cfg.conaryProxy = 'http://%s/' % getIP()
+        elif not cfg.conaryProxy.endswith('/'):
+            cfg.conaryProxy += '/'
+
         self.cfg = cfg
         self.jobQueue = queue.MultiplexedQueue(cfg.queueHost, cfg.queuePort,
                                        namespace = cfg.namespace,
@@ -437,7 +443,10 @@ class JobMaster(object):
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
-        self.templateServer = templateserver.getServer(self.cfg.templateCache, hostname=self.cfg.nodeName, tmpDir=os.path.join(self.cfg.basePath, 'tmp'))
+        self.templateServer = templateserver.getServer(
+            self.cfg.templateCache, hostname=self.cfg.nodeName,
+            tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
+            conaryProxy=cfg.conaryProxy)
 
         log.info('started jobmaster: %s' % self.cfg.nodeName)
         self.lastHeartbeat = 0

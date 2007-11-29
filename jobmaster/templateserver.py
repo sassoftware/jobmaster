@@ -27,6 +27,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     hostname = ''
     port = 0
     tmpDir = '/var/tmp'
+    conaryProxy = None
 
     def do_POST(self):
         if self.path == '/makeTemplate':
@@ -49,7 +50,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
             try:
                 at = templategen.AnacondaTemplate(v, f, self.templateRoot,
-                        self.tmpDir)
+                        self.tmpDir, self.conaryProxy)
             except TroveNotFound:
                 self.send_error(404) # HTTP 1.x / Not Found
                 return
@@ -82,7 +83,8 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
                         # get a new anaconda template object (with a new tmpdir)
                         at = templategen.AnacondaTemplate(v, f,
-                                self.templateRoot, self.tmpDir)
+                                self.templateRoot, self.tmpDir,
+                                self.conaryProxy)
 
                         # start the generation
                         os._exit(at.generate())
@@ -239,7 +241,7 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
                 os.unlink(os.path.join(self.templateRoot, x))
 
 def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
-        tmpDir='/var/tmp'):
+        tmpDir='/var/tmp', conaryProxy=None):
     # due to the roundabout mechanisms here we need to modify the actual class
     # definition. This means only one imgserver instance can exist at a time.
     # unless all imgservers can agree on what the base path is.
@@ -247,6 +249,7 @@ def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
     TemplateServerHandler.hostname = hostname
     TemplateServerHandler.port = port
     TemplateServerHandler.tmpDir = tmpDir
+    TemplateServerHandler.conaryProxy = conaryProxy
     for port in range(port, port + 100):
         try:
             server = TemplateServer(templateRoot, ('', port), TemplateServerHandler)

@@ -23,7 +23,7 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.lib import util
 
-from jobmaster.util import logCall, getIP
+from jobmaster.util import logCall
 
 SWAP_SIZE = 268435456 # 256 MB in bytes
 TAGSCRIPT_GROWTH = 20971520 # 20MB in bytes
@@ -256,11 +256,8 @@ class ImageCache(object):
             # Prepare conary client
             cfg = conarycfg.ConaryConfiguration(True)
             if self.masterCfg.conaryProxy:
-                proxy = self.masterCfg.conaryProxy
-                if proxy == 'self':
-                    proxy = 'http://%s/' % getIP()
-                cfg.conaryProxy['http']  = proxy
-                cfg.conaryProxy['https'] = proxy
+                cfg.conaryProxy['http']  = self.masterCfg.conaryProxy
+                cfg.conaryProxy['https'] = self.masterCfg.conaryProxy
             cfg.root = mntDir
             client = conaryclient.ConaryClient(cfg)
             client.setUpdateCallback(UpdateCallback())

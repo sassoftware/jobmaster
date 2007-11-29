@@ -123,6 +123,10 @@ class AnacondaTemplate(object):
             cfg = conarycfg.ConaryConfiguration()
             cfg.root = self.tmpRoot
             cfg.tmpDir = self.tmpDir
+            if self.conaryProxy:
+                cfg.conaryProxy['http']  = self.conaryProxy
+                cfg.conaryProxy['https'] = self.conaryProxy
+            cfg.configLine('includeConfigFile %sconaryrc' % self.conaryProxy)
             self._conaryClient = conaryclient.ConaryClient(cfg)
 
         return self._conaryClient
@@ -149,8 +153,10 @@ class AnacondaTemplate(object):
         self._fullTroveSpecHash = \
                 sha1helper.md5ToString(sha1helper.md5String(self._fullTroveSpec))
 
-    def __init__(self, version, flavor, cacheDir, tmpDir='/var/tmp'):
+    def __init__(self, version, flavor, cacheDir, tmpDir='/var/tmp',
+      conaryProxy=None):
         self.troveSpec = 'anaconda-templates=%s[%s]' % (version, flavor)
+        self.conaryProxy = conaryProxy
         self.cacheDir = cacheDir
         self.tmpDir = tmpDir
         self.tmpRoot = tempfile.mkdtemp(dir=self.tmpDir)
