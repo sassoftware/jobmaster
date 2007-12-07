@@ -158,7 +158,7 @@ class SlaveHandler(threading.Thread):
         xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
             'dev', self.master().cfg.lvmVolumeName),
                                {'memory' : self.master().cfg.slaveMemory,
-                                'kernel': kernel,
+                                'kernel': "%s console=xvc0" % kernel,
                                 'initrd': initrd,
                                 'root': '/dev/xvda1 ro'},
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
