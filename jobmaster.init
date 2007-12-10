@@ -31,14 +31,30 @@ cleanLvm() {
     done
 }
 
-start() {
-    cleanLvm
-    echo -n "Starting $LONGNAME:"
-    daemon $DAEMON
-    echo ""
+cleanImageCacheLocks() {
+    rm -rf /srv/rbuilder/jobmaster/imageCache/*.lck >& /dev/null
+}
 
-    # Enable IP forwarding for NATted slaves
-    echo 1 >/proc/sys/net/ipv4/conf/all/forwarding
+start() {
+    echo -n "Starting $LONGNAME:"
+
+    pid=$(pidofproc $(basename $DAEMON))
+    if checkpid $pid; then
+        failure
+    else
+        # clean up any dead LVM partitions
+        cleanLvm
+
+        # clean up image cache locks (RBL-2444)
+        cleanImageCacheLocks
+
+        # Enable IP forwarding for NATted slaves
+        echo 1 >/proc/sys/net/ipv4/conf/all/forwarding
+
+        # start the image
+        daemon $DAEMON
+    fi
+    echo ""
 }
 
 stop() {
