@@ -3,12 +3,15 @@ import cgi
 import cPickle
 import fcntl
 import os
+import signal
+import sys
 import SimpleHTTPServer
 import socket
 import SocketServer
 import subprocess
 import tempfile
 import threading
+import time
 import urlparse
 
 from conary.errors import TroveNotFound
@@ -28,6 +31,7 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     port = 0
     tmpDir = '/var/tmp'
     conaryProxy = None
+    reaper = None
 
     def do_POST(self):
         if self.path == '/makeTemplate':
@@ -70,7 +74,10 @@ class TemplateServerHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
                 self.send_header("Location", statusURI)
             else:
                 pid = os.fork()
-                if not pid:
+                if pid:
+                    if self.reaper:
+                        self.reaper.watchPid(pid)
+                else:
                     try:
                         # close the socket as the child won't be talking
                         # back to the webserver
@@ -240,6 +247,55 @@ class TemplateServer(threading.Thread, SocketServer.ThreadingMixIn, BaseHTTPServ
             if x[0] == '.' and x.endswith('.status'):
                 os.unlink(os.path.join(self.templateRoot, x))
 
+
+class TemplateServerReaper(threading.Thread):
+
+    def __init__(self, **kwargs):
+        threading.Thread.__init__(self, **kwargs)
+        self.pidList = []
+        self.pidListLock = threading.RLock()
+        self.running = False
+        self.runningLock = threading.RLock()
+        self.setDaemon(True)
+
+    def _reapPids(self, kill=False):
+        for pid in self.pidList:
+            if kill:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError, e:
+                    if e.errno == 3: # no such process
+                        self._releasePid(pid)
+                        continue
+            retPid, exitStatus = os.waitpid(pid, os.WNOHANG)
+            if retPid:
+                self._releasePid(pid)
+
+    def _releasePid(self, pid):
+        self.pidListLock.acquire()
+        assert(pid in self.pidList)
+        self.pidList.remove(pid)
+        self.pidListLock.release()
+
+    def watchPid(self, pid):
+        self.pidListLock.acquire()
+        self.pidList.append(pid)
+        self.pidListLock.release()
+
+    def run(self):
+        self.running = True
+        while self.running:
+            self._reapPids()
+            time.sleep(1)
+
+    def stop(self):
+        self.runningLock.acquire()
+        self.running = False
+        self.runningLock.release()
+        self._reapPids(kill=True)
+        self.join()
+
+
 def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
         tmpDir='/var/tmp', conaryProxy=None):
     # due to the roundabout mechanisms here we need to modify the actual class
@@ -250,6 +306,7 @@ def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
     TemplateServerHandler.port = port
     TemplateServerHandler.tmpDir = tmpDir
     TemplateServerHandler.conaryProxy = conaryProxy
+    TemplateServerHandler.reaper = TemplateServerReaper()
     for port in range(port, port + 100):
         try:
             server = TemplateServer(templateRoot, ('', port), TemplateServerHandler)
@@ -258,15 +315,16 @@ def getServer(templateRoot, hostname='127.0.0.1', port=LISTEN_PORT,
                 raise
         else:
             break
-    return server
+    return server, TemplateServerHandler.reaper
 
 
 if __name__ == '__main__':
     import time
     try:
-        foo = getServer('/tmp/anaconda-templates2')
+        foo, bar = getServer('/tmp/anaconda-templates2')
         foo.start()
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         foo.stop()
+        bar.stop()

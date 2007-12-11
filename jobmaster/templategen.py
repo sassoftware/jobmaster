@@ -16,6 +16,7 @@ import cPickle
 import errno
 import os
 import optparse
+import signal
 import sys
 import subprocess
 import tempfile
@@ -225,7 +226,24 @@ class AnacondaTemplate(object):
                 f.close()
         return metadata
 
+    def _cleanup(self):
+        if self.templateWorkDir:
+            log("Cleaning up template working directory %s" % \
+                    self.templateWorkDir, self.logPath, self.statusPath)
+            util.rmtree(self.templateWorkDir, ignore_errors=True)
+        if self.statusPath:
+            os.unlink(self.statusPath)
+        self._unlock()
+
+    def _signaled(self, sig, frame):
+        log("Caught signal %d, cleaning up" % sig)
+        self._cleanup()
+
     def generate(self):
+
+        signal.signal(signal.SIGINT, self._signaled)
+        signal.signal(signal.SIGTERM, self._signaled)
+
         rc = 0
         templateData = {}
         if self.exists():
@@ -339,13 +357,7 @@ class AnacondaTemplate(object):
                         (str(e), self.getFullTroveSpec()),
                         self.logPath, self.statusPath)
         finally:
-            if self.templateWorkDir:
-                log("Cleaning up template working directory %s" % \
-                        self.templateWorkDir, self.logPath, self.statusPath)
-                util.rmtree(self.templateWorkDir, ignore_errors=True)
-            if self.statusPath:
-                os.unlink(self.statusPath)
-            self._unlock()
+            self._cleanup()
 
         return rc
 

@@ -443,10 +443,11 @@ class JobMaster(object):
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
-        self.templateServer = templateserver.getServer(
-            self.cfg.templateCache, hostname=self.cfg.nodeName,
-            tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
-            conaryProxy=cfg.conaryProxy)
+        self.templateServer, self.templateServerReaper =
+                templateserver.getServer(
+                    self.cfg.templateCache, hostname=self.cfg.nodeName,
+                    tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
+                    conaryProxy=cfg.conaryProxy)
 
         log.info('started jobmaster: %s' % self.cfg.nodeName)
         self.lastHeartbeat = 0
@@ -652,6 +653,7 @@ class JobMaster(object):
     def run(self):
         self.running = True
         self.templateServer.start()
+        self.templateServerReaper.start()
         try:
             while self.running:
                 self.checkJobQueue()
@@ -665,6 +667,7 @@ class JobMaster(object):
             self.response.masterOffline()
             self.disconnect()
             self.templateServer.stop()
+            self.templateServerReaper.stop()
 
     def flushJobs(self):
         self.jobQueue.setLimit(0)
