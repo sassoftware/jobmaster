@@ -127,7 +127,7 @@ class AnacondaTemplate(object):
             if self.conaryProxy:
                 cfg.conaryProxy['http']  = self.conaryProxy
                 cfg.conaryProxy['https'] = self.conaryProxy
-            cfg.configLine('includeConfigFile %sconaryrc' % self.conaryProxy)
+                cfg.configLine('includeConfigFile %sconaryrc' % self.conaryProxy)
             self._conaryClient = conaryclient.ConaryClient(cfg)
 
         return self._conaryClient
