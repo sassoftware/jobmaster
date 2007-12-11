@@ -28,7 +28,7 @@ class TemplateServerTest(testsuite.TestCase):
         self.templateRoot = tempfile.mkdtemp()
         self.TIMEOUT = templateserver.TIMEOUT
         templateserver.TIMEOUT = 0
-        self.srv = templateserver.getServer(self.templateRoot,
+        self.srv, self.reaper = templateserver.getServer(self.templateRoot,
                 tmpDir = self.tmpDir)
 
     def tearDown(self):

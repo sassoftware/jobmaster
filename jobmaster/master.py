@@ -158,8 +158,9 @@ class SlaveHandler(threading.Thread):
         xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
             'dev', self.master().cfg.lvmVolumeName),
                                {'memory' : self.master().cfg.slaveMemory,
-                                'kernel': "%s console=xvc0" % kernel,
+                                'kernel': kernel,
                                 'initrd': initrd,
+                                'append': 'console=xvc0',
                                 'root': '/dev/xvda1 ro'},
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
         self.slaveName = xenCfg.cfg['name']
@@ -443,7 +444,7 @@ class JobMaster(object):
         signal.signal(signal.SIGTERM, self.catchSignal)
         signal.signal(signal.SIGINT, self.catchSignal)
 
-        self.templateServer, self.templateServerReaper =
+        self.templateServer, self.templateServerReaper = \
                 templateserver.getServer(
                     self.cfg.templateCache, hostname=self.cfg.nodeName,
                     tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
