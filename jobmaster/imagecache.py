@@ -229,16 +229,15 @@ class ImageCache(object):
                 self.stopBuildingImage(hash)
 
     def makeImage(self, troveSpec, hash):
-        ccfg = conarycfg.ConaryConfiguration(True)
+        logging.info('Building image')
 
+        ccfg = conarycfg.ConaryConfiguration(True)
         cc = conaryclient.ConaryClient(ccfg)
         nc = cc.getRepos()
 
         spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
         n, v, f = nc.findTrove(None, (spec_n, spec_v, spec_f), ccfg.flavor)[0]
-
         trv = nc.getTrove(n, v, f, withFiles = False)
-
         size = trv.getSize()
         size = roundUpSize(size)
 
@@ -254,6 +253,7 @@ class ImageCache(object):
         mntDir = tempfile.mkdtemp(dir = self.tmpPath)
         client = None
         try:
+            logging.info('Creating filesystem')
             mkBlankFile(fn, size)
 
             # run mke2fs on blank image
@@ -290,6 +290,7 @@ class ImageCache(object):
             client.applyUpdateJob(job, tagScript=tagScript)
 
             # Create various filesystem pieces
+            logging.info('Preparing filesystem')
             fsOddsNEnds(mntDir)
 
             # Assemble tag script and run it
@@ -310,6 +311,7 @@ class ImageCache(object):
 
             os.unlink(tagScript)
 
+            logging.info('Running tag scripts')
             util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % (
                     mntDir, outScriptInRoot, outScriptOutput))
 
@@ -325,6 +327,8 @@ class ImageCache(object):
 
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
+
+            logging.info('Image built')
         finally:
             try:
                 if client:

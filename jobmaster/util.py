@@ -21,8 +21,8 @@ def rewriteFile(template, target, data):
     f.close()
     os.unlink(template)
 
-def logCall(cmd, ignoreErrors = False, **kwargs):
-    log.info("+ " + cmd)
+def logCall(cmd, ignoreErrors = False, logLevel=logging.DEBUG, **kwargs):
+    log.log(logLevel, "+ " + cmd)
     p = subprocess.Popen(cmd, shell = True,
         stdout = subprocess.PIPE, stderr = subprocess.PIPE, **kwargs)
     while p.poll() is None:
@@ -31,11 +31,11 @@ def logCall(cmd, ignoreErrors = False, **kwargs):
             action = (rdPipe is p.stdout) and log.info or log.debug
             msg = rdPipe.readline().strip()
             if msg:
-                action("++ " + msg)
+                log.log(logLevel, "++ " + msg)
 
     stdout, stderr = p.communicate()
-    [log.info("++ " + outLine) for outLine in stdout.splitlines()]
-    [log.debug("++ " + errLine) for errLine in stderr.splitlines()]
+    [log.log(logLevel, "++ " + outLine) for outLine in
+        stderr.splitlines() + stdout.splitlines()]
     if p.returncode and not ignoreErrors:
         raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
     else:
