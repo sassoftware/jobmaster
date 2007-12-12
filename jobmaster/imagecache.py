@@ -16,6 +16,7 @@ import signal
 import shutil
 import tempfile
 import time
+import traceback
 
 from conary import callbacks
 from conary import conarycfg
@@ -67,6 +68,12 @@ def mkBlankFile(fn, size, sparse = True):
 def createFile(fn, contents):
     createDir(os.path.split(fn)[0])
     f = open(fn, 'w')
+    f.write(contents)
+    f.close()
+
+def appendFile(fn, contents):
+    createDir(os.path.split(fn)[0])
+    f = open(fn, 'a')
     f.write(contents)
     f.close()
 
@@ -138,6 +145,11 @@ def fsOddsNEnds(d):
                '\n'.join(('KEYBOARDTYPE="pc"',
                           'KEYTABLE="us"\n')))
     writeConaryRc(d)
+
+    # Set up a TTY on xvc0 as a debugging aid
+    appendFile(os.path.join(d, 'etc', 'inittab'),
+        'xvc:2345:respawn:/sbin/mingetty xvc0\n')
+    appendFile(os.path.join(d, 'etc', 'securetty'), 'xvc0\n')
 
 
 def getRunningKernel():
@@ -237,6 +249,8 @@ class ImageCache(object):
                                          dir = self.tmpPath)
         os.close(fd)
 
+        logCall('modprobe loop')
+
         mntDir = tempfile.mkdtemp(dir = self.tmpPath)
         client = None
         try:
@@ -312,15 +326,19 @@ class ImageCache(object):
             logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
             logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
         finally:
-            if client:
-                client.close()
-                del job
-            logCall('umount %s' % os.path.join(mntDir, 'proc'))
-            logCall('umount %s' % os.path.join(mntDir, 'sys'))
-            logCall('sync')
-            logCall('umount %s' % mntDir)
-            logCall('sync')
-            util.rmtree(mntDir, ignore_errors = True)
+            try:
+                if client:
+                    client.close()
+                    del job
+                logCall('umount %s' % os.path.join(mntDir, 'proc'))
+                logCall('umount %s' % os.path.join(mntDir, 'sys'))
+                logCall('sync')
+                logCall('umount %s' % mntDir)
+                logCall('sync')
+                util.rmtree(mntDir, ignore_errors = True)
+            except:
+                logging.error('Unhandled exception while finalizing '
+                    'jobslave:\n' + traceback.format_exc())
         shutil.move(fn, os.path.join(self.cachePath, hash))
         return os.path.join(self.cachePath, hash)
 

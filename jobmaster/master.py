@@ -160,7 +160,7 @@ class SlaveHandler(threading.Thread):
                                {'memory' : self.master().cfg.slaveMemory,
                                 'kernel': kernel,
                                 'initrd': initrd,
-                                'append': 'console=xvc0',
+                                'extra': 'console=xvc0',
                                 'root': '/dev/xvda1 ro'},
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
         self.slaveName = xenCfg.cfg['name']
