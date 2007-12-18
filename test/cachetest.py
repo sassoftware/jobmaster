@@ -175,7 +175,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             self.failUnlessEqual(
                 set(os.listdir(os.path.join(tmpDir, 'etc'))),
                 set(['conaryrc', 'fstab', 'hosts', 'sysconfig', 'inittab',
-                    'securetty']))
+                    'securetty', 'rc.local']))
             self.failUnlessEqual(
                 set(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig'))),
                 set(['keyboard', 'network', 'network-scripts']))

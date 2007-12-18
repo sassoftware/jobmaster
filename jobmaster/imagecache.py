@@ -151,6 +151,9 @@ def fsOddsNEnds(d):
         'xvc:2345:respawn:/sbin/mingetty xvc0\n')
     appendFile(os.path.join(d, 'etc', 'securetty'), 'xvc0\n')
 
+    # Turn TX checksum offloading off (for TCP & UDP)
+    appendFile(os.path.join(d, 'etc', 'rc.local'),
+        'ethtool -K eth0 tx off')
 
 def getRunningKernel():
     p = os.popen('uname -r')
