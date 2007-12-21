@@ -1,3 +1,4 @@
+#!/bin/sh
 # Jobslaves - 10 days
 /usr/sbin/tmpwatch  240 /srv/rbuilder/jobmaster/imageCache/
 # Templates - 90 days

@@ -4,6 +4,7 @@
     compress
     compresscmd /usr/bin/bzip2
     compressext .bz2
+    create
     size 50M
     postrotate
                     kill -HUP `cat /var/run/jobmaster.pid`
