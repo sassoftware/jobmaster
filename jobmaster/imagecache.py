@@ -156,14 +156,37 @@ def fsOddsNEnds(d):
         'ethtool -K eth0 tx off')
 
 def getRunningKernel():
+    # Get the current kernel version
     p = os.popen('uname -r')
-    data = p.read()
+    kernel_name = p.read().strip()
     p.close()
 
-    m = re.match('[\d.-]*', data)
-    ver = m.group()[:-1]
-    p = os.popen('conary q kernel:runtime --full-versions --flavors | grep %s' % ver)
-    return p.read().strip()
+    cfg = conarycfg.ConaryConfiguration(True)
+    cc = conaryclient.ConaryClient(cfg)
+
+    # Check if conary owns this as a standardized file in /boot
+    kernel_path = '/boot/vmlinuz-' + kernel_name
+    if os.path.exists(kernel_path):
+        # Easy! Conary should own this.
+        troves = cc.db.iterTrovesByPath(kernel_path)
+        if troves:
+            kernel = troves[0].getNameVersionFlavor()
+            logging.debug('Selected kernel %s=%s[%s] based on running '
+                'kernel at %s', kernel[0], kernel[1], kernel[2], kernel_path)
+            return kernel
+
+    # Get the latest "kernel:runtime" trove instead and pray
+    troveSpec = ('kernel:runtime', None, None)
+    troves = cc.db.findTroves(None, [('kernel:runtime', None, None)])[troveSpec]
+    max_version = max(x[1] for x in troves)
+    kernel = [x for x in troves if x[1] == max_version][0]
+    if kernel:
+        logging.warning('Could not determine running kernel by file. '
+            'Falling back to latest kernel: %s=%s[%s]', kernel[0],
+            kernel[1], kernel[2])
+        return kernel
+    else:
+        raise RuntimeError('Could not determine currently running kernel')
 
 def signalHandler(*args, **kwargs):
     # change signals into exceptions
@@ -254,7 +277,7 @@ class ImageCache(object):
         logCall('modprobe loop')
 
         mntDir = tempfile.mkdtemp(dir = self.tmpPath)
-        client = None
+        client = job = None
         try:
             logging.info('Creating filesystem')
             mkBlankFile(fn, size)
@@ -279,8 +302,7 @@ class ImageCache(object):
             client = conaryclient.ConaryClient(cfg)
             client.setUpdateCallback(UpdateCallback())
 
-            kernelSpec = getRunningKernel()
-            k_n, k_v, k_f = cmdline.parseTroveSpec(kernelSpec)
+            k_n, k_v, k_f = getRunningKernel()
 
             # Install jobslave root and kernel
             job = client.newUpdateJob()

@@ -16,6 +16,7 @@ import StringIO
 import tempfile
 import time
 
+from conary import conarycfg, conaryclient
 from conary.lib import util
 from jobmaster import imagecache
 
@@ -216,25 +217,38 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             util.rmtree(tmpDir)
 
     def testGetRunningKernel(self):
-        self.count = 0
-        def FakePopen(*args, **kwargs):
-            try:
-                if self.count:
-                    assert '2.6.22.4-0.0.1' in args[0]
-                    return StringIO.StringIO('kernel version from conary')
-                else:
-                    return StringIO.StringIO( \
-                            '2.6.22.4-0.0.1.smp.gcc3.4.x86.i686')
-            finally:
-                self.count += 1
+        kversion = '2.6.22.4-0.0.1.smp.gcc3.4.x86.i686'
+        kpath = '/boot/vmlinuz-' + kversion
+        ktrove = ('kernel:fake', kversion, None)
 
-        popen = os.popen
+        class MegaMock(object):
+            def __init__(xself, *P, **K):
+                # Create self or self-class references for sub-modules
+                xself.path = xself # os.path
+                xself.ConaryConfiguration = MegaMock # conarycfg.ConaryConfiguration
+                xself.ConaryClient = MegaMock # conaryclient.ConaryClient
+                xself.db = xself # ConaryClient.db (instance variable)
+            def exists(xself, path): # os.path.exists
+                self.assertEquals(path, kpath)
+                return True
+            def popen(xself, cmdline): # os.popen
+                return StringIO.StringIO(kversion + '\n')
+            def iterTrovesByPath(xself, path): # ConaryClient.db.iterTrovesByPath
+                self.assertEquals(path, kpath)
+                return [xself]
+            def getNameVersionFlavor(xself): # Trove.getNameVersionFlavor
+                return ktrove
+
         try:
-            os.popen = FakePopen
+            imagecache.os = imagecache.conaryclient = imagecache.conarycfg \
+                = MegaMock()
+
             res = imagecache.getRunningKernel()
-            self.assertEquals('kernel version from conary', res)
+            self.assertEquals(res, ktrove)
         finally:
-            os.popen = popen
+            imagecache.os = os
+            imagecache.conaryclient = conaryclient
+            imagecache.conarycfg = conarycfg
 
 if __name__ == "__main__":
     testsuite.main()
