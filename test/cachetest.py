@@ -22,38 +22,74 @@ from jobmaster import imagecache
 
 class CacheTest(jobmaster_helper.JobMasterHelper):
     def testImagePath(self):
-        path = self.jobMaster.imageCache.imagePath('notreal')
-        assert path.startswith(os.path.join(self.cfg.basePath, 'imageCache'))
-        assert path.endswith('cd5c569173452f8438cf9bbe84d811fa')
+        path = self.jobMaster.imageCache.imagePath('notreal',
+            jobmaster_helper.kernelData)
+        self.assertEquals(path, os.path.join(self.cfg.basePath, 'imageCache',
+            'cdafbe7a9ae28670181209c1e8cf2e5d'))
 
     def testGetExistingImage(self):
         troveSpec = 'existingImage'
-        path = self.jobMaster.imageCache.imagePath(troveSpec)
+        path = self.jobMaster.imageCache.imagePath(troveSpec,
+            jobmaster_helper.kernelData)
 
         f = open(path, 'w')
         f.write('')
         f.close()
 
-        def stubMakeImage(troveSpec, hash):
+        def stubMakeImage(troveSpec, kernelData, hash):
             self.fail('makeImage should not have been called')
 
         origMakeImage = self.jobMaster.imageCache.makeImage
         try:
             self.jobMaster.imageCache.makeImage = stubMakeImage
-            self.jobMaster.imageCache.getImage(troveSpec)
+            self.jobMaster.imageCache.getImage(troveSpec,
+                jobmaster_helper.kernelData)
         finally:
             self.jobMaster.imageCache.makeImage = origMakeImage
+
+    def testNewKernel(self):
+        '''
+        Ensure that a new slave is built if the jobmaster's kernel version
+        has changed.
+
+        @tests: RBL-2491
+        '''
+
+        troveSpec = 'existingImage'
+        path = self.jobMaster.imageCache.imagePath(troveSpec,
+            jobmaster_helper.kernelData)
+
+        f = open(path, 'w')
+        f.write('')
+        f.close()
+
+        kernelData = dict(jobmaster_helper.kernelData)
+        kernelData['trove'] = ('another:trove', None, None)
+
+        def stubMakeImage(troveSpec, kernelData, hash):
+            return 'success!'
+
+        origMakeImage = self.jobMaster.imageCache.makeImage
+        try:
+            self.jobMaster.imageCache.makeImage = stubMakeImage
+            assert self.jobMaster.imageCache.getImage(troveSpec,
+                kernelData) == 'success!', \
+                'New slave was not built when kernel changed'
+        finally:
+            self.jobMaster.imageCache.makeImage = origMakeImage
+
 
     def testMissingImage(self):
         troveSpec = 'nonExistentImage'
 
-        def stubMakeImage(troveSpec, hash):
+        def stubMakeImage(troveSpec, kernelData, hash):
             return 'makeImage was called successfully'
 
         origMakeImage = self.jobMaster.imageCache.makeImage
         try:
             self.jobMaster.imageCache.makeImage = stubMakeImage
-            assert self.jobMaster.imageCache.getImage(troveSpec) == \
+            assert self.jobMaster.imageCache.getImage(troveSpec,
+                jobmaster_helper.kernelData) == \
                 'makeImage was called successfully'
         finally:
             self.jobMaster.imageCache.makeImage = origMakeImage
@@ -61,10 +97,11 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testMissingImageCollide(self):
         troveSpec = 'nonExistentImage'
 
-        lockDir = self.jobMaster.imageCache.imagePath(troveSpec) + '.lock'
+        lockDir = self.jobMaster.imageCache.imagePath(troveSpec,
+            jobmaster_helper.kernelData) + '.lock'
         util.mkdirChain(lockDir)
 
-        def stubMakeImage(troveSpec, hash):
+        def stubMakeImage(troveSpec, kernelData, hash):
             return 'makeImage was called successfully'
 
         def dummySleep(*args, **kwargs):
@@ -75,7 +112,8 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         try:
             time.sleep = dummySleep
             self.jobMaster.imageCache.makeImage = stubMakeImage
-            assert self.jobMaster.imageCache.getImage(troveSpec) == \
+            assert self.jobMaster.imageCache.getImage(troveSpec,
+                jobmaster_helper.kernelData) == \
                 'makeImage was called successfully'
         finally:
             time.sleep = sleep
@@ -83,26 +121,32 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
 
     def testHaveImage(self):
         troveSpec = 'notReal'
-        path = self.jobMaster.imageCache.imagePath(troveSpec)
-        assert not self.jobMaster.imageCache.haveImage(troveSpec)
+        path = self.jobMaster.imageCache.imagePath(troveSpec,
+            jobmaster_helper.kernelData)
+        assert not self.jobMaster.imageCache.haveImage(troveSpec,
+            jobmaster_helper.kernelData)
 
         f = open(path, 'w')
         f.write('')
         f.close()
 
-        assert self.jobMaster.imageCache.haveImage(troveSpec)
+        assert self.jobMaster.imageCache.haveImage(troveSpec,
+            jobmaster_helper.kernelData)
 
     def testDeleteImages(self):
         troveSpec = 'fakeImafe'
-        path = self.jobMaster.imageCache.imagePath(troveSpec)
+        path = self.jobMaster.imageCache.imagePath(troveSpec,
+            jobmaster_helper.kernelData)
 
         f = open(path, 'w')
         f.write('')
         f.close()
 
-        assert self.jobMaster.imageCache.haveImage(troveSpec)
+        assert self.jobMaster.imageCache.haveImage(troveSpec,
+            jobmaster_helper.kernelData)
         self.jobMaster.imageCache.deleteAllImages()
-        assert not self.jobMaster.imageCache.haveImage(troveSpec)
+        assert not self.jobMaster.imageCache.haveImage(troveSpec,
+            jobmaster_helper.kernelData)
 
     def testImageSize(self):
         # Put the default 256MB swap size back temporarily
@@ -192,11 +236,13 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         try:
             imageCache = imagecache.ImageCache(tmpDir, self.cfg)
             imageCache.makeImage = waitForever
-            lockPath = imageCache.imagePath(troveSpec) + '.lock'
+            lockPath = imageCache.imagePath(troveSpec,
+                jobmaster_helper.kernelData) + '.lock'
             pid = os.fork()
             if not pid:
                 try:
-                    imageCache.getImage(troveSpec)
+                    imageCache.getImage(troveSpec,
+                        jobmaster_helper.kernelData)
                 finally:
                     os._exit(0)
             while not os.path.exists(lockPath):
@@ -215,40 +261,6 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
                     "building lock was not removed by signal")
         finally:
             util.rmtree(tmpDir)
-
-    def testGetRunningKernel(self):
-        kversion = '2.6.22.4-0.0.1.smp.gcc3.4.x86.i686'
-        kpath = '/boot/vmlinuz-' + kversion
-        ktrove = ('kernel:fake', kversion, None)
-
-        class MegaMock(object):
-            def __init__(xself, *P, **K):
-                # Create self or self-class references for sub-modules
-                xself.path = xself # os.path
-                xself.ConaryConfiguration = MegaMock # conarycfg.ConaryConfiguration
-                xself.ConaryClient = MegaMock # conaryclient.ConaryClient
-                xself.db = xself # ConaryClient.db (instance variable)
-            def exists(xself, path): # os.path.exists
-                self.assertEquals(path, kpath)
-                return True
-            def popen(xself, cmdline): # os.popen
-                return StringIO.StringIO(kversion + '\n')
-            def iterTrovesByPath(xself, path): # ConaryClient.db.iterTrovesByPath
-                self.assertEquals(path, kpath)
-                return [xself]
-            def getNameVersionFlavor(xself): # Trove.getNameVersionFlavor
-                return ktrove
-
-        try:
-            imagecache.os = imagecache.conaryclient = imagecache.conarycfg \
-                = MegaMock()
-
-            res = imagecache.getRunningKernel()
-            self.assertEquals(res, ktrove)
-        finally:
-            imagecache.os = os
-            imagecache.conaryclient = conaryclient
-            imagecache.conarycfg = conarycfg
 
 if __name__ == "__main__":
     testsuite.main()

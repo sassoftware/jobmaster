@@ -26,13 +26,15 @@ from conary import conaryclient
 class HandlerTest(jobmaster_helper.JobMasterHelper):
     def testTroveSpec(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
-        handler = master.SlaveHandler(self.jobMaster, troveSpec, {})
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+            jobmaster_helper.kernelData, {})
         self.failIf(troveSpec != handler.troveSpec,
                     "Slave Handler should not alter troveSpec")
 
     def testStartHandler(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID': 'test.rpath.local-build-64'})
         handler.run = lambda: None
         genMac = xenmac.genMac
@@ -52,6 +54,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             raise testsuite.SkipTestException("No kernel on this machine, skipping test")
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-65'})
 
         def dummyRun():
@@ -88,9 +91,10 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
 
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-55'})
 
-        def dummyMakeImage(self, troveSpec, hash):
+        def dummyMakeImage(self, troveSpec, kernelData, hash):
             filePath = os.path.join(handler.imageCache().cachePath, hash)
             f = open(filePath, 'w')
             f.write('')
@@ -147,6 +151,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
     def testWriteSlaveConfig(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-55'})
 
         fd, cfgPath = tempfile.mkstemp()
@@ -193,6 +198,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         troveFlavor = '1#x86'
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-55', 'troveName': troveName,
                     'troveVersion': troveVersion, 'troveFlavor': troveFlavor,
                     'type': 'build', 'protocolVersion': 1, 'project': {'conaryCfg': 'name RonaldFrobnitz'}})
@@ -225,6 +231,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         troveFlavor = '1#x86'
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-cook-55-1',
                     'type': 'cook', 'protocolVersion': 1})
 

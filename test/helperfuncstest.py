@@ -11,6 +11,7 @@ testsuite.setup()
 import testhelp
 
 import os
+import StringIO
 import tempfile
 
 from jobmaster import master, master_error
@@ -61,6 +62,45 @@ class HelperFuncsTest(testhelp.TestCase):
             if os.path.exists(src):
                 os.unlink(src)
             os.unlink(dest)
+
+    def testGetRunningKernel(self):
+        kversion = '2.6.22.4-0.0.1.smp.gcc3.4.x86.i686'
+        kpath = '/boot/vmlinuz-' + kversion
+        ipath = '/boot/initrd-' + kversion + '.img'
+        ktrove = ('kernel:fake', kversion, None)
+
+        class MegaMock(object):
+            def __init__(xself, *P, **K):
+                # Create self or self-class references for sub-modules
+                xself.path = xself # os.path
+                xself.ConaryConfiguration = MegaMock # conarycfg.ConaryConfiguration
+                xself.ConaryClient = MegaMock # conaryclient.ConaryClient
+                xself.db = xself # ConaryClient.db (instance variable)
+            def exists(xself, path): # os.path.exists
+                self.assertEquals(path, kpath)
+                return True
+            def popen(xself, cmdline): # os.popen
+                return StringIO.StringIO(kversion + '\n')
+            def iterTrovesByPath(xself, path): # ConaryClient.db.iterTrovesByPath
+                self.assertEquals(path, kpath)
+                return [xself]
+            def getNameVersionFlavor(xself): # Trove.getNameVersionFlavor
+                return ktrove
+
+        _os = masterUtil.os
+        _conaryclient = masterUtil.conaryclient
+        _conarycfg = masterUtil.conarycfg
+        try:
+            masterUtil.os = masterUtil.conaryclient = masterUtil.conarycfg \
+                = MegaMock()
+
+            res = masterUtil.getRunningKernel()
+            self.assertEquals(res, dict(trove=ktrove, kernel=kpath,
+                initrd=ipath, uname=kversion))
+        finally:
+            masterUtil.os = _os
+            masterUtil.conaryclient = _conaryclient
+            masterUtil.conarycfg = _conarycfg
 
 
 if __name__ == '__main__':

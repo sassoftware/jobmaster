@@ -5,20 +5,22 @@
 # All rights reserved
 #
 
+import os
+import subprocess
+import signal
+import tempfile
 import testsuite
 import testhelp
-import subprocess
+import threading
+
+from conary import versions
+from conary.lib import util
+from cStringIO import StringIO
 
 from jobmaster import master
 from jobmaster import templateserver
 from jobmaster import imagecache
 
-import tempfile
-import threading
-import os
-from cStringIO import StringIO
-
-from conary.lib import util
 
 class DummyConnection(object):
     def __init__(self, *args, **kwargs):
@@ -118,6 +120,7 @@ class DummyTemplateServer(object):
 class ThreadedJobMaster(master.JobMaster, threading.Thread):
     def __init__(self, *args, **kwargs):
         threading.Thread.__init__(self)
+        master.getRunningKernel = FakeGetRunningKernel
         TemplateServer = templateserver.TemplateServer
         try:
             templateserver.TemplateServer = DummyTemplateServer
@@ -185,11 +188,6 @@ class JobMasterHelper(testhelp.TestCase):
         # Don't spend all day creating 256MB swap images
         imagecache.SWAP_SIZE = 1048576
 
-        master._getBootPaths = master.getBootPaths
-        master.getBootPaths = lambda: \
-            ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
-                '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img')
-
     def tearDown(self):
         import logging
         for x in logging._handlers:
@@ -200,7 +198,8 @@ class JobMasterHelper(testhelp.TestCase):
         os.system = self.oldOsSystem
         subprocess.Popen = self.oldSubprocessPopen
 
-        master.getBootPaths = master._getBootPaths
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     def assertLogContent(self, content):
         f = open(self.cfg.logFile)
@@ -213,3 +212,8 @@ class JobMasterHelper(testhelp.TestCase):
            f.write(contents)
            f.close()
 
+_uname = '2.6.porkchops-0.0.1.smp.vcplusplus.sparc'
+kernelData = dict(uname=_uname,
+            kernel='/boot/' + _uname, initrd='/boot/' + _uname + '.img',
+            trove=('bean:cup','/conary.example.com/1.2.3-4-5', None))
+def FakeGetRunningKernel(): return kernelData

@@ -31,9 +31,16 @@ from conary.lib import util
 class DummyHandler(master.SlaveHandler):
     count = 0
     jobQueueName = 'job3.0.0-1-1:x86'
-    def __init__(self, master, troveSpec, data):
+    def __init__(self, master, troveSpec, *others):
+        # So I don't have to change every. single. instance. below here
+        if len(others) == 2:
+            kernelData, data = others
+        elif len(others) == 1:
+            kernelData = jobmaster_helper.kernelData,
+            data, = others
         self.master = weakref.ref(master)
         self.troveSpec = troveSpec
+        self.kernelData = kernelData
         self.lock = threading.RLock()
         self.offline = False
         threading.Thread.__init__(self)
@@ -773,24 +780,6 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testCatchSignal(self):
         self.jobMaster.catchSignal(signal.SIGTERM, None)
         self.assertEquals(self.jobMaster.running, False)
-
-    def testGetBootPaths(self):
-        def popen(cmd):
-            return StringIO.StringIO('2.6.22.4-0.0.1.smp.gcc3.4.x86.i686')
-        def listdir(path):
-            return ['vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
-                    'initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img']
-
-        oldPopen, os.popen      = os.popen, popen
-        oldListdir, os.listdir  = os.listdir, listdir
-        try:
-            # using the "real" getBootPaths, not the stubbed out one
-            self.assertEquals(master._getBootPaths(),
-                ('/boot/vmlinuz-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686',
-                '/boot/initrd-2.6.22.4-0.0.1.smp.gcc3.4.x86.i686.img'))
-        finally:
-            os.popen = oldPopen
-            os.listdir = oldListdir
 
     def testEstimateScratchSize(self):
         class ScratchHandler(master.SlaveHandler):

@@ -10,6 +10,8 @@ import select
 import subprocess
 log = logging
 
+from conary import conarycfg, conaryclient
+
 def rewriteFile(template, target, data):
     if not os.path.exists(template):
         return
@@ -46,4 +48,43 @@ def getIP():
     data = p.read().strip()
     p.close()
     return data
+
+def getRunningKernel():
+    # Get the current kernel version
+    p = os.popen('uname -r')
+    kernel_name = p.read().strip()
+    p.close()
+
+    cfg = conarycfg.ConaryConfiguration(True)
+    cc = conaryclient.ConaryClient(cfg)
+
+    # Determine paths for kernel and initrd
+    kernel_path = '/boot/vmlinuz-' + kernel_name
+    initrd_path = '/boot/initrd-' + kernel_name + '.img'
+    ret = dict(uname=kernel_name, kernel=kernel_path, initrd=initrd_path)
+
+    # Check if conary owns this as a standardized file in /boot
+    if os.path.exists(kernel_path):
+        # Easy! Conary should own this.
+        troves = cc.db.iterTrovesByPath(kernel_path)
+        if troves:
+            kernel = troves[0].getNameVersionFlavor()
+            logging.debug('Selected kernel %s=%s[%s] based on running '
+                'kernel at %s', kernel[0], kernel[1], kernel[2], kernel_path)
+            ret['trove'] = kernel
+            return ret
+
+    # Get the latest "kernel:runtime" trove instead and pray
+    troveSpec = ('kernel:runtime', None, None)
+    troves = cc.db.findTroves(None, [('kernel:runtime', None, None)])[troveSpec]
+    max_version = max(x[1] for x in troves)
+    kernel = [x for x in troves if x[1] == max_version][0]
+    if kernel:
+        logging.warning('Could not determine running kernel by file. '
+            'Falling back to latest kernel: %s=%s[%s]', kernel[0],
+            kernel[1], kernel[2])
+        ret['trove'] = kernel
+        return ret
+    else:
+        raise RuntimeError('Could not determine currently running kernel')
 

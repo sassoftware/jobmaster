@@ -42,6 +42,8 @@ class MasterTest(testsuite.TestCase):
         self.cfg.basePath = self.basePath
         self.cfg.logFile = os.path.join(self.basePath, 'logs', 'jobmaster.log')
 
+        master.getRunningKernel = jobmaster_helper.FakeGetRunningKernel
+
         self.ConaryClient = conaryclient.ConaryClient
         conaryclient.ConaryClient = FakeClient
         FakeClient.repos = trovesource.SimpleTroveSource()
@@ -65,6 +67,10 @@ class MasterTest(testsuite.TestCase):
     def testUnmatchedResolve(self):
         # neither of the candidate flavors satisfy requirements for xen, so
         # no suitable jobslave will be found
+
+        # squelch the warning
+        logging.getLogger().setLevel(logging.ERROR)
+
         troveSpec1 = 'jobslave=/test.rpath.local@rpl:1/4.0.0-21-1[is: x86]'
         troveSpec2 = 'jobslave=/test.rpath.local@rpl:1/4.0.0-21-1[is: x86_64]'
         self.addTrove(troveSpec1)

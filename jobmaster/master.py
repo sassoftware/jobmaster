@@ -24,6 +24,7 @@ from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
+from jobmaster.util import getRunningKernel
 from jobmaster.util import rewriteFile, logCall, getIP
 
 from mcp import mcp_log
@@ -53,19 +54,6 @@ def getAvailableArchs(arch):
 def controlMethod(func):
     func._controlMethod = True
     return func
-
-def getBootPaths():
-    p = os.popen('uname -r')
-    runningKernel = p.read().strip()
-    p.close()
-
-    files = [x for x in os.listdir('/boot') if runningKernel in x]
-    kernel = [x for x in files if x.startswith('vmlinuz')][0]
-    kernel = os.path.join(os.path.sep, 'boot', kernel)
-
-    initrd = [x for x in files if x.startswith('initrd')][0]
-    initrd = os.path.join(os.path.sep, 'boot', initrd)
-    return kernel, initrd
 
 
 PROTOCOL_VERSIONS = set([1])
@@ -135,16 +123,19 @@ def waitForSlave(slaveName):
 
 class SlaveHandler(threading.Thread):
     # A slave handler is tied to a specific slave instance. do not re-use.
-    def __init__(self, master, troveSpec, data):
-        self.master = weakref.ref(master)
-        self.imageCache = weakref.ref(master.imageCache)
+    def __init__(self, master, troveSpec, kernelData, data):
         self.cfgPath = ''
-        self.slaveName = None
         self.data = data
+        self.imageCache = weakref.ref(master.imageCache)
+        self.kernelData = kernelData
+        self.master = weakref.ref(master)
+        self.slaveName = None
         self.troveSpec = troveSpec
+
         self.jobQueueName = self.getJobQueueName()
         self.lock = threading.RLock()
         threading.Thread.__init__(self)
+
         self.pid = None
         self.offline = False
 
@@ -153,13 +144,11 @@ class SlaveHandler(threading.Thread):
                                   self.jobQueueName.replace('job', ''), jobId)
 
     def start(self):
-        kernel, initrd = getBootPaths()
-
         xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
             'dev', self.master().cfg.lvmVolumeName),
                                {'memory' : self.master().cfg.slaveMemory,
-                                'kernel': kernel,
-                                'initrd': initrd,
+                                'kernel': self.kernelData['kernel'],
+                                'initrd': self.kernelData['initrd'],
                                 'extra': 'console=xvc0',
                                 'root': '/dev/xvda1 ro'},
                                 extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
@@ -312,7 +301,8 @@ class SlaveHandler(threading.Thread):
                 cfg = self.master().cfg
                 # don't use original. make a backup
                 log.info('Getting slave image: %s' % self.troveSpec)
-                cachedImage = self.imageCache().getImage(self.troveSpec, cfg.debugMode)
+                cachedImage = self.imageCache().getImage(self.troveSpec,
+                    self.kernelData, cfg.debugMode)
                 log.info("Making runtime copy of cached image at: %s" % \
                              self.imagePath)
                 slaveSize = os.stat(cachedImage)[stat.ST_SIZE]
@@ -450,6 +440,11 @@ class JobMaster(object):
                     tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
                     conaryProxy=cfg.conaryProxy)
 
+        # Determine the currently running kernel once on startup. The only
+        # way it could ever change is with kexec, which we definitely don't
+        # support.
+        self.kernelData = getRunningKernel()
+
         log.info('started jobmaster: %s' % self.cfg.nodeName)
         self.lastHeartbeat = 0
 
@@ -582,7 +577,7 @@ class JobMaster(object):
 
     def handleSlaveStart(self, data):
         troveSpec = self.resolveTroveSpec(data['jobSlaveNVF'])
-        handler = SlaveHandler(self, troveSpec, data)
+        handler = SlaveHandler(self, troveSpec, self.kernelData, data)
         self.handlers[handler.start()] = handler
 
     def handleSlaveStop(self, slaveId):
