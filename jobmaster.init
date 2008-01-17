@@ -32,7 +32,7 @@ cleanLvm() {
 }
 
 cleanImageCacheLocks() {
-    rm -rf /srv/rbuilder/jobmaster/imageCache/*.lck >& /dev/null
+    rm -rf /srv/rbuilder/jobmaster/imageCache/*.lock >& /dev/null
 }
 
 start() {
