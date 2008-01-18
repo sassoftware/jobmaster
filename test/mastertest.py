@@ -654,6 +654,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.popen = popen
 
     def testBadStatusReport(self):
+        raise testsuite.SkipTestException("Test isn't needed as the respawn functionality is unused")
         def FakeHeartbeat(*args, **kwargs):
             # set up running to be a simple countdown
             if self.jobMaster.running is True:
