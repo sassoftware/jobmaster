@@ -120,7 +120,7 @@ def main(argv=None, individual=True):
         suiteClass = testhelp.ConaryTestSuite
 
         def getCoverageDirs(self, environ):
-            return environ['jobmaster']
+            return os.getenv('JOB_MASTER_PATH')
 
         def getCoverageExclusions(self, environ):
             return EXCLUDED_PATHS
