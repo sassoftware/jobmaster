@@ -267,8 +267,10 @@ class SlaveHandler(threading.Thread):
             return troveSize / (1024 * 1024)
 
         # these two handle legacy formats
-        freeSpace = int(self.data.get('data', {}).get('freespace', 0))
-        swapSize = int(self.data.get('data', {}).get('swapSize', 0))
+        freeSpace = int(self.data.get('data', {}).get('freespace', 0)) \
+            * 1024 * 1024
+        swapSize = int(self.data.get('data', {}).get('swapSize', 0)) \
+            * 1024 * 1024
 
         mountOverhead = self.addMountSizes()
 

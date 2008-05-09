@@ -791,7 +791,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                 'data' : {'freespace' : 750, 'swapSize' : 250}}
         hdlr = ScratchHandler(jobData)
         hdlr.getTroveSize = lambda: 1024 * 1024 * 1024
-        self.assertEquals(hdlr.estimateScratchSize(), 4799)
+        self.assertEquals(hdlr.estimateScratchSize(), 9397)
         jobData['type'] = 'cook'
         self.assertEquals(hdlr.estimateScratchSize(), 1024)
 
