@@ -1,6 +1,6 @@
 #/usr/bin/python
 #
-# Copyright (c) 2005-2006 rPath, Inc.
+# Copyright (c) 2005-2008 rPath, Inc.
 #
 # All rights reserved
 #
@@ -366,7 +366,10 @@ class SlaveHandler(threading.Thread):
                     rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
                     resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
-                    util.copyfile('/etc/resolv.conf', resolv) 
+                    util.copyfile('/etc/resolv.conf', resolv)
+                    
+                    hostsFile = os.path.join(mntPoint, 'etc', 'hosts')
+                    util.copyfile('/etc/hosts', hostsFile)
 
                 finally:
                     if f:
