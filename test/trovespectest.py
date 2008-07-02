@@ -52,11 +52,20 @@ class MasterTest(testsuite.TestCase):
         self.__class__.__base__.setUp(self)
 
     def tearDown(self):
+        # Close sockets, etc.
+        del self.jobMaster
+
         self.__class__.__base__.tearDown(self)
         conaryclient.ConaryClient = self.ConaryClient
+
+        # Make sure logfiles get closed
+        import logging
+        log = logging.getLogger('')
+        for handler in log.handlers:
+            handler.close()
+            log.removeHandler(handler)
+
         util.rmtree(self.basePath)
-        for x in logging._handlers:
-            logging.getLogger().removeHandler(x)
 
     def addTrove(self, troveSpec):
         from conary import versions

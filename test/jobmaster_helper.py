@@ -189,9 +189,13 @@ class JobMasterHelper(testhelp.TestCase):
         imagecache.SWAP_SIZE = 1048576
 
     def tearDown(self):
+        # Make sure logfiles get closed
         import logging
-        for x in logging._handlers:
-            logging.getLogger().removeHandler(x)
+        log = logging.getLogger('')
+        for handler in log.handlers:
+            handler.close()
+            log.removeHandler(handler)
+
         util.rmtree(self.cfg.basePath)
         #self.jobMaster.command.connection
         testhelp.TestCase.tearDown(self)

@@ -186,6 +186,7 @@ class TemplateGenTest(jobmaster_helper.JobMasterHelper):
     def test_RUN_cpiogz(self):
         inputDir = tempfile.mkdtemp()
         fd, output = tempfile.mkstemp()
+        os.close(fd)
         try:
             res = self.anaconda._RUN_cpiogz(inputDir, output)
             ref = ['find . | cpio --quiet -c -o | gzip -9 > %s' % output]
@@ -213,6 +214,7 @@ class TemplateGenTest(jobmaster_helper.JobMasterHelper):
     def test_RUN_mkdosfs(self):
         inputDir = tempfile.mkdtemp()
         fd, output = tempfile.mkstemp()
+        os.close(fd)
         try:
             self.touch(os.path.join(inputDir, 'testfile'))
             res = self.anaconda._RUN_mkdosfs(inputDir, output)
@@ -226,7 +228,9 @@ class TemplateCallbackTest(testsuite.TestCase):
     def setUp(self):
         self.__class__.__base__.setUp(self)
         fd, self.logPath = tempfile.mkstemp()
+        os.close(fd)
         fd, self.statusPath = tempfile.mkstemp()
+        os.close(fd)
         self.callback = templategen.TemplateUpdateCallback(self.logPath,
                 self.statusPath)
 
