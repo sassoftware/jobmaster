@@ -1,2 +1,2 @@
-maxSlaveLimit 1
+maxSlaveLimit 4
 includeConfigFile /srv/rbuilder/jobmaster/config.d/*
