@@ -76,7 +76,7 @@ def setup():
         MCP_PATH=mcpPath, JOB_MASTER_PATH=jobmasterPath, JOB_MASTER_TEST_PATH=jmTestPath,
         PYTHONPATH=(':'.join(sys.path))))
 
-    import testhelp
+    from testrunner import testhelp
     testPath = testhelp.getTestPath()
 
     global conaryDir
@@ -89,7 +89,7 @@ def setup():
     from conary.lib import coveragehook
 
     # import tools normally expected in findTrove.
-    from testhelp import context, TestCase, findPorts, SkipTestException
+    from testrunner.testhelp import context, TestCase, findPorts, SkipTestException
     sys.modules[__name__].context = context
     sys.modules[__name__].TestCase = TestCase
     sys.modules[__name__].findPorts = findPorts
@@ -114,7 +114,7 @@ def isIndividual():
 EXCLUDED_PATHS = ['test', 'scripts', 'raaplugins', 'schema.py', 'dist', '/build/', 'setup.py']
 
 def main(argv=None, individual=True):
-    import testhelp
+    from testrunner import testhelp
     testhelp.isIndividual = isIndividual
     class rBuilderTestSuiteHandler(testhelp.TestSuiteHandler):
         suiteClass = testhelp.ConaryTestSuite

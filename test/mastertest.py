@@ -795,6 +795,20 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         jobData['type'] = 'cook'
         self.assertEquals(hdlr.estimateScratchSize(), 1024)
 
+    def testEstimateScratchSizeLive(self):
+        raise testsuite.SkipTestException("This test uses external repositories, and is used as a sanity check (see RBL-3599)")
+        class ScratchHandler(master.SlaveHandler):
+            def __init__(self, data):
+                self.data = data
+
+        jobData = {'type': 'build', 'protocolVersion': 1,
+                'data' : {'freespace' : 256, 'swapSize' : 128}, 'project': {'conaryCfg': ''}}
+        jobData['troveName'] = 'group-weasel-appliance'
+        jobData['troveVersion'] = '/weasel.rpath.org@wgl:weasel-2.0-devel/0:2.0.1-13-1'
+        jobData['troveFlavor'] = '1#x86:i486:i586:i686:sse:sse2|1#x86_64|5#use:~!dom0:~!domU:~!vmware:~!xen'
+        hdlr = ScratchHandler(jobData)
+        size = hdlr.estimateScratchSize()
+        self.assertEquals(size, 29480)
 
 if __name__ == "__main__":
     testsuite.main()

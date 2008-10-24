@@ -8,7 +8,7 @@
 import testsuite
 testsuite.setup()
 
-import testhelp
+from testrunner import testhelp
 
 import os
 import StringIO
