@@ -213,7 +213,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testFsOddsNEnds(self):
         tmpDir = tempfile.mkdtemp()
         try:
-            imagecache.fsOddsNEnds(tmpDir)
+            imagecache.fsOddsNEnds(tmpDir, 256)
             self.failUnlessEqual(
                 set(os.listdir(tmpDir)),
                 set(['boot', 'etc', 'var']))
@@ -261,6 +261,15 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
                     "building lock was not removed by signal")
         finally:
             util.rmtree(tmpDir)
+
+    def testSwapSizeCalc(self):
+        tmpDir = tempfile.mkdtemp()
+        imageCache = imagecache.ImageCache(tmpDir, self.cfg)
+        #2x memory size until 2GB, then memsize + 2GB
+        self.assertEquals(512, imageCache.calcSwapSize(256))
+        self.assertEquals(2048, imageCache.calcSwapSize(1024))
+        self.assertEquals(4096, imageCache.calcSwapSize(2048))
+        self.assertEquals(6144, imageCache.calcSwapSize(4096))
 
 if __name__ == "__main__":
     testsuite.main()

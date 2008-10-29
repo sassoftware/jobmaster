@@ -42,9 +42,9 @@ def md5sum(s):
     m.update(s)
     return m.hexdigest()
 
-def roundUpSize(size):
+def roundUpSize(size, swapsize=SWAP_SIZE):
     # 13% accounts for reserved block and inode consumption
-    size = int(math.ceil((size + TAGSCRIPT_GROWTH + SWAP_SIZE) / 0.87))
+    size = int(math.ceil((size + TAGSCRIPT_GROWTH + swapsize) / 0.87))
     # now round up to next cylinder size
     return size + ((CYLINDERSIZE - (size % CYLINDERSIZE)) % CYLINDERSIZE)
 
@@ -100,7 +100,7 @@ def createTemporaryRoot(fakeRoot):
               'boot/grub', 'tmp', 'proc', 'sys', 'root', 'var'):
         util.mkdirChain(os.path.join(fakeRoot, d))
 
-def fsOddsNEnds(d):
+def fsOddsNEnds(d, swapsize):
     createFile(os.path.join(d, 'etc', 'fstab'),
                '\n'.join(('LABEL=/ / ext3 defaults 1 1',
                           'none /dev/pts devpts gid=5,mode=620 0 0',
@@ -109,7 +109,7 @@ def fsOddsNEnds(d):
                           'none /sys sysfs defaults 0 0',
                           '/var/swap swap swap defaults 0 0\n')))
     #create a swap file
-    mkBlankFile(os.path.join(d, 'var', 'swap'), SWAP_SIZE, sparse = False)
+    mkBlankFile(os.path.join(d, 'var', 'swap'), swapsize, sparse = False)
     logCall('/sbin/mkswap %s >/dev/null 2>&1' % \
                   os.path.join(d, 'var', 'swap'))
 
@@ -226,6 +226,9 @@ class ImageCache(object):
             finally:
                 self.stopBuildingImage(hash)
 
+    def calcSwapSize(self, slaveMemory):
+        return slaveMemory < 2048 and slaveMemory * 2 or slaveMemory + 2048
+
     def makeImage(self, troveSpec, kernelData, hash):
         logging.info('Building image')
 
@@ -237,8 +240,9 @@ class ImageCache(object):
         spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
         n, v, f = nc.findTrove(None, (spec_n, spec_v, spec_f), ccfg.flavor)[0]
         trv = nc.getTrove(n, v, f, withFiles = False)
+        swapsize = self.calcSwapSize(self.masterCfg.slaveMemory)
         size = trv.getSize()
-        size = roundUpSize(size)
+        size = roundUpSize(size, swapsize)
 
         k_n, k_v, k_f = kernelData['trove']
 
@@ -293,7 +297,7 @@ class ImageCache(object):
 
             # Create various filesystem pieces
             logging.info('Preparing filesystem')
-            fsOddsNEnds(mntDir)
+            fsOddsNEnds(mntDir, swapsize)
 
             # Assemble tag script and run it
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
