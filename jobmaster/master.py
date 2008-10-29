@@ -327,7 +327,7 @@ class SlaveHandler(threading.Thread):
 
         size = troveSize + freeSpace + swapSize + mountOverhead
         #Pad 15% for filesystem overhead (inodes, etc)
-        size = int(math.ceil((size + 20 * 1024 * 1024) * 1.15))
+        size = int(math.ceil((size + 20 * 1024 * 1024) / 0.87))
         # partition offset is being ignored for our purposes. we're going to be
         # pretty generous so it shouldn't matter
         # we're not rounding up for cylinder size. LVM will do that
