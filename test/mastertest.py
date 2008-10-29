@@ -71,7 +71,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             responseSent = self.jobMaster.response.response.connection.sent
         self.failIf(not responseSent,
                     "Expected response. No response was sent.")
-        addr, dataStr = responseSent.pop()
+        addr, dataStr = responseSent.pop(0)
         assert addr == '/topic/mcp/response', "Last sent was not a response"
         data = simplejson.loads(dataStr)
         for key, val in kwargs.iteritems():
@@ -115,7 +115,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
     def testStatus(self):
         self.jobMaster.status(protocolVersion = 1)
         assert self.jobMaster.response.response.connection.sent
-        dataStr = self.jobMaster.response.response.connection.sent.pop()[1]
+        dataStr = self.jobMaster.response.response.connection.sent.pop(0)[1]
         data = simplejson.loads(dataStr)
         self.failIf(data['event'] != 'masterStatus')
 
@@ -128,7 +128,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                 DummyHandler(self.jobMaster, troveSpec, {})
         self.jobMaster.status(protocolVersion = 1)
         assert self.jobMaster.response.response.connection.sent
-        dataStr = self.jobMaster.response.response.connection.sent.pop()[1]
+        dataStr = self.jobMaster.response.response.connection.sent.pop(0)[1]
         data = simplejson.loads(dataStr)
         self.failIf(data['event'] != 'masterStatus')
         refSlaves = ['testMaster:testSlave2']
@@ -491,11 +491,11 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         jobMaster.running = False
         jobMaster.join()
         assert sent, "no response was sent"
-        data = simplejson.loads(sent[0][1])
+        data = simplejson.loads(sent.pop()[1]) # We want the last message sent
         refData = {"node": "testMaster", "event": "masterOffline"}
         for key, val in refData.iteritems():
             assert key in data
-            assert data[key] == val
+            self.assertEquals( data[key], val)
 
     def pipeSlaves(self, memory, func = master.JobMaster.getMaxSlaves):
         self.memList = memory[:]
@@ -763,7 +763,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.flushJobs()
         for status in (slavestatus.BUILDING, slavestatus.OFFLINE):
             addy, event = \
-                    self.jobMaster.response.response.connection.sent.pop()
+                    self.jobMaster.response.response.connection.sent.pop(0)
             data = simplejson.loads(event)
             self.assertEquals(data.get('event'), 'slaveStatus')
             self.assertEquals(data.get('jobId'), 'test.rpath.local-build-88-0')
