@@ -110,7 +110,7 @@ def fsOddsNEnds(d, swapsize):
                           '/var/swap swap swap defaults 0 0\n')))
     #create a swap file
     mkBlankFile(os.path.join(d, 'var', 'swap'), swapsize, sparse = False)
-    logCall('/sbin/mkswap %s >/dev/null 2>&1' % \
+    logCall('/sbin/mkswap %s' % \
                   os.path.join(d, 'var', 'swap'))
 
     util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
