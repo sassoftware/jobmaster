@@ -227,7 +227,7 @@ class ImageCache(object):
                 self.stopBuildingImage(hash)
 
     def calcSwapSize(self, slaveMemory):
-        return slaveMemory < 2048 and slaveMemory * 2 or slaveMemory + 2048
+        return (slaveMemory < 2048 and slaveMemory * 2 or slaveMemory + 2048) * 1024 * 1024
 
     def makeImage(self, troveSpec, kernelData, hash):
         logging.info('Building image')
