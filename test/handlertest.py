@@ -214,13 +214,14 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                 x.troveInfo = x
                 x.cfg = y
                 x.flavor = None
-                x.size = lambda *args, **kwargs: 55 * 1024 * 1024 # 55M trove
+                # 255M trove to avoid the minimum scratch size
+                x.size = lambda *args, **kwargs: 255 * 1024 * 1024
 
                 self.failUnlessEqual(y.name, "RonaldFrobnitz")
         try:
             conaryclient.ConaryClient = MockClient
             res = handler.estimateScratchSize()
-            self.failIf(res != 344,
+            self.failIf(res != 1264,
                     "scratch calculation did not match expected value")
         finally:
             conaryclient.ConaryClient = ConaryClient

@@ -784,16 +784,30 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
 
     def testEstimateScratchSize(self):
         class ScratchHandler(master.SlaveHandler):
-            def __init__(self, data):
+            def __init__(self, data, master):
                 self.data = data
+                self.master = weakref.ref(master)
 
         jobData = {'type': 'build', 'protocolVersion': 1,
                 'data' : {'freespace' : 750, 'swapSize' : 250}}
-        hdlr = ScratchHandler(jobData)
+        hdlr = ScratchHandler(jobData, self.jobMaster)
         hdlr.getTroveSize = lambda: 1024 * 1024 * 1024
         self.assertEquals(hdlr.estimateScratchSize(), 9397)
         jobData['type'] = 'cook'
         self.assertEquals(hdlr.estimateScratchSize(), 1024)
+
+    def testEstimateMinScratchSize(self):
+        class ScratchHandler(master.SlaveHandler):
+            def __init__(self, data, master):
+                self.data = data
+                self.master = weakref.ref(master)
+
+        jobData = {'type': 'build', 'protocolVersion': 1,
+                'data' : {'freespace' : 0, 'swapSize' : 0}}
+        hdlr = ScratchHandler(jobData, self.jobMaster)
+        hdlr.getTroveSize = lambda: 5 * 1024 * 1024
+        self.assertEquals(hdlr.estimateScratchSize(), 1024)
+
 
     def testEstimateScratchSizeLive(self):
         raise testsuite.SkipTestException("This test uses external repositories, and is used as a sanity check (see RBL-3599)")

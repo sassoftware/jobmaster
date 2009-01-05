@@ -103,6 +103,7 @@ class MasterConfig(client.MCPClientConfig):
     # maxSlaveLimit == 0 means unlimited
     maxSlaveLimit = (cfgtypes.CfgInt, 0)
     nodeName = (cfgtypes.CfgString, None)
+    minSlaveSize = (cfgtypes.CfgInt, 1024) # scratch space in MB
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
     templateCache = os.path.join(basePath, 'anaconda-templates')
     lvmVolumeName = 'vg00'
@@ -338,7 +339,12 @@ class SlaveHandler(threading.Thread):
         size *= 4
         blockSize = 1024 * 1024
         size /= blockSize + ((size % blockSize) and 1 or 0)
-        return size
+
+        minslavesize = self.master().cfg.minSlaveSize
+        if size > minslavesize:
+            return size
+        else:
+            return minslavesize
 
     def isOnline(self):
         self.lock.acquire()
