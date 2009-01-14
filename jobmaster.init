@@ -23,10 +23,17 @@ DAEMON='/usr/bin/jobmaster'
 cleanLvm() {
     for slaveLvm in $(/usr/sbin/lvscan | cut -d "'" -f 2 | grep slave); do
         slaveId=$(echo $slaveLvm | cut -d "/" -f 4)
-        /usr/sbin/xm domid $slaveId >& /dev/null
-        if [ $? -ne 0 ]; then
-            echo removing $slaveLvm due to dead slave
-            /usr/sbin/lvremove -f $slaveLvm
+        if [ "$slaveId" == "slave_dummy" ]
+        then
+            # Created as part of the install process; delete without
+            # notification.
+            /usr/sbin/lvremove -f $slaveLvm >/dev/null
+        else
+            /usr/sbin/xm domid $slaveId >& /dev/null
+            if [ $? -ne 0 ]; then
+                echo removing $slaveLvm due to dead slave
+                /usr/sbin/lvremove -f $slaveLvm
+            fi
         fi
     done
 }
@@ -37,6 +44,8 @@ cleanImageCacheLocks() {
 
 start() {
     echo -n "Starting $LONGNAME:"
+
+    /usr/libexec/jobmaster-proxy-firewall
 
     pid=$(pidofproc $(basename $DAEMON))
     if checkpid $pid; then
