@@ -358,4 +358,5 @@ class UpdateCallback(callbacks.UpdateCallback):
 
     tagHandlerOutput = troveScriptOutput = troveScriptFailure = eatMe
 
-    # TODO: maybe log something useful occasionally when loglevel >= DEBUG
+    def setUpdateHunk(self, hunk, total):
+        logging.info('Applying %d of %d', hunk, total)
