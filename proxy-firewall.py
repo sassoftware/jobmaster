@@ -12,9 +12,11 @@ from conary.conarycfg import ConaryConfiguration
 def main(args):
     cfg = ConaryConfiguration(False)
     cfg.read('/etc/conaryrc', exception=False)
+    import epdb;epdb.st()
     for schema, uri in cfg.proxy.items():
-        hostpart = urlparse.urlsplit(uri)[1]
-        host, port = urllib.splitport(hostpart)
+        userhostport = urlparse.urlsplit(uri)[1]
+        hostport = urllib.splituser(userhostport)[1]
+        host, port = urllib.splitport(hostport)
         if not port:
             if schema == 'https':
                 port = '443'
