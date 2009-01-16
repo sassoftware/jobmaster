@@ -12,7 +12,6 @@ from conary.conarycfg import ConaryConfiguration
 def main(args):
     cfg = ConaryConfiguration(False)
     cfg.read('/etc/conaryrc', exception=False)
-    import epdb;epdb.st()
     for schema, uri in cfg.proxy.items():
         userhostport = urlparse.urlsplit(uri)[1]
         hostport = urllib.splituser(userhostport)[1]
