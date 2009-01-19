@@ -43,9 +43,9 @@ cleanImageCacheLocks() {
 }
 
 start() {
-    echo -n "Starting $LONGNAME:"
+    action "Updating firewall rules:" /usr/libexec/jobmaster-proxy-firewall
 
-    /usr/libexec/jobmaster-proxy-firewall
+    echo -n "Starting $LONGNAME:"
 
     pid=$(pidofproc $(basename $DAEMON))
     if checkpid $pid; then
