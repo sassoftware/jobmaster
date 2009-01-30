@@ -155,6 +155,10 @@ def fsOddsNEnds(d, swapsize):
     appendFile(os.path.join(d, 'etc', 'rc.local'),
         'ethtool -K eth0 tx off')
 
+    # symlink /var/tmp -> /tmp to avoid running out of space on / (RBL-4202)
+    util.rmtree(os.path.join(d, 'var', 'tmp'), ignore_errors = True)
+    os.symlink(os.path.join('..', 'tmp'), os.path.join(d, 'var', 'tmp'))
+
 def signalHandler(*args, **kwargs):
     # change signals into exceptions
     raise RuntimeError('process killed')

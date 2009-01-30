@@ -224,6 +224,10 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             self.failUnlessEqual(
                 set(os.listdir(os.path.join(tmpDir, 'etc', 'sysconfig'))),
                 set(['keyboard', 'network', 'network-scripts']))
+            # make sure that /var/tmp -> /tmp (RBL-4202)
+            p = os.path.join(tmpDir, 'var', 'tmp')
+            self.failUnless(os.path.islink(p))
+            self.failUnlessEqual(os.readlink(p), '../tmp')
         finally:
             util.rmtree(tmpDir)
 
