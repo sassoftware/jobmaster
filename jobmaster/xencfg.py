@@ -22,7 +22,7 @@ class UnrecognizedImage(Exception):
         self.msg = msg
 
 class XenCfg(object):
-    def __init__(self, imgPath, cfg = {}, extraDiskTemplate = True):
+    def __init__(self, imgPath, cfg = {}, disks=()):
         self.cfg = copy.deepcopy(cfg)
         self.cfg.setdefault('memory', 64)
 
@@ -39,10 +39,13 @@ class XenCfg(object):
         self.cfg.setdefault('name', 'slave%s' % \
                             self.cfg['vif'][0].split(':')[-1])
 
-        filePath = os.path.join(imgPath, self.cfg['name'] + '-base')
-        disks = self.cfg.setdefault('disk', ['phy:%s,xvda1,w' % filePath])
-        if extraDiskTemplate:
-            disks.append('phy:%s-scratch,xvda2,w' % (extraDiskTemplate % self.cfg['name']))
+        disksOut = []
+        index = 1
+        for disk in disks:
+            disksOut.append('phy:%s/%s-%s,xvda%d,w' %
+                    (imgPath, self.cfg['name'], disk, index))
+            index += 1
+        self.cfg.setdefault('disks', []).extend(disksOut)
 
     def write(self, f = sys.stdout):
         for key, val in self.cfg.iteritems():

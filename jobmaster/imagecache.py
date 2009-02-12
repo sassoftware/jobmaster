@@ -1,362 +1,250 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2004-2006 rPath, Inc.
+# Copyright (c) 2004-2009 rPath, Inc.
 #
 # All Rights Reserved
 #
 
-import errno
+import copy
+import hashlib
 import logging
-import os, sys
-import math
-import md5
-import re
-import urllib
-import signal
-import shutil
+import os
+import subprocess
+import sys
 import tempfile
-import time
-import traceback
-
 from conary import callbacks
 from conary import conarycfg
 from conary import conaryclient
+from conary import updatecmd
 from conary.conaryclient import cmdline
 from conary.lib import util
+from jobmaster.util import setupLogging, createFile
 
-from jobmaster.util import logCall
+log = logging.getLogger('jobmaster.imagecache')
 
-SWAP_SIZE = 268435456 # 256 MB in bytes
-TAGSCRIPT_GROWTH = 20971520 # 20MB in bytes
-CYLINDERSIZE = 516096
-SECTORS         = 63
-HEADS           = 16
 
-###########
-# all image building related functions are not class members to
-# enforce prevention of side effects
-###########
+SERIAL = 1
 
-def md5sum(s):
-    m = md5.new()
-    m.update(s)
-    return m.hexdigest()
 
-def roundUpSize(size, swapsize=SWAP_SIZE):
-    # 13% accounts for reserved block and inode consumption
-    size = int(math.ceil((size + TAGSCRIPT_GROWTH + swapsize) / 0.87))
-    # now round up to next cylinder size
-    return size + ((CYLINDERSIZE - (size % CYLINDERSIZE)) % CYLINDERSIZE)
+def main(args):
+    if len(args) < 2:
+        sys.exit('Usage: %s <path> <trovespec>+' % sys.argv[0])
 
-def createDir(d):
-    if not os.path.exists(d):
-        createDir(os.path.split(d)[0])
-        os.mkdir(d)
+    setupLogging()
 
-def mkBlankFile(fn, size, sparse = True):
-    createDir(os.path.split(fn)[0])
-    f = open(fn, 'w')
-    if sparse:
-        f.seek(size - 1)
-        f.write(chr(0))
-    else:
-        for i in range(size / 512):
-            f.write(512 * chr(0))
-        f.write((size % 512) * chr(0))
-    f.close()
+    cachePath = args.pop(0)
+    specTups = [cmdline.parseTroveSpec(x) for x in args]
 
-def createFile(fn, contents):
-    createDir(os.path.split(fn)[0])
-    f = open(fn, 'w')
-    f.write(contents)
-    f.close()
+    ccfg = conarycfg.ConaryConfiguration(True)
+    ccfg.downloadFirst = False
+    ccfg.initializeFlavors()
+    cli = conaryclient.ConaryClient(ccfg)
+    repos = cli.getRepos()
 
-def appendFile(fn, contents):
-    createDir(os.path.split(fn)[0])
-    f = open(fn, 'a')
-    f.write(contents)
-    f.close()
+    results = repos.findTroves(None, specTups, ccfg.flavor)
+    troveTups = sorted(max(x) for x in results.values())
+    print 'In:', '%s=%s[%s]' % troveTups[0]
+    for tup in troveTups[1:]:
+        print '    %s=%s[%s]' % tup
+    outPath = getImage(ccfg, cachePath, troveTups)
 
-def writeConaryRc(d, mirrorUrl = ''):
-    # write the conaryrc file
-    conaryrcFile = open(os.path.join(d, 'etc', 'conaryrc'), "w")
-    if mirrorUrl:
-        type, url = urllib.splittype(mirrorUrl)
-        relativeLink = ''
-        if not type:
-            type = 'http'
-        if not url.startswith('//'):
-            url = '//' + url
-        if not urllib.splithost(url)[1]:
-            relativeLink = '/conaryrc'
-        mirrorUrl = type + ':' + url + relativeLink
-        print >> conaryrcFile, 'includeConfigFile ' + mirrorUrl
-    print >> conaryrcFile, "pinTroves kernel.*"
-    print >> conaryrcFile, "includeConfigFile /etc/conary/config.d/*"
-    conaryrcFile.close()
 
-def createTemporaryRoot(fakeRoot):
-    for d in ('etc', 'etc/sysconfig', 'etc/sysconfig/network-scripts',
-              'boot/grub', 'tmp', 'proc', 'sys', 'root', 'var'):
-        util.mkdirChain(os.path.join(fakeRoot, d))
+def getImage(ccfg, cachePath, troveTups):
+    """
+    Get the path to a LZMAball of the troves C{troveTups} from the
+    cache at C{cachePath}, building it first if necessary using the
+    configuration C{ccfg}.
+    
+    Verifies the SHA-512 digest before returning a tuple
+    C{(path, metadata)} where C{metadata} is a dictionary of simple
+    items stored alongside the image.
+    """
+    imageHash = specHash(troveTups)
+    imagePath = os.path.abspath(os.path.join(cachePath,
+        imageHash + '.tar.lzma'))
+    metaPath = imagePath + '.metadata'
 
-def fsOddsNEnds(d, swapsize):
-    createFile(os.path.join(d, 'etc', 'fstab'),
-               '\n'.join(('LABEL=/ / ext3 defaults 1 1',
-                          'none /dev/pts devpts gid=5,mode=620 0 0',
-                          'none /dev/shm tmpfs defaults 0 0',
-                          'none /proc proc defaults 0 0',
-                          'none /sys sysfs defaults 0 0',
-                          '/var/swap swap swap defaults 0 0\n')))
-    #create a swap file
-    mkBlankFile(os.path.join(d, 'var', 'swap'), swapsize, sparse = False)
-    logCall('/sbin/mkswap %s' % \
-                  os.path.join(d, 'var', 'swap'))
+    if os.path.exists(imagePath) and os.path.exists(metaPath):
+        metadata = dict(x.strip().split(' ', 1) for x in open(metaPath))
 
-    util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
-                      os.path.join(d, 'boot', 'grub'))
+        log.info("Using jobslave image at path %s", imagePath)
+        digest = copySHA512(open(imagePath))
+        expected = metadata['sha512_digest']
+        if digest.lower() == expected.lower():
+            return imagePath, metadata
+        log.warning("Digest mismatch on image; rebuilding.")
 
-    #copy the files needed by grub and set up the links
-    grubContents = \
-        '\n'.join(('default=0',
-                   'timeout=0',
-                   'title rBuilder Job Slave (template)',
-                   '    root (hd0,0)',
-                   '    kernel /boot/vmlinuz-template ro root=LABEL=/ quiet',
-                   '    initrd /boot/initrd-template.img\n'))
-    createFile(os.path.join(d, 'boot', 'grub', 'grub.conf'), grubContents)
-    os.symlink('grub.conf', os.path.join(d, 'boot', 'grub', 'menu.1st'))
+    metadata = buildRoot(ccfg, troveTups, imagePath)
+    return imagePath, metadata
 
-    #Add the other miscellaneous files needed
-    createFile(os.path.join(d, 'etc', 'hosts'),
-               '127.0.0.1       localhost.localdomain   localhost\n')
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'network'),
-               '\n'.join(('NETWORKING=yes',
-                          'HOSTNAME=localhost.localdomain\n')))
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'network-scripts',
-                            'ifcfg-eth0.template'),
-               '\n'.join(('DEVICE=eth0',
-                          'BOOTPROTO=static',
-                          'IPADDR=%(ipaddr)s',
-                          'GATEWAY=%(masterip)s',
-                          'ONBOOT=yes',
-                          'TYPE=Ethernet\n')))
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'keyboard'),
-               '\n'.join(('KEYBOARDTYPE="pc"',
-                          'KEYTABLE="us"\n')))
-    writeConaryRc(d)
 
-    # Set up a TTY on xvc0 as a debugging aid
-    appendFile(os.path.join(d, 'etc', 'inittab'),
-        'xvc:2345:respawn:/sbin/mingetty xvc0\n')
-    appendFile(os.path.join(d, 'etc', 'securetty'), 'xvc0\n')
+def buildRoot(ccfg, troveTups, destPath):
+    """
+    Build a LZMAball of the troves C{troveTups} using the configuration
+    C{ccfg} and save the result at C{destPath} along with a SHA-512
+    digest.
+    """
+    fsRoot = tempfile.mkdtemp(prefix='temproot-')
 
-    # Turn TX checksum offloading off (for TCP & UDP)
-    appendFile(os.path.join(d, 'etc', 'rc.local'),
-        'ethtool -K eth0 tx off')
+    rootCfg = copy.deepcopy(ccfg)
+    rootCfg.root = fsRoot
+    rootCfg.autoResolve = False
 
-def signalHandler(*args, **kwargs):
-    # change signals into exceptions
-    raise RuntimeError('process killed')
+    rootClient = conaryclient.ConaryClient(rootCfg)
+    try:
+        os.mkdir(os.path.join(fsRoot, 'root'))
 
-class ImageCache(object):
-    def __init__(self, cachePath, masterCfg):
-        self.cachePath = cachePath
-        self.masterCfg = masterCfg
-        util.mkdirChain(self.cachePath)
+        log.info("Preparing update job")
+        rootClient.setUpdateCallback(UpdateCallback())
+        job = rootClient.newUpdateJob()
+        jobTups = [(n, (None, None), (v, f), True) for (n, v, f) in troveTups]
+        rootClient.prepareUpdateJob(job, jobTups)
 
-        self.tmpPath = os.path.join(os.path.split(cachePath)[0], 'tmp')
+        rootClient.applyUpdateJob(job,
+                tagScript=os.path.join(fsRoot, 'root/conary-tag-script'))
 
-    def startBuildingImage(self, hash, output = True):
-        # this function is designed to block if an image is being built already
-        lockPath = os.path.join(self.cachePath, hash + '.lock')
-        done = False
-        while not done:
-            while os.path.exists(lockPath):
-                if output:
-                    logging.info('Waiting for building lock: %s' % lockPath)
-                    output = False
-                time.sleep(1)
-            try:
-                os.mkdir(lockPath)
-                logging.info('Acquired slave building lock: %s' % lockPath)
-                done = True
-            except OSError, e:
-                if e.errno != errno.EEXIST:
-                    raise
+        log.info("Running tag scripts")
+        preTagScripts(fsRoot)
+        util.execute("/usr/sbin/chroot '%s' bash -c '"
+                "sh -x /root/conary-tag-script "
+                ">/root/conary-tag-script.output 2>&1'" % (fsRoot,))
+        postTagScripts(fsRoot)
 
-    def stopBuildingImage(self, hash):
-        lockPath = os.path.join(self.cachePath, hash + '.lock')
-        logging.info('Releasing slave building lock: %s' % lockPath)
-        os.rmdir(lockPath)
+        log.info("Compressing image")
+        metadata = {'troves': '; '.join('%s=%s[%s]' % (n, v, f)
+            for (n, _, (v, f), _) in sorted(job.getPrimaryJobs()))}
+        metadata = compressRoot(fsRoot, destPath, metadata)
 
-    def deleteAllImages(self):
-        # this is for clearing the cache, eg. needed if entitlements changed
-        for image in os.listdir(self.cachePath):
-            os.unlink(os.path.join(self.cachePath, image))
+        log.info("Image written to %s", destPath)
+    finally:
+        rootClient.close()
+        job = None
+        util.rmtree(fsRoot)
 
-    def haveImage(self, troveSpec, kernelData):
-        return os.path.exists(self.imagePath(troveSpec, kernelData))
+    return metadata
 
-    def imageHash(self, troveSpec, kernelData):
-        kernelSpec = "%s=%s[%s]" % kernelData['trove']
-        return md5sum(troveSpec + kernelSpec)
 
-    def imagePath(self, troveSpec, kernelData):
-        imageFile = os.path.join(self.cachePath,
-            self.imageHash(troveSpec, kernelData))
-        return imageFile
+def preTagScripts(fsRoot):
+    """
+    Prepare the image root for running tag scripts.
+    """
+    # Fix up rootdir permissions as tar actually restores them when
+    # extracting.
+    os.chmod(fsRoot, 0755)
 
-    def getImage(self, troveSpec, kernelData, debugMode=False):
-        hash = self.imageHash(troveSpec, kernelData)
-        imageFile = self.imagePath(troveSpec, kernelData)
-        if os.path.exists(imageFile):
-            logging.info("Found image in cache for %s" % troveSpec)
-            return imageFile
-        else:
-            logging.info("Image not cached, creating image for %s" % \
-                    troveSpec)
-            signal.signal(signal.SIGTERM, signalHandler)
-            signal.signal(signal.SIGINT, signalHandler)
-            self.startBuildingImage(hash)
-            try:
-                if os.path.exists(imageFile):
-                    return imageFile
-                return self.makeImage(troveSpec, kernelData, hash)
-            finally:
-                self.stopBuildingImage(hash)
+    # Create system configuration files
+    createFile(fsRoot, 'etc/fstab',
+        """
+        LABEL=jsroot    /           ext3    defaults        1 1
+        LABEL=jsswap    swap        swap    defaults        0 0
+        none            /dev/pts    devpts  gid=5,mode=620  0 0
+        none            /dev/shm    tmpfs   defaults        0 0
+        none            /proc       proc    defaults        0 0
+        none            /sys        sysfs   defaults        0 0
+        """, 0644)
 
-    def calcSwapSize(self, slaveMemory):
-        return (slaveMemory < 2048 and slaveMemory * 2 or slaveMemory + 2048) * 1024 * 1024
 
-    def makeImage(self, troveSpec, kernelData, hash):
-        logging.info('Building image')
+def postTagScripts(fsRoot):
+    """
+    Clean up after running tag scripts.
+    """
 
-        ccfg = conarycfg.ConaryConfiguration(True)
-        cc = conaryclient.ConaryClient(ccfg)
-        nc = cc.getRepos()
 
-        # Look up which troves we'll be installing
-        spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
-        n, v, f = nc.findTrove(None, (spec_n, spec_v, spec_f), ccfg.flavor)[0]
-        trv = nc.getTrove(n, v, f, withFiles = False)
-        swapsize = self.calcSwapSize(self.masterCfg.slaveMemory)
-        size = trv.getSize()
-        size = roundUpSize(size, swapsize)
+def getTreeSize(path):
+    """
+    Return the on-disk size in bytes of a tree of files at C{path}.
+    """
+    proc = subprocess.Popen(["/usr/bin/du", "-s", "--block-size=1", path],
+            shell=False, stdout=subprocess.PIPE)
+    retcode = proc.wait()
+    if retcode:
+        raise RuntimeError("du exited with status %d" % retcode)
+    return proc.stdout.read().strip().split()[0]
 
-        k_n, k_v, k_f = kernelData['trove']
 
-        # Create temporary paths
-        #  jobslave root
-        fd, filesystem = tempfile.mkstemp(dir = self.tmpPath)
-        os.close(fd)
-        #  group & kernel tagscripts
-        fd, tagScript = tempfile.mkstemp(prefix = "tagscript",
-                                         dir = self.tmpPath)
-        os.close(fd)
-        #  mount point
-        mntDir = tempfile.mkdtemp(dir = self.tmpPath)
+def compressRoot(fsRoot, destPath, metadata=None):
+    """
+    Build a LZMAball from the filesystem root at C{fsRoot} and save it
+    at C{destPath}. A SHA-512 digest will be written alongside.
+    """
 
-        # XXX: This can probably go away if modprobe is loaded on startup
-        logCall('modprobe loop')
+    # Add tree size to metadata
+    metadata = metadata and dict(metadata) or {}
+    metadata['tree_size'] = getTreeSize(fsRoot)
 
-        client = job = None
-        try:
-            logging.info('Creating filesystem')
-            mkBlankFile(filesystem, size)
+    metaPath = destPath + '.metadata'
+    try:
+        proc = subprocess.Popen("/bin/tar -cC '%s' "
+                "--exclude var/lib/conarydb --exclude var/log/conary . "
+                "| /usr/bin/lzma" % (fsRoot,),
+                shell=True, stdout=subprocess.PIPE)
 
-            # run mke2fs on blank image
-            logCall('mkfs -t ext2 -F -L / %s %d' % \
-                          (filesystem, size / 1024))
-            logCall('tune2fs -m 0 -i 0 -c 0 %s' % filesystem)
+        # Copy the compressed image to disk and compute the digest
+        # as we do so.
+        outObj = open(destPath + '.tmp', 'wb')
+        metadata['sha512_digest'] = copySHA512(proc.stdout, outObj)
+        outObj.close()
 
-            logCall('mount -o loop %s %s' % (filesystem, mntDir))
+        code = proc.wait()
+        if code:
+            raise RuntimeError("Compressor exited with status %d" % code)
 
-            createTemporaryRoot(mntDir)
-            logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
-            logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
+        # Write metadata
+        fObj = open(metaPath, 'w')
+        for key in sorted(metadata):
+            print >> fObj, key, metadata[key]
+        fObj.close()
 
-            # Prepare conary client
-            cfg = conarycfg.ConaryConfiguration(True)
-            if self.masterCfg.conaryProxy:
-                cfg.conaryProxy['http']  = self.masterCfg.conaryProxy
-                cfg.conaryProxy['https'] = self.masterCfg.conaryProxy
-            cfg.root = mntDir
-            client = conaryclient.ConaryClient(cfg)
-            client.setUpdateCallback(UpdateCallback())
+    except:
+        if os.path.exists(destPath + '.tmp'):
+            os.unlink(destPath + '.tmp')
+        if os.path.exists(metaPath):
+            os.unlink(metaPath)
+        raise
 
-            # Install jobslave root and kernel
-            job = client.newUpdateJob()
-            logging.info('Preparing update job')
-            client.prepareUpdateJob(job, (
-                (n,   (None, None), (v,   f),    True), # root
-                (k_n, (None, None), (k_v, k_f),  True), # kernel
-                ))
-            logging.info('Applying update job')
-            client.applyUpdateJob(job, tagScript=tagScript)
+    # Rename the image to its final location
+    os.rename(destPath + '.tmp', destPath)
 
-            # Create various filesystem pieces
-            logging.info('Preparing filesystem')
-            fsOddsNEnds(mntDir, swapsize)
+    return metadata
 
-            # Assemble tag script and run it
-            outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
-            outScriptInRoot = os.path.join('', 'root', 'conary-tag-script')
-            outScriptOutput = os.path.join('', 'root',
-                'conary-tag-script.output')
 
-            tagScriptFile = open(tagScript, 'r')
-            outScriptFile = open(outScript, 'w')
-            outScriptFile.write('/sbin/ldconfig\n')
-            for line in tagScriptFile:
-                if line.startswith('/sbin/ldconfig'):
-                    continue
-                outScriptFile.write(line)
-            tagScriptFile.close()
-            outScriptFile.close()
+def specHash(troveTups):
+    """
+    Create a unique identifier for the troves C{troveTups}.
+    """
+    ctx = hashlib.sha1()
+    ctx.update('%d\0' % (SERIAL,))
+    for tup in sorted(troveTups):
+        ctx.update('%s=%s[%s]\0' % tup)
+    return ctx.hexdigest()
 
-            os.unlink(tagScript)
 
-            logging.info('Running tag scripts')
-            util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % (
-                    mntDir, outScriptInRoot, outScriptOutput))
+def copySHA512(inFile, outFile=None):
+    """
+    Copy all data from C{inFile} and return the SHA-512 digest of its
+    contents in hexadecimal form. If C{outFile} is not C{None}, data
+    will be copied to that file was it is digested.
+    """
+    ctx = hashlib.sha512()
+    while True:
+        data = inFile.read(16384)
+        if not data:
+            break
+        ctx.update(data)
+        if outFile:
+            outFile.write(data)
+    return ctx.hexdigest()
 
-            # the preload wrapper isn't working yet, work around until we know why
-            #safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
-
-            # authconfig can whack the domainname in certain circumstances
-            oldDomainname = os.popen('domainname').read().strip() # save old domainname
-            logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
-            # Only restore the domain if it was set in the first place.
-            if oldDomainname != "" and oldDomainname != "(none)":
-                logCall("domainname %s" % oldDomainname)
-
-            logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
-            logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
-
-            logging.info('Image built')
-        finally:
-            try:
-                if client:
-                    client.close()
-                    del job
-                logCall('umount %s' % os.path.join(mntDir, 'proc'))
-                logCall('umount %s' % os.path.join(mntDir, 'sys'))
-                logCall('sync')
-                logCall('umount %s' % mntDir)
-                logCall('sync')
-                util.rmtree(mntDir, ignore_errors = True)
-            except:
-                logging.error('Unhandled exception while finalizing '
-                    'jobslave:\n' + traceback.format_exc())
-        shutil.move(filesystem, os.path.join(self.cachePath, hash))
-        return os.path.join(self.cachePath, hash)
 
 class UpdateCallback(callbacks.UpdateCallback):
-    def eatMe(*P, **K):
+    def eatMe(self, *P, **K):
         pass
 
     tagHandlerOutput = troveScriptOutput = troveScriptFailure = eatMe
 
     def setUpdateHunk(self, hunk, total):
-        logging.info('Applying %d of %d', hunk, total)
+        logging.info('Applying update job %d of %d', hunk, total)
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

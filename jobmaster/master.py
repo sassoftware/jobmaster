@@ -8,7 +8,6 @@
 import os, sys
 import inspect
 import logging
-log = logging
 import math
 import simplejson
 import tempfile
@@ -25,6 +24,7 @@ from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
+from jobmaster.resource import AutoMountResource, LVMResource
 from jobmaster.util import getRunningKernel
 from jobmaster.util import rewriteFile, logCall, getIP
 
@@ -40,6 +40,9 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.deps import deps
 from conary import versions
+
+log = logging.getLogger('jobmaster.master')
+
 
 CONFIG_PATH = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
                            'config.d', 'runtime')
@@ -114,15 +117,6 @@ class MasterConfig(client.MCPClientConfig):
     # assumes it can find a conaryrc file here.
     conaryProxy = 'self'
 
-def waitForSlave(slaveName):
-    done = False
-    while not done:
-        p = os.popen("lvdisplay -c")
-        data = p.read()
-        c = [int(x.split(':')[5]) for x in data.splitlines() if slaveName in x]
-        done = not (c and max(c))
-
-
 def copyHosts(targetFile, masterIP):
     '''
     Intelligently copy the master's hosts file to the jobslave.
@@ -173,294 +167,47 @@ def copyHosts(targetFile, masterIP):
     writeLine(masterIP, masterAliases)
 
 
-class SlaveHandler(threading.Thread):
-    # A slave handler is tied to a specific slave instance. do not re-use.
-    def __init__(self, master, troveSpec, kernelData, data):
-        self.cfgPath = ''
-        self.data = data
-        self.imageCache = weakref.ref(master.imageCache)
-        self.kernelData = kernelData
-        self.master = weakref.ref(master)
-        self.slaveName = None
-        self.troveSpec = troveSpec
+def writeJobSlaveConfig(cfg, mntPoint):
+    # write python SlaveConfig
+    cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
+                          'runtime')
+    util.mkdirChain(os.path.split(cfgPath)[0])
+    self.writeSlaveConfig(cfgPath, cfg)
 
-        self.jobQueueName = self.getJobQueueName()
-        self.lock = threading.RLock()
-        threading.Thread.__init__(self)
+    # insert jobData into slave
+    dataPath = os.path.join(mntPoint, 'srv', 'jobslave', 'data')
+    f = open(dataPath, 'w')
+    f.write(simplejson.dumps(self.data))
+    f.close()
 
-        self.pid = None
-        self.offline = False
+    # write init script settings
+    initSettings = os.path.join(mntPoint, 'etc', 'sysconfig',
+                                'slave_runtime')
+    util.mkdirChain(os.path.split(initSettings)[0])
+    f = open(initSettings, 'w')
 
-    def slaveStatus(self, status, jobId = None):
-        self.master().slaveStatus(self.slaveName, status,
-                                  self.jobQueueName.replace('job', ''), jobId)
+    # the host IP address is domU IP address + 127 of the last quad
+    quads = [int(x) for x in self.ip.split(".")]
+    masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
 
-    def start(self):
-        xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
-            'dev', self.master().cfg.lvmVolumeName),
-                               {'memory' : self.master().cfg.slaveMemory,
-                                'kernel': self.kernelData['kernel'],
-                                'initrd': self.kernelData['initrd'],
-                                'extra': 'console=xvc0',
-                                'root': '/dev/xvda1 ro'},
-                                extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
-        self.slaveName = xenCfg.cfg['name']
-        self.imagePath = '/dev/%s/%s-base' % (self.master().cfg.lvmVolumeName, self.slaveName)
-        self.ip = xenCfg.ip
-        self.slaveStatus(slavestatus.BUILDING, jobId = self.data['UUID'])
-        fd, self.cfgPath = tempfile.mkstemp( \
-            dir = os.path.join(self.master().cfg.basePath, 'tmp'))
-        os.close(fd)
-        f = open(self.cfgPath, 'w')
-        xenCfg.write(f)
-        f.close()
-        threading.Thread.start(self)
-        log.info('requesting slave: %s' % self.slaveName)
-        return xenCfg.cfg['name']
+    f.write('MASTER_IP=%s' % masterIP)
+    f.close()
+    entitlementsDir = os.path.join(os.path.sep, 'srv',
+                                   'rbuilder', 'entitlements')
+    if os.path.exists(entitlementsDir):
+        util.copytree(entitlementsDir,
+                      os.path.join(mntPoint, 'srv', 'jobslave'))
 
-    def stop(self):
-        log.info('stopping slave %s' % self.slaveName)
-        pid = self.pid
-        if pid:
-            try:
-                os.kill(-pid, signal.SIGTERM)
-            except OSError, e:
-                # ignore race condition where child died right after we recorded
-                # it's pid
-                if e.errno != 3:
-                    raise
+    # set up networking inside domU
+    ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
+    rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
-        log.info("destroying slave")
-        logCall('xm destroy %s' % self.slaveName, ignoreErrors = True)
+    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
+    util.copyfile('/etc/resolv.conf', resolv)
 
-        waitForSlave(self.slaveName)
+    # Intelligently copy /etc/hosts into the jobslave.
+    copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
 
-        log.info("destroying scratch space")
-        logCall("lvremove -f /dev/%s/%s-scratch" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
-        logCall("lvremove -f /dev/%s/%s-base" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
-
-        self.slaveStatus(slavestatus.OFFLINE)
-        self.join()
-
-    def getJobQueueName(self):
-        name, verStr, flv = cmdline.parseTroveSpec(self.troveSpec)
-        ver = versions.VersionFromString(verStr)
-        jsVersion = str(ver.trailingRevision())
-
-        arch = 'unknown'
-        for refFlv, refArch in (('1#x86_64', 'x86_64'), ('1#x86', 'x86')):
-            if flv.satisfies(deps.ThawFlavor(refFlv)):
-                arch = refArch
-                break
-        return 'job%s:%s' % (jsVersion, arch)
-
-    def writeSlaveConfig(self, cfgPath, cfg):
-        f = open(cfgPath, 'w')
-
-        # It never makes sense to direct a remote machine to
-        # 127.0.0.1
-        f.write('queueHost %s\n' % ((cfg.queueHost != '127.0.0.1') \
-                                        and cfg.queueHost \
-                                        or getIP()))
-
-        f.write('queuePort %s\n' % str(cfg.queuePort))
-        f.write('nodeName %s\n' % ':'.join((cfg.nodeName,
-                                            self.slaveName)))
-        f.write('jobQueueName %s\n' % self.jobQueueName)
-        if cfg.conaryProxy:
-            f.write('conaryProxy %s\n' % cfg.conaryProxy)
-        f.write('debugMode %s\n' % str(cfg.debugMode))
-        f.close()
-
-    def getTroveSize(self):
-        protocolVersion = self.data.get('protocolVersion')
-        assert protocolVersion in (1,), "Unknown protocol version %s" % \
-                str(protocolVersion)
-
-        if self.data['type'] == 'build':
-            # parse the configuration passed in from the job
-            ccfg = conarycfg.ConaryConfiguration()
-            [ccfg.configLine(x) for x in self.data['project']['conaryCfg'].split("\n")]
-
-            cc = conaryclient.ConaryClient(ccfg)
-            repos = cc.getRepos()
-            n = self.data['troveName'].encode('utf8')
-            v = versions.ThawVersion(self.data['troveVersion'].encode('utf8'))
-            f = deps.ThawFlavor(self.data.get('troveFlavor').encode('utf8'))
-            NVF = repos.findTrove(None, (n, v, f), cc.cfg.flavor)[0]
-            trove = repos.getTrove(*NVF)
-            troveSize = trove.troveInfo.size()
-
-            if troveSize:
-                return troveSize
-            else:
-                # Not sure how we got here, but better to return something
-                # reasonable than None
-                log.warning('Failed to get size of trove %r', NVF)
-                return 1024 * 1024 * 1024
-        else:
-            # currently the only non-build job is a cook. assuming 1G
-            return 1024 * 1024 * 1024
-
-    def addMountSizes(self):
-        mountDict = self.data.get('data', {}).get('mountDict', {})
-        # this ends up double counting if both freeSpace and requested size
-        # are used in combination. requested size is often double counted with
-        # respect to actual trove contents. This is simply an estimate. if we
-        # must err, we need to overestimate, so it's fine.
-
-        # mountDict is in MB. other measurements are in bytes
-        return sum([x[0] + x[1] for x in mountDict.values()]) * 1024 * 1024
-
-    def estimateScratchSize(self):
-        protocolVersion = self.data.get('protocolVersion')
-        troveSize = self.getTroveSize()
-        if self.data.get('type') == 'cook':
-            return troveSize / (1024 * 1024)
-
-        # these two handle legacy formats
-        freeSpace = int(self.data.get('data', {}).get('freespace', 0)) \
-            * 1024 * 1024
-        swapSize = int(self.data.get('data', {}).get('swapSize', 0)) \
-            * 1024 * 1024
-
-        mountOverhead = self.addMountSizes()
-
-        size = troveSize + freeSpace + swapSize + mountOverhead
-        #Pad 15% for filesystem overhead (inodes, etc)
-        size = int(math.ceil((size + 20 * 1024 * 1024) / 0.87))
-        # partition offset is being ignored for our purposes. we're going to be
-        # pretty generous so it shouldn't matter
-        # we're not rounding up for cylinder size. LVM will do that
-        # multiply scratch size by 4. LiveCDs could potentially consume that
-        # much overhead. (base + z-tree + inner ISO + outer ISO) this is
-        # almost definitely too much in the general case, but there's pretty
-        # little harm in overesitmation.
-        size *= 4
-        blockSize = 1024 * 1024
-        size /= blockSize + ((size % blockSize) and 1 or 0)
-
-        minslavesize = self.master().cfg.minSlaveSize
-        if size > minslavesize:
-            return size
-        else:
-            return minslavesize
-
-    def isOnline(self):
-        self.lock.acquire()
-        try:
-            return not self.offline
-        finally:
-            self.lock.release()
-
-    def run(self):
-        self.pid = os.fork()
-        if not self.pid:
-            os.setpgid(0, 0)
-            try:
-                cfg = self.master().cfg
-                # don't use original. make a backup
-                log.info('Getting slave image: %s' % self.troveSpec)
-                cachedImage = self.imageCache().getImage(self.troveSpec,
-                    self.kernelData, cfg.debugMode)
-                log.info("Making runtime copy of cached image at: %s" % \
-                             self.imagePath)
-                slaveSize = os.stat(cachedImage)[stat.ST_SIZE]
-                # size was given in bytes, but we need megs
-                slaveSize = slaveSize / (1024 * 1024) + \
-                        ((slaveSize % (1024 * 1024)) and 1)
-                logCall("lvcreate -n %s-base -L%dM %s" % (self.slaveName, slaveSize, cfg.lvmVolumeName))
-                logCall("dd if=%s of=%s bs=16K" % (cachedImage, self.imagePath))
-                log.info("making mount point")
-                # now add per-instance settings. such as path to MCP
-                mntPoint = tempfile.mkdtemp(\
-                    dir = os.path.join(cfg.basePath, 'tmp'))
-                f = None
-
-                try:
-                    # creating temporary scratch space
-                    scratchSize = self.estimateScratchSize()
-                    scratchName = "%s-scratch" % self.slaveName
-                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, scratchName))
-
-                    logCall("lvcreate -n %s -L%dM %s" % (scratchName, scratchSize, cfg.lvmVolumeName))
-                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, scratchName))
-
-                    log.info('inserting runtime settings into slave')
-                    logCall('mount %s %s' % (self.imagePath, mntPoint))
-
-                    # write python SlaveConfig
-                    cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
-                                          'runtime')
-                    util.mkdirChain(os.path.split(cfgPath)[0])
-                    self.writeSlaveConfig(cfgPath, cfg)
-
-                    # insert jobData into slave
-                    dataPath = os.path.join(mntPoint, 'srv', 'jobslave', 'data')
-                    f = open(dataPath, 'w')
-                    f.write(simplejson.dumps(self.data))
-                    f.close()
-
-                    # write init script settings
-                    initSettings = os.path.join(mntPoint, 'etc', 'sysconfig',
-                                                'slave_runtime')
-                    util.mkdirChain(os.path.split(initSettings)[0])
-                    f = open(initSettings, 'w')
-
-                    # the host IP address is domU IP address + 127 of the last quad
-                    quads = [int(x) for x in self.ip.split(".")]
-                    masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
-
-                    f.write('MASTER_IP=%s' % masterIP)
-                    f.close()
-                    entitlementsDir = os.path.join(os.path.sep, 'srv',
-                                                   'rbuilder', 'entitlements')
-                    if os.path.exists(entitlementsDir):
-                        util.copytree(entitlementsDir,
-                                      os.path.join(mntPoint, 'srv', 'jobslave'))
-
-                    # set up networking inside domU
-                    ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
-                    rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
-
-                    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
-                    util.copyfile('/etc/resolv.conf', resolv)
-
-                    # Intelligently copy /etc/hosts into the jobslave.
-                    copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
-
-                finally:
-                    if f:
-                        f.close()
-                    logCall('umount %s' % mntPoint, ignoreErrors = True)
-                    util.rmtree(mntPoint, ignore_errors = True)
-
-                log.info('booting slave: %s' % self.slaveName)
-                logCall('xm create %s' % self.cfgPath)
-            except:
-                try:
-                    exc, e, tb = sys.exc_info()
-                    log.error(''.join(traceback.format_tb(tb)))
-                    log.error(e)
-                    try:
-                        self.lock.acquire()
-                        self.offline = True
-                        self.lock.release()
-                        self.slaveStatus(slavestatus.OFFLINE)
-                    except Exception, innerException:
-                        # this process must exit regardless of failure to log.
-                        log.error("Error setting slave status to OFFLINE: " + str(innerException))
-                # forcibly exit *now* sys.exit raises a SystemExit exception
-                finally:
-                    os._exit(1)
-            else:
-                try:
-                    self.slaveStatus(slavestatus.STARTED,
-                            jobId = self.data['UUID'])
-                finally:
-                    os._exit(0)
-        os.waitpid(self.pid, 0)
-        self.pid = None
 
 class JobMaster(object):
     def __init__(self, cfg):
@@ -489,8 +236,6 @@ class JobMaster(object):
                                        'control', namespace = cfg.namespace,
                                        timeOut = 0)
         self.response = response.MCPResponse(self.cfg.nodeName, cfg)
-        self.imageCache = imagecache.ImageCache(os.path.join(self.cfg.basePath,
-                                                             'imageCache'), cfg)
         self.slaves = {}
         self.handlers = {}
 
@@ -502,6 +247,10 @@ class JobMaster(object):
                     self.cfg.templateCache, hostname=self.cfg.nodeName,
                     tmpDir=os.path.join(self.cfg.basePath, 'tmp'),
                     conaryProxy=cfg.conaryProxy)
+
+        self.conaryCfg = conarycfg.ConaryConfiguration(True)
+        self.conaryCfg.initializeFlavors()
+        self.conaryCli = conaryclient.ConaryClient(cfg)
 
         # Determine the currently running kernel once on startup. The only
         # way it could ever change is with kexec, which we definitely don't
@@ -610,11 +359,8 @@ class JobMaster(object):
     def resolveTroveSpec(self, troveSpec):
         # this function is designed to ensure a partial NVF can be resolved to
         # a full NVF for caching and creation purposes.
-        cfg = conarycfg.ConaryConfiguration(True)
-        cfg.initializeFlavors()
-        cc = conaryclient.ConaryClient(cfg)
         n, v, f = cmdline.parseTroveSpec(troveSpec)
-        troves = cc.repos.findTrove(None, (n, v, None))
+        troves = self.conaryClient.getRepos().findTrove(None, (n, v, None))
         refXen = deps.parseFlavor('xen, domU')
         troves = [x for x in troves if x[2].stronglySatisfies(refXen) \
                       and x[2].stronglySatisfies(f)]
@@ -640,7 +386,7 @@ class JobMaster(object):
 
     def handleSlaveStart(self, data):
         troveSpec = self.resolveTroveSpec(data['jobSlaveNVF'])
-        handler = SlaveHandler(self, troveSpec, self.kernelData, data)
+        handler = SlaveHandler(self, troveSpec, data)
         self.handlers[handler.start()] = handler
 
     def handleSlaveStop(self, slaveId):
@@ -811,8 +557,8 @@ class JobMaster(object):
     @controlMethod
     @protocols((1,))
     def clearImageCache(self):
-        log.info('clearing image cache')
-        self.imageCache.deleteAllImages()
+        "DEPRECATED"
+        pass
 
     @controlMethod
     @protocols((1,))

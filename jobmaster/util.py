@@ -23,21 +23,52 @@ def rewriteFile(template, target, data):
     f.close()
     os.unlink(template)
 
-def logCall(cmd, ignoreErrors = False, logLevel=logging.DEBUG, **kwargs):
-    log.log(logLevel, "+ " + cmd)
-    p = subprocess.Popen(cmd, shell = True,
-        stdout = subprocess.PIPE, stderr = subprocess.PIPE, **kwargs)
+def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
+    """
+    Run command C{cmd}, logging the command run and all its output.
+
+    If C{cmd} is a string, it will be interpreted as a shell command.
+    Otherwise, it should be a list where the first item is the program name and
+    subsequent items are arguments to the program.
+
+    @param cmd: Program or shell command to run.
+    @type  cmd: C{basestring or list}
+    @param ignoreErrors: If C{True}, don't raise an exception on a 
+            non-zero return code.
+    @type  ignoreErrors: C{bool}
+    @param logCmd: If C{False}, don't log the command invoked.
+    @type  logCmd: C{bool}
+    @param kw: All other keyword arguments are passed to L{subprocess.Popen}
+    @type  kw: C{dict}
+    """
+
+    if logCmd:
+        if isinstance(cmd, basestring):
+            niceString = cmd
+        else:
+            niceString = ' '.join(repr(x) for x in cmd)
+        env = kw.get('env', {})
+        env = ''.join(['%s="%s "' % (k,v) for k,v in env.iteritems()])
+        log.info("+ %s%s", env, niceString)
+
+    p = subprocess.Popen(cmd, shell=isinstance(cmd, basestring),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+
     while p.poll() is None:
         rList, junk, junk = select.select([p.stdout, p.stderr], [], [])
         for rdPipe in rList:
             action = (rdPipe is p.stdout) and log.info or log.debug
             msg = rdPipe.readline().strip()
             if msg:
-                log.log(logLevel, "++ " + msg)
+                action("++ " + msg)
 
+    # pylint: disable-msg=E1103
     stdout, stderr = p.communicate()
-    [log.log(logLevel, "++ " + outLine) for outLine in
-        stderr.splitlines() + stdout.splitlines()]
+    for x in stderr.splitlines():
+        log.info("++ (stderr) %s", x)
+    for x in stdout.splitlines():
+        log.info("++ (stdout) %s", x)
+
     if p.returncode and not ignoreErrors:
         raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
     else:
@@ -87,4 +118,77 @@ def getRunningKernel():
         return ret
     else:
         raise RuntimeError('Could not determine currently running kernel')
+
+
+def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
+    """
+    Set up a root logger with default options and possibly a file to
+    log to.
+    """
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s %(name)s %(message)s')
+
+    rootLogger = logging.getLogger()
+    rootLogger.setLevel(logLevel)
+
+    if toStderr:
+        streamHandler = logging.StreamHandler()
+        streamHandler.setFormatter(formatter)
+        rootLogger.addHandler(streamHandler)
+
+    if toFile:
+        fileHandler = logging.FileHandler(toFile)
+        fileHandler.setFormatter(formatter)
+        rootLogger.addHandler(fileHandler)
+
+
+def createDirectory(fsRoot, path, mode=0755):
+    """
+    Create a directory at C{fsRoot}/C{path} with mode C{mode} if it
+    doesn't exist, creating intermediate directories as needed.
+    """
+    path = os.path.join(fsRoot, path)
+    if not os.path.isdir(path):
+        os.makedirs(path)
+        os.chmod(path, mode)
+
+
+def _writeContents(fObj, contents):
+    """
+    Write C{contents} to C{fObj}, stripping leading whitespace from
+    each line.
+    """
+    for line in contents.splitlines():
+        print >> fObj, line.lstrip()
+
+
+def appendFile(fsRoot, path, contents):
+    """
+    Append C{contents} to the file at C{fsRoot}/C{path}.
+
+    C{contents} may contain leading whitespace on each line, which will
+    be stripped -- this is to allow the use of indented multiline
+    strings.
+    """
+    path = os.path.join(fsRoot, path)
+    fObj = open(path, 'a')
+    _writeContents(fObj, contents)
+    fObj.close()
+
+
+def createFile(fsRoot, path, contents, mode=0644):
+    """
+    Create a file at C{fsRoot}/C{path} with contents C{contents} and
+    mode C{mode}.
+
+    C{contents} may contain leading whitespace on each line, which will
+    be stripped -- this is to allow the use of indented multiline
+    strings.
+    """
+    createDirectory(fsRoot, os.path.dirname(path))
+    path = os.path.join(fsRoot, path)
+    fObj = open(path, 'w')
+    _writeContents(fObj, contents)
+    fObj.close()
+    os.chmod(path, mode)
 
