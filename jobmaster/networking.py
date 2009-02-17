@@ -17,10 +17,24 @@ class AddressGenerator(object):
         self.network = network & ~((1 << (128 - mask)) - 1)
         self.mask = mask
 
-    def generate(self):
+    def generateHost(self):
+        """
+        Generate a random MAC-48/IPv6 address pair from the selected
+        subnet.
+        """
         mac = self.generateMAC()
         ipv6 = self.network | self.mac48ToEUI64(mac)
         return formatMAC(mac), formatIPv6(ipv6, self.mask)
+
+    @staticmethod
+    def generateSubnet():
+        """
+        Generate a random 48-bit network prefix in the RFC 4193
+        (Unique Local Address) space.
+        """
+        address = 0xFD << 120
+        address |= random.getrandbits(40) << 80
+        return address, 48
 
     @staticmethod
     def generateMAC():
