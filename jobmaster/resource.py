@@ -101,5 +101,18 @@ class XenDomainResource(Resource):
         self.domain = domain
 
     def _close(self):
-        #logCall(['/usr/sbin/xm', 'destroy', self.domain])
-        print 'DESTROYING', self.domain # XXX
+        logCall(['/usr/sbin/xm', 'destroy', self.domain])
+
+
+class LinuxContainerResource(Resource):
+    """
+    Resource that destroys a linux container on close.
+    """
+
+    def __init__(self, container):
+        Resource.__init__(self)
+        self.container = container
+
+    def _close(self):
+        logCall(['/usr/bin/lxc-stop', '-n', self.container], ignoreErrors=True)
+        logCall(['/usr/bin/lxc-destroy', '-n', self.container])

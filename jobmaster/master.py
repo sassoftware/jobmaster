@@ -106,11 +106,14 @@ class MasterConfig(client.MCPClientConfig):
     # maxSlaveLimit == 0 means unlimited
     maxSlaveLimit = (cfgtypes.CfgInt, 0)
     nodeName = (cfgtypes.CfgString, None)
+    templateCache = os.path.join(basePath, 'anaconda-templates')
+
+    # Jobslave parameters
+    debugMode = (cfgtypes.CfgBool, False)
+    lvmVolumeName = 'vg00'
     minSlaveSize = (cfgtypes.CfgInt, 1024) # scratch space in MB
     slaveMemory = (cfgtypes.CfgInt, 512) # memory in MB
-    templateCache = os.path.join(basePath, 'anaconda-templates')
-    lvmVolumeName = 'vg00'
-    debugMode = (cfgtypes.CfgBool, False)
+    slaveSubnet = 'fdf0:dbe6:3760::/48'
 
     # This should either be the URI of a rBuilder, or "self" to use the
     # local IP. It must be an rBuilder since the template generation code

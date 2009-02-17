@@ -15,13 +15,14 @@ from conary import versions
 from conary.conaryclient import cmdline
 from conary.deps import deps
 from conary.lib.util import copyfile
+from mcp import response
 from mcp import slavestatus
 
 from jobmaster import imagecache
 from jobmaster import xencfg
 from jobmaster.util import createFile, getIP, logCall
 from jobmaster.resource import (AutoMountResource, LVMResource,
-        XenDomainResource)
+        XenDomainResource, Resource)
 
 log = logging.getLogger('jobmaster.handler')
 
@@ -174,11 +175,15 @@ class GroupTask(threading.Thread):
         pass
 
 
-class SlaveHandler(GroupTask):
+class _SlaveHandler(GroupTask):
     def __init__(self, master, troveTup, jobData):
         GroupTask.__init__(self)
 
-        self.master = weakref.ref(master)
+        self.cfg = master.cfg
+        self.conaryCfg = master.conaryCfg
+        self.kernelData = master.kernelData
+        self.response = master.response
+
         self.troveTup = troveTup
         self.jobData = jobData
 
@@ -202,7 +207,7 @@ class SlaveHandler(GroupTask):
 
         for subvol in ('scratch', 'base', 'swap'):
             logCall("lvremove -f /dev/%s/%s-%s" %
-                    (self.master().cfg.lvmVolumeName, self.slaveName, subvol),
+                    (self.cfg.lvmVolumeName, self.slaveName, subvol),
                     ignoreErrors=True)
 
         # pylint: disable-msg=E1101
@@ -213,15 +218,12 @@ class SlaveHandler(GroupTask):
         """
         Create and write domain configuration.
         """
-        cfg = self.master().cfg
-        kernelData = self.master().kernelData
-
         self.xenCfg = xencfg.XenCfg(
-                imgPath=os.path.join('/dev', cfg.lvmVolumeName),
+                imgPath=os.path.join('/dev', self.cfg.lvmVolumeName),
                 cfg={
-                    'memory' : cfg.slaveMemory,
-                    'kernel': kernelData['kernel'],
-                    'initrd': kernelData['initrd'],
+                    'memory' : self.cfg.slaveMemory,
+                    'kernel': self.kernelData['kernel'],
+                    'initrd': self.kernelData['initrd'],
                     'extra': 'console=xvc0',
                     'root': '/dev/xvda1 ro',
                 },
@@ -232,9 +234,11 @@ class SlaveHandler(GroupTask):
         # pylint: disable-msg=E1101
         self._slaveStatus(slavestatus.BUILDING, jobId = self.jobData['UUID'])
 
-    def _slaveStatus(self, status, jobId = None):
-        self.master().slaveStatus(self.slaveName, status,
-                self.jobQueueName.replace('job', ''), jobId)
+    def _slaveStatus(self, status, jobId=None):
+        name = '%s:%s' % (self.cfg.nodeName, self.slaveName)
+        log.info("Setting slave status for %s to %s%s", name, status,
+                jobId and ' (job %s)' % jobId or '')
+        self.response.slaveStatus(name, status, self.jobQueueName[3:], jobId)
 
     def _getJobQueueName(self):
         jsVersion = str(self.troveTup[1].trailingRevision())
@@ -314,7 +318,7 @@ class SlaveHandler(GroupTask):
         blockSize = 1024 * 1024
         size /= blockSize + ((size % blockSize) and 1 or 0)
 
-        minslavesize = self.master().cfg.minSlaveSize
+        minslavesize = self.cfg.minSlaveSize
         if size > minslavesize:
             return size
         else:
@@ -326,6 +330,11 @@ class SlaveHandler(GroupTask):
         Build, boot, and watch a jobslave, then clean up when
         it's done.
         """
+
+        # Holding the same response object in multiple processes means
+        # a risk of collisions, so reopen.
+        #self.response = response.MCPResponse(self.cfg.nodeName, self.cfg) # XXX
+
         self._resources = []
         try:
             self._buildSlave()
@@ -338,28 +347,26 @@ class SlaveHandler(GroupTask):
                     log.exception("Error in cleanup; continuing:")
 
     def _createJSRootDisk(self):
-        cfg = self.master().cfg
-
         # Fetch the root tarball for this js + kernel
         slaveTroves = [
                 self.troveTup,
-                self.master().kernelData['trove'],
+                self.kernelData['trove'],
             ]
         log.info("Getting slave image:")
         for tup in slaveTroves:
             log.info("  %s=%s[%s]", *tup)
         imagePath, metadata = imagecache.getImage(
-                self.master().conaryCfg,
-                os.path.join(cfg.basePath, 'imageCache'),
+                self.conaryCfg,
+                os.path.join(self.cfg.basePath, 'imageCache'),
                 slaveTroves)
 
         # Allocate LV
         rootSize = long(metadata['tree_size']) / 1048576 + 60
         rootName = self.slaveName + '-base'
-        rootDevice = '/dev/%s/%s' % (cfg.lvmVolumeName, rootName)
+        rootDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, rootName)
         log.info("Creating slave root of %dMiB at %s", rootSize, rootDevice)
         logCall("lvcreate -n '%s' -L %dM '%s'" % (rootName, rootSize,
-            cfg.lvmVolumeName))
+            self.cfg.lvmVolumeName))
 
         rootResource = LVMResource(rootDevice)
         self._resources.append(rootResource)
@@ -383,15 +390,13 @@ class SlaveHandler(GroupTask):
         return rootResource
 
     def _createJSSwapDisk(self):
-        cfg = self.master().cfg
-
         # Allocate LV
-        swapSize = min(cfg.slaveMemory * 2, cfg.slaveMemory + 2048)
+        swapSize = min(self.cfg.slaveMemory * 2, self.cfg.slaveMemory + 2048)
         swapName = self.slaveName + '-swap'
-        swapDevice = '/dev/%s/%s' % (cfg.lvmVolumeName, swapName)
+        swapDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, swapName)
         log.info("Creating slave swap of %dMiB at %s", swapSize, swapDevice)
         logCall("lvcreate -n '%s' -L %dM '%s'" % (swapName, swapSize,
-            cfg.lvmVolumeName))
+            self.cfg.lvmVolumeName))
 
         swapResource = LVMResource(swapDevice)
         self._resources.append(swapResource)
@@ -402,16 +407,14 @@ class SlaveHandler(GroupTask):
         return swapResource
 
     def _createJSScratchDisk(self):
-        cfg = self.master().cfg
-
         # Allocate LV
         scratchSize = self.estimateScratchSize()
         scratchName = self.slaveName + '-scratch'
-        scratchDevice = '/dev/%s/%s' % (cfg.lvmVolumeName, scratchName)
+        scratchDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, scratchName)
         log.info("Creating slave scratch of %dMiB at %s",
                 scratchSize, scratchDevice)
         logCall("lvcreate -n '%s' -L %dM '%s'" % (scratchName, scratchSize,
-            cfg.lvmVolumeName))
+            self.cfg.lvmVolumeName))
 
         scratchResource = LVMResource(scratchDevice)
         self._resources.append(scratchResource)
@@ -441,56 +444,27 @@ class SlaveHandler(GroupTask):
             raise
 
     def _boot(self):
-        """
-        Boot the xen domain.
-        """
-        fObj = tempfile.NamedTemporaryFile(suffix='.cfg',
-                dir=os.path.join(self.master().cfg.basePath, 'tmp'))
-        self.xenCfg.write(fObj)
-        fObj.flush()
-
-        log.info('booting slave: %s' % self.slaveName)
-        #logCall('xm create %s' % fObj.name)
-        log.info('BOOTING %s', fObj.name) # XXX
-        fObj.seek(0)
-        sys.stdout.write(fObj.read())
-        self._resources.append(XenDomainResource(self.slaveName))
+        raise NotImplementedError
 
     def _waitForSlave(self):
-        """
-        Wait until all LVs in use by this handler are no longer in use.
-        """
-        while True:
-            data = os.popen("lvdisplay -c").read()
-            for line in data.splitlines():
-                pieces = line.strip().split(':')
-                deviceName, users = pieces[0], int(pieces[5])
-                if self.slaveName in deviceName and users > 0:
-                    # Disk belongs to this handler and is in use.
-                    break
-            else:
-                # No disks, or none in use.
-                break
-
-            time.sleep(5)
+        raise NotImplementedError
 
     def _writeJobSlaveConfig(self, mountPoint):
         """
         Write runtime jobslave configuration data, including job data,
         jobslave and networking configuration.
         """
-        cfg = self.master().cfg
-
         # Jobslave configuration
         config = ''
         config += 'queueHost %s\n' % (
-            (cfg.queueHost != '127.0.0.1') and cfg.queueHost or getIP())
-        config += 'queuePort %s\n' % str(cfg.queuePort)
-        config += 'nodeName %s:%s\n' % (cfg.nodeName, self.slaveName)
+            (self.cfg.queueHost != '127.0.0.1')
+            and self.cfg.queueHost or getIP())
+        config += 'queuePort %s\n' % str(self.cfg.queuePort)
+        config += 'nodeName %s:%s\n' % (self.cfg.nodeName, self.slaveName)
         config += 'jobQueueName %s\n' % self.jobQueueName
-        if cfg.conaryProxy:
-            config += 'conaryProxy %s\n' % cfg.conaryProxy
-        config += 'debugMode %s\n' % str(cfg.debugMode)
+        if self.cfg.conaryProxy:
+            config += 'conaryProxy %s\n' % self.cfg.conaryProxy
+        config += 'debugMode %s\n' % str(self.cfg.debugMode)
         createFile(mountPoint, 'srv/jobslave/config.d/runtime', config)
 
         # Job data
@@ -522,12 +496,68 @@ class SlaveHandler(GroupTask):
                 os.path.join(mountPoint, 'etc/resolv.conf'))
 
 
+class DummyHandler(_SlaveHandler):
+    class DummyResource(Resource):
+        def _close(self):
+            log.info("Shutting down")
+
+    def _boot(self):
+        log.info("Booting")
+        self._resources.append(self.DummyResource())
+
+    def _waitForSlave(self):
+        time.sleep(5)
+
+
+class XenHandler(_SlaveHandler):
+    def _boot(self):
+        """
+        Boot the xen domain.
+        """
+        fObj = tempfile.NamedTemporaryFile(suffix='.cfg',
+                dir=os.path.join(self.cfg.basePath, 'tmp'))
+        self.xenCfg.write(fObj)
+        fObj.flush()
+
+        log.info('Booting slave %s' % self.slaveName)
+        logCall('xm create %s' % fObj.name)
+        fObj.seek(0)
+        sys.stdout.write(fObj.read())
+        self._resources.append(XenDomainResource(self.slaveName))
+
+    def _waitForSlave(self):
+        """
+        Wait until all LVs in use by this handler are no longer in use.
+        """
+        while True:
+            data = os.popen("lvdisplay -c").read()
+            for line in data.splitlines():
+                pieces = line.strip().split(':')
+                deviceName, users = pieces[0], int(pieces[5])
+                if self.slaveName in deviceName and users > 0:
+                    # Disk belongs to this handler and is in use.
+                    break
+            else:
+                # No disks, or none in use.
+                break
+
+            time.sleep(5)
+
+
+class LXCHandler(_SlaveHandler):
+    def _boot(self):
+        pass
+
+    def _waitForSlave(self):
+        pass
+
+
 def main(args):
+    # test function
     handler = logging.StreamHandler()
     handler.setLevel(logging.DEBUG)
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.DEBUG)
-    # test function
     ccfg = conarycfg.ConaryConfiguration(True)
     ccfg.initializeFlavors()
     cli = conaryclient.ConaryClient(ccfg)
@@ -540,12 +570,14 @@ def main(args):
         conaryCfg = ccfg
         cfg = master.MasterConfig()
         kernelData = getRunningKernel()
-        def slaveStatus(self, *stuff):
-            pass
+        class response:
+            @staticmethod
+            def slaveStatus(*args):
+                pass
     m = Master()
     m.cfg.lvmVolumeName = 'vg_darco'
     m.cfg.nodeName = 'wut'
-    handler = SlaveHandler(m, tup, {
+    handler = DummyHandler(m, tup, {
         'UUID': 'wut',
         'protocolVersion': 1,
         'type': 'build',
