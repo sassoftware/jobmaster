@@ -4,6 +4,7 @@
 # All rights reserved
 #
 
+import hashlib
 import os
 import logging
 import select
@@ -12,16 +13,6 @@ log = logging
 
 from conary import conarycfg, conaryclient
 
-def rewriteFile(template, target, data):
-    if not os.path.exists(template):
-        return
-    f = open(template, 'r')
-    templateData = f.read()
-    f.close()
-    f = open(target, 'w')
-    f.write(templateData % data)
-    f.close()
-    os.unlink(template)
 
 def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
     """
@@ -140,6 +131,16 @@ def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
         fileHandler = logging.FileHandler(toFile)
         fileHandler.setFormatter(formatter)
         rootLogger.addHandler(fileHandler)
+
+
+def specHash(troveTups):
+    """
+    Create a unique identifier for the troves C{troveTups}.
+    """
+    ctx = hashlib.sha1()
+    for tup in sorted(troveTups):
+        ctx.update('%s\0%s\0%s\0' % tup)
+    return ctx.hexdigest()
 
 
 def createDirectory(fsRoot, path, mode=0755):

@@ -91,19 +91,6 @@ class AutoMountResource(Resource):
         os.rmdir(self.mountPoint)
 
 
-class XenDomainResource(Resource):
-    """
-    Resource that destroys a xen domain on close.
-    """
-
-    def __init__(self, domain):
-        Resource.__init__(self)
-        self.domain = domain
-
-    def _close(self):
-        logCall(['/usr/sbin/xm', 'destroy', self.domain])
-
-
 class LinuxContainerResource(Resource):
     """
     Resource that destroys a linux container on close.

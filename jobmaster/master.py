@@ -26,7 +26,7 @@ from jobmaster import templateserver
 from jobmaster import xencfg, xenmac
 from jobmaster.resource import AutoMountResource, LVMResource
 from jobmaster.util import getRunningKernel
-from jobmaster.util import rewriteFile, logCall, getIP
+from jobmaster.util import logCall, getIP
 
 from mcp import mcp_log
 from mcp import queue
@@ -200,10 +200,6 @@ def writeJobSlaveConfig(cfg, mntPoint):
     if os.path.exists(entitlementsDir):
         util.copytree(entitlementsDir,
                       os.path.join(mntPoint, 'srv', 'jobslave'))
-
-    # set up networking inside domU
-    ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
-    rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
 
     resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
     util.copyfile('/etc/resolv.conf', resolv)

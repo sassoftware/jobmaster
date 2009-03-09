@@ -188,7 +188,6 @@ class _SlaveHandler(GroupTask):
         self.jobData = jobData
 
         self.slaveName = None
-        self.xenCfg = None
 
         self._resources = None
 
@@ -205,10 +204,9 @@ class _SlaveHandler(GroupTask):
 
         self._waitForSlave()
 
-        for subvol in ('scratch', 'base', 'swap'):
-            logCall("lvremove -f /dev/%s/%s-%s" %
-                    (self.cfg.lvmVolumeName, self.slaveName, subvol),
-                    ignoreErrors=True)
+        logCall("lvremove -f /dev/%s/%s-base" %
+                (self.cfg.lvmVolumeName, self.slaveName, subvol),
+                ignoreErrors=True)
 
         # pylint: disable-msg=E1101
         self._slaveStatus(slavestatus.OFFLINE)
@@ -218,18 +216,6 @@ class _SlaveHandler(GroupTask):
         """
         Create and write domain configuration.
         """
-        self.xenCfg = xencfg.XenCfg(
-                imgPath=os.path.join('/dev', self.cfg.lvmVolumeName),
-                cfg={
-                    'memory' : self.cfg.slaveMemory,
-                    'kernel': self.kernelData['kernel'],
-                    'initrd': self.kernelData['initrd'],
-                    'extra': 'console=xvc0',
-                    'root': '/dev/xvda1 ro',
-                },
-                disks=('base', 'swap', 'scratch'),
-            )
-
         self.slaveName = self.xenCfg.cfg['name']
         # pylint: disable-msg=E1101
         self._slaveStatus(slavestatus.BUILDING, jobId = self.jobData['UUID'])
@@ -348,20 +334,15 @@ class _SlaveHandler(GroupTask):
 
     def _createJSRootDisk(self):
         # Fetch the root tarball for this js + kernel
-        slaveTroves = [
-                self.troveTup,
-                self.kernelData['trove'],
-            ]
-        log.info("Getting slave image:")
-        for tup in slaveTroves:
-            log.info("  %s=%s[%s]", *tup)
+        log.info("Getting slave image: %s=%s[%s]", *self.troveTup)
         imagePath, metadata = imagecache.getImage(
                 self.conaryCfg,
                 os.path.join(self.cfg.basePath, 'imageCache'),
-                slaveTroves)
+                [self.troveTup])
 
         # Allocate LV
         rootSize = long(metadata['tree_size']) / 1048576 + 60
+        rootSize += self.estimateScratchSize()
         rootName = self.slaveName + '-base'
         rootDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, rootName)
         log.info("Creating slave root of %dMiB at %s", rootSize, rootDevice)
@@ -372,12 +353,11 @@ class _SlaveHandler(GroupTask):
         self._resources.append(rootResource)
 
         # Format
-        logCall("mke2fs -F -q '%s'" % (rootDevice,))
-        logCall("tune2fs -r 0 -i 0 -c 0 -L jsroot '%s'" % (rootDevice,))
+        logCall("mkfs.xfs -f '%s'" % (rootDevice,))
 
         # Mount, unpack, and tweak configuration
         log.info("Preparing jobslave root")
-        mountResource = AutoMountResource(['-t', 'ext2', rootDevice])
+        mountResource = AutoMountResource(['-t', 'xfs', rootDevice])
         self._resources.append(mountResource)
 
         logCall("lzma -dc '%s' | tar -xC '%s' " % (imagePath,
@@ -389,41 +369,6 @@ class _SlaveHandler(GroupTask):
 
         return rootResource
 
-    def _createJSSwapDisk(self):
-        # Allocate LV
-        swapSize = min(self.cfg.slaveMemory * 2, self.cfg.slaveMemory + 2048)
-        swapName = self.slaveName + '-swap'
-        swapDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, swapName)
-        log.info("Creating slave swap of %dMiB at %s", swapSize, swapDevice)
-        logCall("lvcreate -n '%s' -L %dM '%s'" % (swapName, swapSize,
-            self.cfg.lvmVolumeName))
-
-        swapResource = LVMResource(swapDevice)
-        self._resources.append(swapResource)
-
-        # Format
-        logCall("mkswap -f -L jsswap '%s'" % (swapDevice,))
-
-        return swapResource
-
-    def _createJSScratchDisk(self):
-        # Allocate LV
-        scratchSize = self.estimateScratchSize()
-        scratchName = self.slaveName + '-scratch'
-        scratchDevice = '/dev/%s/%s' % (self.cfg.lvmVolumeName, scratchName)
-        log.info("Creating slave scratch of %dMiB at %s",
-                scratchSize, scratchDevice)
-        logCall("lvcreate -n '%s' -L %dM '%s'" % (scratchName, scratchSize,
-            self.cfg.lvmVolumeName))
-
-        scratchResource = LVMResource(scratchDevice)
-        self._resources.append(scratchResource)
-
-        # Format
-        logCall("mkfs.xfs -f -L jsscratch '%s'" % (scratchDevice,))
-
-        return scratchResource
-
     def _buildSlave(self):
         """
         Create a jobslave with all its assorted disks and boot it.
@@ -431,8 +376,6 @@ class _SlaveHandler(GroupTask):
 
         try:
             self._createJSRootDisk()
-            self._createJSSwapDisk()
-            self._createJSScratchDisk()
 
             self._boot()
         except:
@@ -523,6 +466,7 @@ class XenHandler(_SlaveHandler):
         logCall('xm create %s' % fObj.name)
         fObj.seek(0)
         sys.stdout.write(fObj.read())
+        import epdb;epdb.st()
         self._resources.append(XenDomainResource(self.slaveName))
 
     def _waitForSlave(self):
@@ -530,6 +474,8 @@ class XenHandler(_SlaveHandler):
         Wait until all LVs in use by this handler are no longer in use.
         """
         while True:
+            time.sleep(5)
+
             data = os.popen("lvdisplay -c").read()
             for line in data.splitlines():
                 pieces = line.strip().split(':')
@@ -540,8 +486,6 @@ class XenHandler(_SlaveHandler):
             else:
                 # No disks, or none in use.
                 break
-
-            time.sleep(5)
 
 
 class LXCHandler(_SlaveHandler):
@@ -577,7 +521,7 @@ def main(args):
     m = Master()
     m.cfg.lvmVolumeName = 'vg_darco'
     m.cfg.nodeName = 'wut'
-    handler = DummyHandler(m, tup, {
+    handler = XenHandler(m, tup, {
         'UUID': 'wut',
         'protocolVersion': 1,
         'type': 'build',
