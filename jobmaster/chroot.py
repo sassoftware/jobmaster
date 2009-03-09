@@ -137,7 +137,7 @@ class ContentsRoot(object):
     def archiveRoot(self):
         pid = os.fork()
         if not pid:
-            # XXX: double-fork
+            # TODO: double-fork
             try:
                 try:
                     log.info("Archiving root %s", self._hash)

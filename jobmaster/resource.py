@@ -40,7 +40,32 @@ class Resource(object):
         destroying it, e.g. after a sucessful preparatory section.
         """
         if not self.closed:
+            self._release()
             self.closed = True
+
+    @staticmethod
+    def _release():
+        pass
+
+
+class ResourceStack(Resource):
+    def __init__(self, resources=None):
+        Resource.__init__(self)
+        if resources:
+            self.resources = resources
+        else:
+            self.resources = []
+
+    def append(self, resource):
+        self.resources.append(resource)
+
+    def _close(self):
+        while self.resources:
+            self.resources.pop().close()
+
+    def _release(self):
+        while self.resources:
+            self.resources.pop().release()
 
 
 class LVMResource(Resource):

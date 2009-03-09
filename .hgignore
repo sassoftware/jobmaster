@@ -6,3 +6,4 @@
 \.times
 test/\.(times|coverage)
 .*,cover
+^tempstuff/
