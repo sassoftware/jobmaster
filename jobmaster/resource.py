@@ -4,9 +4,23 @@
 # All rights reserved
 #
 
+"""
+Defines several "resources" -- objects that are closed in LIFO order on
+error or at the end of the task.
+
+Typical resources include LVM volumes, mount points, and virtual machines.
+These need to be cleaned up in reverse order, e.g. first stop the VM, then
+unmount its disk, then destroy the disk. So, one would create a stack of
+resources (e.g. via C{ResourceStack}), push each resource onto the stack as
+it is allocated, and pop each resource on shutdown to free it.
+"""
+
+import logging
 import os
 import tempfile
 from jobmaster.util import logCall
+
+log = logging.getLogger(__name__)
 
 
 class Resource(object):
@@ -30,9 +44,8 @@ class Resource(object):
             self.closed = True
     __del__ = close
 
-    @staticmethod
-    def _close():
-        pass
+    def _close(self):
+        "Override this to add cleanup functionality."
 
     def release(self):
         """
@@ -43,12 +56,15 @@ class Resource(object):
             self._release()
             self.closed = True
 
-    @staticmethod
-    def _release():
-        pass
+    def _release(self):
+        "Override this to add extra on-release handling."
 
 
 class ResourceStack(Resource):
+    """
+    A stack of resources that itself acts as a resource.
+    """
+
     def __init__(self, resources=None):
         Resource.__init__(self)
         if resources:
@@ -57,13 +73,22 @@ class ResourceStack(Resource):
             self.resources = []
 
     def append(self, resource):
+        """
+        Add a new C{resource} to the top of the stack.
+        """
         self.resources.append(resource)
 
     def _close(self):
+        """
+        Close each resource in LIFO order.
+        """
         while self.resources:
             self.resources.pop().close()
 
     def _release(self):
+        """
+        Release each resource in LIFO order.
+        """
         while self.resources:
             self.resources.pop().release()
 
@@ -78,6 +103,9 @@ class LVMResource(Resource):
         self.devicePath = devicePath
 
     def _close(self):
+        """
+        Call C{lvremove} on close.
+        """
         logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
 
@@ -86,34 +114,78 @@ class MountResource(Resource):
     Resource for a mounted partition to be unmounted on close.
     """
 
-    def __init__(self, devicePath):
+    def __init__(self, mountPoint, delete=False):
         Resource.__init__(self)
-        self.devicePath = devicePath
+        self.mountPoint = mountPoint
+        self.delete = delete
 
     def _close(self):
-        logCall(['/bin/umount', '-fd', self.devicePath])
+        """
+        Call C{umount} on close, optionally deleting the mount point.
+        """
+        logCall(['/bin/umount', '-fd', self.mountPoint])
+        if self.delete:
+            os.rmdir(self.mountPoint)
 
 
-class AutoMountResource(Resource):
+class AutoMountResource(MountResource):
     """
     Resource that mounts a device at a temp directory on start and
     unmounts and cleans up on close.
     """
 
-    def __init__(self, options):
-        Resource.__init__(self)
+    def __init__(self, device, mountPoint=None, options=(), delete=False):
+        self.device = device
+        self.options = options
 
-        self.mountPoint = tempfile.mkdtemp(prefix='mount-')
+        if mountPoint is None:
+            mountPoint = tempfile.mkdtemp(prefix='mount-')
+            delete = True
+
+        MountResource.__init__(self, mountPoint, delete)
+
         try:
-            logCall(['/bin/mount'] + list(options) + [self.mountPoint])
+            self._doMount()
         except:
-            os.rmdir(self.mountPoint)
+            try:
+                if self.delete:
+                    os.rmdir(self.mountPoint)
+            except:
+                log.exception("Error deleting mountpoint:")
             self.closed = True
             raise
 
-    def _close(self):
-        logCall(['/bin/umount', '-fd', self.mountPoint])
-        os.rmdir(self.mountPoint)
+    def _doMount(self):
+        """
+        Mount using the provided options.
+        """
+        logCall(['/bin/mount', self.device, self.mountPoint]
+                + list(self.options))
+
+
+class BindMountResource(AutoMountResource):
+    """
+    Resource that mounts an existing directory at a new point, possibly
+    read-only, and cleans up on close.
+    """
+
+    def __init__(self, fromPath, mountPoint=None, delete=False, readOnly=False):
+        self.readOnly = readOnly
+        AutoMountResource.__init__(self, fromPath, mountPoint, delete=delete)
+
+    def _doMount(self):
+        """
+        Bind-mount, then remount read-only if requested.
+        """
+        logCall(['/bin/mount', '--bind', self.device, self.mountPoint])
+        try:
+            if self.readOnly:
+                logCall(['/bin/mount', '-o', 'remount,ro',
+                    self.mountPoint])
+        except:
+            logCall(['/bin/umount', '-f', self.mountPoint],
+                    ignoreErrors=True)
+            raise
 
 
 class LinuxContainerResource(Resource):
@@ -126,5 +198,8 @@ class LinuxContainerResource(Resource):
         self.container = container
 
     def _close(self):
+        """
+        Stop and destroy a linux container on close.
+        """
         logCall(['/usr/bin/lxc-stop', '-n', self.container], ignoreErrors=True)
         logCall(['/usr/bin/lxc-destroy', '-n', self.container])
