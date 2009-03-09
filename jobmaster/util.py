@@ -9,9 +9,10 @@ import os
 import logging
 import select
 import subprocess
-log = logging
-
 from conary import conarycfg, conaryclient
+
+log = logging.getLogger(__name__)
+
 
 
 def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
@@ -39,19 +40,19 @@ def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
         else:
             niceString = ' '.join(repr(x) for x in cmd)
         env = kw.get('env', {})
-        env = ''.join(['%s="%s "' % (k,v) for k,v in env.iteritems()])
+        env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
         log.info("+ %s%s", env, niceString)
 
     p = subprocess.Popen(cmd, shell=isinstance(cmd, basestring),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
 
     while p.poll() is None:
-        rList, junk, junk = select.select([p.stdout, p.stderr], [], [])
+        rList, _, _ = select.select([p.stdout, p.stderr], [], [])
         for rdPipe in rList:
-            action = (rdPipe is p.stdout) and log.info or log.debug
+            which = (rdPipe is p.stdout) and 'stdout' or 'stderr'
             msg = rdPipe.readline().strip()
             if msg:
-                action("++ " + msg)
+                log.info("++ (%s) %s", which, msg)
 
     # pylint: disable-msg=E1103
     stdout, stderr = p.communicate()
@@ -91,7 +92,7 @@ def getRunningKernel():
         troves = cc.db.iterTrovesByPath(kernel_path)
         if troves:
             kernel = troves[0].getNameVersionFlavor()
-            logging.debug('Selected kernel %s=%s[%s] based on running '
+            log.debug('Selected kernel %s=%s[%s] based on running '
                 'kernel at %s', kernel[0], kernel[1], kernel[2], kernel_path)
             ret['trove'] = kernel
             return ret
@@ -102,7 +103,7 @@ def getRunningKernel():
     max_version = max(x[1] for x in troves)
     kernel = [x for x in troves if x[1] == max_version][0]
     if kernel:
-        logging.warning('Could not determine running kernel by file. '
+        log.warning('Could not determine running kernel by file. '
             'Falling back to latest kernel: %s=%s[%s]', kernel[0],
             kernel[1], kernel[2])
         ret['trove'] = kernel
