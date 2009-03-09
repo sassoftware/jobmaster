@@ -1,5 +1,6 @@
 import random
 import struct
+import sys
 
 
 class AddressGenerator(object):
@@ -160,3 +161,28 @@ def formatMAC(address, bits=48):
         out.insert(0, '%02x' % (address & 0xFF))
         address >>= 8
     return ':'.join(out)
+
+
+def main(args):
+    if len(args) not in (1, 2):
+        sys.exit('Usage: %s { - | subnet } [count]' % sys.argv[0])
+    subnet = args.pop(0)
+    if args:
+        count = int(args.pop(0))
+    else:
+        count = 1
+
+    random.seed()
+
+    if subnet == '-':
+        for n in range(count):
+            print formatIPv6(*AddressGenerator.generateSubnet())
+    else:
+        gen = AddressGenerator(subnet)
+        for n in range(count):
+            mac, ipv6 = gen.generateHost()
+            print mac, ipv6
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
