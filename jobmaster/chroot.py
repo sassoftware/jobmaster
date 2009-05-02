@@ -1,3 +1,10 @@
+#!/usr/bin/python
+#
+# copyright (c) 2009 rpath, inc.
+#
+# all rights reserved
+#
+
 import errno
 import fcntl
 import logging
@@ -7,8 +14,10 @@ import shutil
 import sys
 import time
 from conary import conarycfg
+from conary.lib.util import mkdirChain
 from jobmaster import archiveroot
 from jobmaster import buildroot
+from jobmaster.config import MasterConfig
 from jobmaster.scratchdisk import ScratchDisk
 from jobmaster.resource import (Resource, ResourceStack,
         AutoMountResource, BindMountResource)
@@ -26,21 +35,21 @@ class LockTimeoutError(LockError):
 
 
 class ContentsRoot(Resource):
-    def __init__(self, troves, rootPath, archivePath=None, archiveRoots=True,
-            conaryCfg=None):
+    def __init__(self, troves, cfg, conaryCfg=None):
         Resource.__init__(self)
 
         self.troves = troves
-        self.rootPath = os.path.realpath(rootPath)
-        if archivePath:
-            self.archivePath = os.path.realpath(archivePath)
-        else:
-            self.archivePath = rootPath
-        self.archiveRoots = archiveRoots
+        self.cfg = cfg
         self.conaryCfg = conaryCfg
+
+        rootPath = os.path.realpath(os.path.join(cfg.basePath, 'roots'))
+        archivePath = os.path.realpath(os.path.join(cfg.basePath, 'archive'))
+        mkdirChain(rootPath)
+        mkdirChain(archivePath)
         
         self._hash = specHash(troves)
         self._basePath = os.path.join(rootPath, self._hash)
+        self._archivePath = os.path.join(archivePath, self._hash) + '.tar.lzma'
         self._lockFile = None
         self._lockLevel = fcntl.LOCK_UN
 
@@ -105,9 +114,6 @@ class ContentsRoot(Resource):
             self._lockFile.close()
             self._lockFile = None
 
-    def _getArchivePath(self):
-        return os.path.join(self.archivePath, self._hash + '.tar.lzma')
-
     def getRoot(self):
         # Grab a shared lock and check if the root exists.
         self._lockWait(fcntl.LOCK_SH)
@@ -121,7 +127,7 @@ class ContentsRoot(Resource):
         log.debug("Acquiring exclusive lock on %s", self._basePath)
         self._lockWait(fcntl.LOCK_EX)
 
-        if os.path.isfile(self._getArchivePath()):
+        if os.path.isfile(self._archivePath):
             # Check for an archived root. If it exists, unpack it and return.
             log.info("Unpacking contents for root %s", self._hash)
             self.unpackRoot()
@@ -134,7 +140,7 @@ class ContentsRoot(Resource):
             self.buildRoot()
             self._lock(fcntl.LOCK_SH)
 
-            if self.archiveRoots:
+            if self.cfg.archiveRoots:
                 # Fork and archive the root.
                 self.archiveRoot()
 
@@ -142,7 +148,7 @@ class ContentsRoot(Resource):
 
     def unpackRoot(self):
         self._lock(fcntl.LOCK_EX)
-        archiveroot.unpackRoot(self._getArchivePath(), self._basePath)
+        archiveroot.unpackRoot(self._archivePath, self._basePath)
 
     def archiveRoot(self):
         pid = os.fork()
@@ -158,8 +164,7 @@ class ContentsRoot(Resource):
                     self._lockFile = None
                     self._lockWait()
 
-                    archiveroot.archiveRoot(self._basePath,
-                            self._getArchivePath())
+                    archiveroot.archiveRoot(self._basePath, self._archivePath)
 
                     log.debug("Archiving of root %s done", self._hash)
                     os._exit(0)
@@ -182,27 +187,30 @@ class ContentsRoot(Resource):
 
 
 class MountRoot(ResourceStack):
-    def __init__(self, troves, rootPath, scratchVG, scratchSize,
-            archivePath=None, archiveRoots=True, conaryCfg=None):
+    def __init__(self, name, troves, cfg, scratchSize=0, conaryCfg=None):
         ResourceStack.__init__(self)
 
-        self.scratchVG = scratchVG
+        self.name = name
+        self.troves = troves
+        self.cfg = cfg
         self.scratchSize = scratchSize
 
         self.mountPoint = None
 
-        self.contents = ContentsRoot(troves, rootPath, archivePath,
-                archiveRoots, conaryCfg)
+        self.contents = ContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
-        self._open()
-
-    def _open(self):
+    def start(self):
         try:
-            scratch = ScratchDisk(self.scratchVG, self.scratchSize)
+            contentsPath = self.contents.getRoot()
+
+            scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
+            scratch = ScratchDisk(self.cfg.lvmVolumeName,
+                    'scratch_' + self.name, scratchSize)
+            scratch.start()
             self.append(scratch)
 
-            root = BindMountResource(self.contents.getRoot(), readOnly=True)
+            root = BindMountResource(contentsPath, readOnly=True)
             self.append(root)
             self.mountPoint = root.mountPoint
 
@@ -210,8 +218,6 @@ class MountRoot(ResourceStack):
                 os.path.join(self.mountPoint, 'tmp')))
             self.append(BindMountResource(scratch.mountPoint,
                 os.path.join(self.mountPoint, 'var/tmp')))
-            self.append(AutoMountResource('proc',
-                os.path.join(self.mountPoint, 'proc'), ('-t', 'proc')))
 
         except:
             self.close()
@@ -223,27 +229,33 @@ def main(args):
     from conary.conaryclient import cmdline
 
     if len(args) < 3:
-        sys.exit("Usage: %s <buildroot> <vg> <trovespec>+" % sys.argv[0])
+        sys.exit("Usage: %s <cfg> <name> <trovespec>+" % sys.argv[0])
 
     setupLogging(logging.DEBUG)
 
-    root, vg = args[:2]
+    cfgPath, name = args[:2]
     troveSpecs = args[2:]
 
-    cfg = conarycfg.ConaryConfiguration(True)
-    cfg.initializeFlavors()
-    cli = conaryclient.ConaryClient(cfg)
+    mcfg = MasterConfig()
+    mcfg.read(cfgPath)
+
+    ccfg = conarycfg.ConaryConfiguration(True)
+    ccfg.initializeFlavors()
+    cli = conaryclient.ConaryClient(ccfg)
     searchSource = cli.getSearchSource()
 
     specTups = [cmdline.parseTroveSpec(x) for x in troveSpecs]
     troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
 
-    #root = ContentsRoot(troveTups, root, conaryCfg=cfg)
-    #print root.getRoot()
 
-    root = MountRoot(troveTups, root, vg, 16 * 1024 * 1024, conaryCfg=cfg)
+    root = MountRoot(name, troveTups, mcfg, conaryCfg=ccfg)
 
-    print 'Mounted at %s -- Ctrl-D to clean up' % root.mountPoint
+    _start = time.time()
+    root.start()
+    _end = time.time()
+
+    print 'Mounted at %s in %.03f s -- Ctrl-D to clean up' % (
+            root.mountPoint, _end - _start)
     sys.stdin.read()
 
     root.close()

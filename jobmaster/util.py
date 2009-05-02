@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 
-def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
+def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
     """
     Run command C{cmd}, logging the command run and all its output.
 
@@ -43,23 +43,31 @@ def logCall(cmd, ignoreErrors = False, logCmd = True, **kw):
         env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
         log.info("+ %s%s", env, niceString)
 
-    p = subprocess.Popen(cmd, shell=isinstance(cmd, basestring),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+    kw.setdefault('close_fds', True)
+    kw.setdefault('shell', isinstance(cmd, basestring))
+    if 'stdin' not in kw:
+        kw['stdin'] = open('/dev/null')
 
-    while p.poll() is None:
-        rList, _, _ = select.select([p.stdout, p.stderr], [], [])
-        for rdPipe in rList:
-            which = (rdPipe is p.stdout) and 'stdout' or 'stderr'
-            msg = rdPipe.readline().strip()
-            if msg:
-                log.info("++ (%s) %s", which, msg)
+    pipe = captureOutput and subprocess.PIPE or None
+    p = subprocess.Popen(cmd, stdout=pipe, stderr=pipe, **kw)
 
-    # pylint: disable-msg=E1103
-    stdout, stderr = p.communicate()
-    for x in stderr.splitlines():
-        log.info("++ (stderr) %s", x)
-    for x in stdout.splitlines():
-        log.info("++ (stdout) %s", x)
+    if captureOutput:
+        while p.poll() is None:
+            rList, _, _ = select.select([p.stdout, p.stderr], [], [])
+            for rdPipe in rList:
+                which = (rdPipe is p.stdout) and 'stdout' or 'stderr'
+                msg = rdPipe.readline().strip()
+                if msg:
+                    log.info("++ (%s) %s", which, msg)
+
+        # pylint: disable-msg=E1103
+        stdout, stderr = p.communicate()
+        for x in stderr.splitlines():
+            log.info("++ (stderr) %s", x)
+        for x in stdout.splitlines():
+            log.info("++ (stdout) %s", x)
+    else:
+        p.wait()
 
     if p.returncode and not ignoreErrors:
         raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))

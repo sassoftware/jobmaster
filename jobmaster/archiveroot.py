@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2004-2009 rPath, Inc.
+# Copyright (c) 2009 rPath, Inc.
 #
 # All Rights Reserved
 #
@@ -117,7 +117,7 @@ def copySHA512(inFile, outFile=None):
     """
     Copy all data from C{inFile} and return the SHA-512 digest of its
     contents in hexadecimal form. If C{outFile} is not C{None}, data
-    will be copied to that file was it is digested.
+    will be copied to that file as it is digested.
     """
     ctx = hashlib.sha512()
     while True:

@@ -18,6 +18,7 @@ it is allocated, and pop each resource on shutdown to free it.
 import logging
 import os
 import tempfile
+from jobmaster.networking import formatIPv6
 from jobmaster.util import logCall
 
 log = logging.getLogger(__name__)
@@ -203,3 +204,25 @@ class LinuxContainerResource(Resource):
         """
         logCall(['/usr/bin/lxc-stop', '-n', self.container], ignoreErrors=True)
         logCall(['/usr/bin/lxc-destroy', '-n', self.container])
+
+
+class NetworkPairResource(Resource):
+    """
+    Resource that sets up and ters down a veth network pair.
+    """
+
+    def __init__(self, masterName, masterAddr, slaveName):
+        Resource.__init__(self)
+        self.masterName = masterName
+        self.masterAddr = masterAddr
+        self.slaveName = slaveName
+
+        logCall(['/sbin/ip', 'link', 'add',
+            'name', masterName, 'type', 'veth', 'peer', 'name', slaveName])
+        logCall(['/sbin/ip', 'addr', 'add', formatIPv6(*masterAddr),
+            'dev', masterName])
+        logCall(['/sbin/ip', 'link', 'set', masterName, 'up'])
+
+    def _close(self):
+        if os.path.isdir(os.path.join('/sys/class/net', self.masterName)):
+            logCall(['/sbin/ip', 'link', 'del', self.masterName])
