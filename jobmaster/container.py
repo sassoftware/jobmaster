@@ -16,13 +16,13 @@ from jobmaster.chroot import MountRoot
 from jobmaster.config import MasterConfig
 from jobmaster.networking import AddressGenerator, formatIPv6
 from jobmaster.resource import ResourceStack, NetworkPairResource
-from jobmaster.util import logCall, setupLogging
+from jobmaster.util import createFile, logCall, setupLogging
 
 log = logging.getLogger(__name__)
 
 
 class Container(ResourceStack):
-    def __init__(self, troves, cfg, conaryCfg=None):
+    def __init__(self, troves, cfg, conaryCfg):
         ResourceStack.__init__(self)
 
         self.troves = troves
@@ -45,15 +45,24 @@ class Container(ResourceStack):
         try:
             # Build chroot
             self.chroot.start()
+            root = self.chroot.mountPoint
 
             # Configure network devices
             self.append(NetworkPairResource('jm.' + self.name,
                 self.masterAddr, 'js.' + self.name))
-            
+
+            # Write out system configuration
+            proxyURL = 'http://[%s]:7778/conary/' % formatIPv6(
+                    self.masterAddr[0])
+            createFile(root, 'tmp/etc/conary/config.d/runtime',
+                    'conaryProxy http %s\n'
+                    'conaryProxy https %s\n'
+                    % (proxyURL, proxyURL))
+
             # Write out LXC config
             config = tempfile.NamedTemporaryFile()
-            print >> config, 'lxc.utsname = jobslave_' + self.name
-            print >> config, 'lxc.rootfs = ' + self.chroot.mountPoint
+            print >> config, 'lxc.utsname = localhost'
+            print >> config, 'lxc.rootfs = ' + root
             print >> config, 'lxc.network.type = phys'
             print >> config, 'lxc.network.name = eth0'
             print >> config, 'lxc.network.link = js.' + self.name
@@ -96,6 +105,9 @@ def main(args):
 
     ccfg = conarycfg.ConaryConfiguration(True)
     ccfg.initializeFlavors()
+    if mcfg.conaryProxy != 'self':
+        ccfg.configLine('conaryProxy http %s' % mcfg.conaryProxy)
+        ccfg.configLine('conaryProxy https %s' % mcfg.conaryProxy)
     cli = conaryclient.ConaryClient(ccfg)
     searchSource = cli.getSearchSource()
 

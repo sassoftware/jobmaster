@@ -35,7 +35,7 @@ class LockTimeoutError(LockError):
 
 
 class ContentsRoot(Resource):
-    def __init__(self, troves, cfg, conaryCfg=None):
+    def __init__(self, troves, cfg, conaryCfg):
         Resource.__init__(self)
 
         self.troves = troves
@@ -179,15 +179,11 @@ class ContentsRoot(Resource):
     def buildRoot(self):
         self._lock(fcntl.LOCK_EX)
 
-        conaryCfg = self.conaryCfg
-        if not conaryCfg:
-            conaryCfg = conarycfg.ConaryConfiguration(True)
-
-        buildroot.buildRoot(conaryCfg, self.troves, self._basePath)
+        buildroot.buildRoot(self.conaryCfg, self.troves, self._basePath)
 
 
 class MountRoot(ResourceStack):
-    def __init__(self, name, troves, cfg, scratchSize=0, conaryCfg=None):
+    def __init__(self, name, troves, cfg, conaryCfg, scratchSize=0):
         ResourceStack.__init__(self)
 
         self.name = name
@@ -218,6 +214,8 @@ class MountRoot(ResourceStack):
                 os.path.join(self.mountPoint, 'tmp')))
             self.append(BindMountResource(scratch.mountPoint,
                 os.path.join(self.mountPoint, 'var/tmp')))
+            self.append(BindMountResource('/home/gxti/hg/jobslave-ng/jobslave', os.path.join(self.mountPoint, 'usr/lib64/python2.4/site-packages/jobslave')))
+            self.append(BindMountResource('/home/gxti/hg/jobslave-ng/bin/jobslave', os.path.join(self.mountPoint, 'usr/bin/jobslave')))
 
         except:
             self.close()

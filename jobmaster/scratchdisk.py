@@ -8,9 +8,14 @@
 import logging
 import random
 from jobmaster.resource import ResourceStack, LVMResource, AutoMountResource
-from jobmaster.util import logCall
+from jobmaster.util import logCall, CommandError
 
 log = logging.getLogger(__name__)
+
+
+class OutOfScratchSpaceError(RuntimeError):
+    def __str__(self):
+        return "Not enough free extents on volume group %r" % (self.args[0],)
 
 
 class ScratchDisk(ResourceStack):
@@ -27,8 +32,13 @@ class ScratchDisk(ResourceStack):
         # Allocate LV
         self.lvPath = '/dev/%s/%s' % (self.vgName, self.lvName)
 
-        logCall(["/usr/sbin/lvm", "lvcreate", "-n", self.lvName,
-            "-L", "%dM" % self.diskSize, self.vgName])
+        try:
+            logCall(["/usr/sbin/lvm", "lvcreate", "-n", self.lvName,
+                "-L", "%dM" % self.diskSize, self.vgName])
+        except CommandError, err:
+            if 'Insufficient free extents' in err.stderr:
+                raise OutOfSpaceError(self.vgName)
+            raise
         self.append(LVMResource(self.lvPath))
 
         # Format

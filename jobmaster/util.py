@@ -9,10 +9,29 @@ import os
 import logging
 import select
 import subprocess
+import sys
 from conary import conarycfg, conaryclient
 
 log = logging.getLogger(__name__)
 
+
+def _getLogger(levels=2):
+    caller = sys._getframe(levels)
+    name = caller.f_globals['__name__']
+    return logging.getLogger(name)
+
+
+class CommandError(RuntimeError):
+    def __init__(self, cmd, rv, stdout, stderr):
+        self.cmd = cmd
+        self.rv = rv
+        self.stdout = stdout
+        self.stderr = stderr
+        self.args = (cmd, rv, stdout, stderr)
+
+    def __str__(self):
+        return "Error executing command: %s (return code %d)" % (
+                self.cmd, self.rv)
 
 
 def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
@@ -33,6 +52,7 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
     @param kw: All other keyword arguments are passed to L{subprocess.Popen}
     @type  kw: C{dict}
     """
+    logger = _getLogger()
 
     if logCmd:
         if isinstance(cmd, basestring):
@@ -41,7 +61,7 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
             niceString = ' '.join(repr(x) for x in cmd)
         env = kw.get('env', {})
         env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
-        log.info("+ %s%s", env, niceString)
+        logger.info("+ %s%s", env, niceString)
 
     kw.setdefault('close_fds', True)
     kw.setdefault('shell', isinstance(cmd, basestring))
@@ -51,28 +71,36 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
     pipe = captureOutput and subprocess.PIPE or None
     p = subprocess.Popen(cmd, stdout=pipe, stderr=pipe, **kw)
 
+    stdout = stderr = ''
     if captureOutput:
         while p.poll() is None:
             rList, _, _ = select.select([p.stdout, p.stderr], [], [])
             for rdPipe in rList:
-                which = (rdPipe is p.stdout) and 'stdout' or 'stderr'
-                msg = rdPipe.readline().strip()
-                if msg:
-                    log.info("++ (%s) %s", which, msg)
+                line = rdPipe.readline()
+                if rdPipe is p.stdout:
+                    which = 'stdout'
+                    stdout += line
+                else:
+                    which = 'stderr'
+                    stderr += line
+                if line.strip():
+                    logger.info("++ (%s) %s", which, line.rstrip())
 
         # pylint: disable-msg=E1103
-        stdout, stderr = p.communicate()
-        for x in stderr.splitlines():
-            log.info("++ (stderr) %s", x)
-        for x in stdout.splitlines():
-            log.info("++ (stdout) %s", x)
+        stdout_, stderr_ = p.communicate()
+        stdout += stdout_
+        stderr += stderr_
+        for x in stderr_.splitlines():
+            logger.info("++ (stderr) %s", x)
+        for x in stdout_.splitlines():
+            logger.info("++ (stdout) %s", x)
     else:
         p.wait()
 
     if p.returncode and not ignoreErrors:
-        raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
+        raise CommandError(cmd, p.returncode, stdout, stderr)
     else:
-        return p.returncode
+        return p.returncode, stdout, stderr
 
 def getIP():
     p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")

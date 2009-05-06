@@ -15,11 +15,14 @@ resources (e.g. via C{ResourceStack}), push each resource onto the stack as
 it is allocated, and pop each resource on shutdown to free it.
 """
 
+import glob
 import logging
 import os
+import stat
+import subprocess
 import tempfile
 from jobmaster.networking import formatIPv6
-from jobmaster.util import logCall
+from jobmaster.util import logCall, CommandError
 
 log = logging.getLogger(__name__)
 
@@ -32,9 +35,7 @@ class Resource(object):
     Typically, one would keep a stack of these, and close them in
     reverse order at the end of the section.
     """
-
-    def __init__(self):
-        self.closed = False
+    closed = False
 
     def close(self):
         """
@@ -65,6 +66,7 @@ class ResourceStack(Resource):
     """
     A stack of resources that itself acts as a resource.
     """
+    resources = None
 
     def __init__(self, resources=None):
         Resource.__init__(self)
@@ -103,10 +105,35 @@ class LVMResource(Resource):
         Resource.__init__(self)
         self.devicePath = devicePath
 
+        try:
+            st = os.stat(devicePath)
+        except OSError:
+            self._close()
+            raise
+
+        if not stat.S_ISBLK(st.st_mode):
+            raise RuntimeError("%s is not a block device" % devicePath)
+
+        self.device = st.st_rdev
+
     def _close(self):
         """
         Call C{lvremove} on close.
         """
+        # Free loop devices
+        # Caveats: can't handle nested loops, or loops allocated
+        # non-sequentially (loop100 when loop99 has no node yet)
+        proc = subprocess.Popen(['/sbin/losetup', '-a'],
+                stdout=subprocess.PIPE, shell=False)
+        for line in proc.stdout.readlines():
+            node, dev = line.split()[:2]
+            node = node[:-1]
+            dev = dev.split(':')[0]
+            dev = int(dev[1:-1], 16)
+            if dev == self.device:
+                log.warning("Loop device %s references LV; destroying.", node)
+                logCall(['/sbin/losetup', '-d', node])
+
         logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
 
@@ -224,5 +251,11 @@ class NetworkPairResource(Resource):
         logCall(['/sbin/ip', 'link', 'set', masterName, 'up'])
 
     def _close(self):
-        if os.path.isdir(os.path.join('/sys/class/net', self.masterName)):
-            logCall(['/sbin/ip', 'link', 'del', self.masterName])
+            try:
+                logCall(['/sbin/ip', 'link', 'del', self.masterName])
+            except CommandError:
+                # Checking first is racy, so check afterwards and only raise
+                # if it's still present
+                if os.path.isdir(os.path.join('/sys/class/net',
+                        self.masterName)):
+                    raise

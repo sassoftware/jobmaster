@@ -5,8 +5,13 @@
 #
 
 from conary.lib.cfg import ConfigFile
-from conary.lib.cfgtypes import CfgBool, CfgInt, CfgPath, CfgString
-from mcp.mcp_log import CfgLogLevel
+from conary.lib.cfgtypes import CfgBool, CfgEnum, CfgInt, CfgPath, CfgString
+
+
+class CfgLogLevel(CfgEnum):
+    validValues = ['CRITICAL', 'WARNING', 'INFO', 'DEBUG']
+    def checkEntry(self, val):
+        CfgEnum.checkEntry(self, val.upper())
 
 
 class MasterConfig(ConfigFile):
