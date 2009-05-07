@@ -18,6 +18,7 @@ from conary.lib.util import mkdirChain
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.config import MasterConfig
+from jobmaster.devfs import DevFS
 from jobmaster.scratchdisk import ScratchDisk
 from jobmaster.resource import (Resource, ResourceStack,
         AutoMountResource, BindMountResource)
@@ -196,6 +197,9 @@ class MountRoot(ResourceStack):
         self.contents = ContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
+        self.devFS = DevFS()
+        self.append(self.devFS)
+
     def start(self):
         try:
             contentsPath = self.contents.getRoot()
@@ -206,9 +210,14 @@ class MountRoot(ResourceStack):
             scratch.start()
             self.append(scratch)
 
-            root = BindMountResource(contentsPath, readOnly=True)
+            root = BindMountResource(contentsPath, readOnly=True,
+                    prefix='root-')
             self.append(root)
             self.mountPoint = root.mountPoint
+
+            self.devFS.start()
+            self.append(BindMountResource(self.devFS.mountPoint,
+                os.path.join(self.mountPoint, 'dev'), readOnly=True))
 
             self.append(BindMountResource(scratch.mountPoint,
                 os.path.join(self.mountPoint, 'tmp')))

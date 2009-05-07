@@ -30,6 +30,7 @@ def buildRoot(ccfg, troveTups, destRoot):
     rootCfg = copy.deepcopy(ccfg)
     rootCfg.root = fsRoot
     rootCfg.autoResolve = False
+    rootCfg.updateThreshold = 0
 
     rootClient = conaryclient.ConaryClient(rootCfg)
     try:

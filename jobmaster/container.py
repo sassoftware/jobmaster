@@ -63,6 +63,12 @@ class Container(ResourceStack):
             config = tempfile.NamedTemporaryFile()
             print >> config, 'lxc.utsname = localhost'
             print >> config, 'lxc.rootfs = ' + root
+
+            print >> config, 'lxc.cgroup.devices.deny = a'
+            print >> config, 'lxc.cgroup.devices.allow = b *:* m' # allow mknod
+            print >> config, 'lxc.cgroup.devices.allow = c *:* m' # allow mknod
+            self.chroot.devFS.writeCaps(config)
+
             print >> config, 'lxc.network.type = phys'
             print >> config, 'lxc.network.name = eth0'
             print >> config, 'lxc.network.link = js.' + self.name

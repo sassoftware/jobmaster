@@ -142,10 +142,12 @@ class MountResource(Resource):
     Resource for a mounted partition to be unmounted on close.
     """
 
-    def __init__(self, mountPoint, delete=False):
+    def __init__(self, mountPoint, **kwargs):
         Resource.__init__(self)
         self.mountPoint = mountPoint
-        self.delete = delete
+        self.delete = kwargs.pop('delete', False)
+        if kwargs:
+            raise TypeError("Unknown keyword argument %s" % kwargs.keys()[0])
 
     def _close(self):
         """
@@ -162,15 +164,16 @@ class AutoMountResource(MountResource):
     unmounts and cleans up on close.
     """
 
-    def __init__(self, device, mountPoint=None, options=(), delete=False):
+    def __init__(self, device, mountPoint=None, **kwargs):
         self.device = device
-        self.options = options
+        self.options = kwargs.pop('options', ())
 
         if mountPoint is None:
-            mountPoint = tempfile.mkdtemp(prefix='mount-')
-            delete = True
+            prefix = kwargs.pop('prefix', 'mount-')
+            mountPoint = tempfile.mkdtemp(prefix=prefix)
+            kwargs['delete'] = True
 
-        MountResource.__init__(self, mountPoint, delete)
+        MountResource.__init__(self, mountPoint, **kwargs)
 
         try:
             self._doMount()
@@ -197,9 +200,9 @@ class BindMountResource(AutoMountResource):
     read-only, and cleans up on close.
     """
 
-    def __init__(self, fromPath, mountPoint=None, delete=False, readOnly=False):
-        self.readOnly = readOnly
-        AutoMountResource.__init__(self, fromPath, mountPoint, delete=delete)
+    def __init__(self, fromPath, mountPoint=None, **kwargs):
+        self.readOnly = kwargs.pop('readOnly', False)
+        AutoMountResource.__init__(self, fromPath, mountPoint, **kwargs)
 
     def _doMount(self):
         """
