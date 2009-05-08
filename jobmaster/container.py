@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 
 class Container(ResourceStack):
-    def __init__(self, troves, cfg, conaryCfg):
+    def __init__(self, troves, cfg, conaryCfg, loopManager=None):
         ResourceStack.__init__(self)
 
         self.troves = troves
@@ -32,7 +32,8 @@ class Container(ResourceStack):
 
         self.masterAddr, self.slaveAddr = AddressGenerator().generateHostPair()
 
-        self.chroot = MountRoot(self.name, troves, cfg, conaryCfg)
+        self.chroot = MountRoot(self.name, troves, cfg, conaryCfg,
+                loopManager=loopManager)
         self.append(self.chroot)
 
         self.config = None
@@ -97,6 +98,7 @@ class Container(ResourceStack):
 def main(args):
     from conary import conaryclient
     from conary.conaryclient import cmdline
+    from jobmaster.devfs import LoopManager
 
     if len(args) < 2:
         sys.exit("Usage: %s <cfg> <trovespec>+" % sys.argv[0])
@@ -120,7 +122,9 @@ def main(args):
     specTups = [cmdline.parseTroveSpec(x) for x in troveSpecs]
     troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
 
-    container = Container(troveTups, mcfg, conaryCfg=ccfg)
+    loopManager = LoopManager()
+    container = Container(troveTups, mcfg,
+            conaryCfg=ccfg, loopManager=loopManager)
     _start = time.time()
     container.start()
     _end = time.time()

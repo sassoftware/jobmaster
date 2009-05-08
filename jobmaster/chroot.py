@@ -184,7 +184,8 @@ class ContentsRoot(Resource):
 
 
 class MountRoot(ResourceStack):
-    def __init__(self, name, troves, cfg, conaryCfg, scratchSize=0):
+    def __init__(self, name, troves, cfg, conaryCfg, scratchSize=0,
+            loopManager=None):
         ResourceStack.__init__(self)
 
         self.name = name
@@ -197,31 +198,32 @@ class MountRoot(ResourceStack):
         self.contents = ContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
-        self.devFS = DevFS()
+        scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
+        self.scratch = ScratchDisk(self.cfg.lvmVolumeName,
+                'scratch_' + self.name, scratchSize)
+        self.append(self.scratch)
+
+        self.devFS = DevFS(loopManager)
         self.append(self.devFS)
 
     def start(self):
         try:
             contentsPath = self.contents.getRoot()
 
-            scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
-            scratch = ScratchDisk(self.cfg.lvmVolumeName,
-                    'scratch_' + self.name, scratchSize)
-            scratch.start()
-            self.append(scratch)
+            self.scratch.start()
+            self.devFS.start()
 
             root = BindMountResource(contentsPath, readOnly=True,
                     prefix='root-')
             self.append(root)
             self.mountPoint = root.mountPoint
 
-            self.devFS.start()
             self.append(BindMountResource(self.devFS.mountPoint,
                 os.path.join(self.mountPoint, 'dev'), readOnly=True))
 
-            self.append(BindMountResource(scratch.mountPoint,
+            self.append(BindMountResource(self.scratch.mountPoint,
                 os.path.join(self.mountPoint, 'tmp')))
-            self.append(BindMountResource(scratch.mountPoint,
+            self.append(BindMountResource(self.scratch.mountPoint,
                 os.path.join(self.mountPoint, 'var/tmp')))
             self.append(BindMountResource('/home/gxti/hg/jobslave-ng/jobslave', os.path.join(self.mountPoint, 'usr/lib64/python2.4/site-packages/jobslave')))
             self.append(BindMountResource('/home/gxti/hg/jobslave-ng/bin/jobslave', os.path.join(self.mountPoint, 'usr/bin/jobslave')))
