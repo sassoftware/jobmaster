@@ -22,7 +22,7 @@ class UnrecognizedImage(Exception):
         self.msg = msg
 
 class XenCfg(object):
-    def __init__(self, imgPath, cfg = {}, extraDiskTemplate = True):
+    def __init__(self, imgPath, cfg):
         self.cfg = copy.deepcopy(cfg)
         self.cfg.setdefault('memory', 64)
 
@@ -39,10 +39,13 @@ class XenCfg(object):
         self.cfg.setdefault('name', 'slave%s' % \
                             self.cfg['vif'][0].split(':')[-1])
 
-        filePath = os.path.join(imgPath, self.cfg['name'] + '-base')
-        disks = self.cfg.setdefault('disk', ['phy:%s,xvda1,w' % filePath])
-        if extraDiskTemplate:
-            disks.append('phy:%s-scratch,xvda2,w' % (extraDiskTemplate % self.cfg['name']))
+        diskPath = os.path.join(imgPath, self.cfg['name'])
+        self.cfg.setdefault('disk', [
+                'phy:%s,xvda1,w' % (diskPath + '-base',),
+                'phy:%s,xvda2,w' % (diskPath + '-scratch',),
+                'phy:%s,sdb,w' % (diskPath + '-swap',),
+                ])
+        self.cfg.setdefault('root', '/dev/xvda1 ro')
 
     def write(self, f = sys.stdout):
         for key, val in self.cfg.iteritems():
@@ -50,24 +53,3 @@ class XenCfg(object):
                 f.write("%s = %s\n" % (key, str([str(x) for x in val])))
             else:
                 f.write("%s = \"%s\"\n" % (key, val))
-
-if __name__ == '__main__':
-    def usage(out = sys.stderr):
-        print >> out, "usage: %s /path/to/image" % os.path.basename(sys.argv[0])
-        sys.exit(1)
-
-    if len(sys.argv) == 1:
-        usage()
-
-    imgFile = sys.argv[1]
-
-    import tempfile
-    fd, fn = tempfile.mkstemp()
-    os.close(fd)
-    f = open(fn, 'w')
-    try:
-        cfg = XenCfg(imgFile)
-        cfg.write(f)
-    finally:
-        f.close()
-    print fn

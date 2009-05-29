@@ -19,6 +19,7 @@ import tempfile
 from jobmaster import master
 from jobmaster import xenmac, xenip
 from jobmaster import imagecache
+from jobmaster import util as jmutil
 
 from conary.lib import util
 from conary import conaryclient
@@ -101,10 +102,10 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             f.close()
             return filePath
 
-        fd, handler.imagePath = tempfile.mkstemp()
-        os.close(fd)
+        temp = tempfile.mkdtemp()
+        handler.imageBase = temp + '/image'
         handler.slaveName = 'xen44'
-        handler.cfgPath = '/tmp/test-config'
+        handler.cfgPath = temp + '/test-config'
         handler.ip = '10.0.0.1'
         waitForSlave = master.waitForSlave
 
@@ -114,6 +115,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         fork = os.fork
         setsid = os.setsid
         exit = os._exit
+        alloc = jmutil.allocateScratch
         try:
             master.waitForSlave = lambda *args, **kwargs: None
             imagecache. ImageCache.makeImage = dummyMakeImage
@@ -122,6 +124,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             xenmac.genMac = lambda: '00:16:3e:00:01:66'
             xenip.genIP = lambda: '10.0.0.1'
             os._exit = dummyExit
+            jmutil.allocateScratch = lambda *args, **kwargs: None
             handler.estimateScratchSize = lambda *args, **kwargs: 10240
             try:
                 handler.run()
@@ -136,17 +139,22 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             os.fork = fork
             os.setsid = setsid
             os._exit = exit
+            jmutil.allocateScratch = alloc
 
-        syscalls = ('lvcreate -n [^\s]*-base -L0M vg00',
-                    'dd if=[^\s]* of=[^\s]*',
-                    'lvcreate -n [^\s]*-scratch -L10240M vg00',
-                    'mke2fs -m0 /dev/vg00/[^\s]',
-                    'mount [^\s]* [^\s]*$', 'umount [^\s]*$',
-                    'xm create /tmp/test-config$')
+            util.rmtree(temp, ignore_errors=True)
+
+        syscalls = (
+                'dd if=\S+/imageCache/\S+ of=\S+-base',
+                'mkfs.xfs -fq \S+-scratch',
+                'mkswap -f \S+-swap',
+                'mount \S+-base \S+$',
+                'umount \S+$',
+                'xm create /tmp/\S+/test-config$',
+                )
         for index, (rgx, cmd) in [x for x in enumerate(zip(syscalls, self.callLog))]:
-            self.failIf(not re.match(rgx, cmd), "Unexpected command sent to system at position %d: %s" % (index, cmd))
-
-        util.rmtree(handler.imagePath, ignore_errors = True)
+            self.failIf(not re.match(rgx, cmd),
+                    "Unexpected command sent to system at position %d: %s"
+                    % (index, cmd))
 
     def testWriteSlaveConfig(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'

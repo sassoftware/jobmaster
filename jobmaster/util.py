@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2007 rPath, Inc.
+# Copyright (c) 2007, 2009 rPath, Inc.
 #
 # All rights reserved
 #
@@ -8,9 +8,30 @@ import os
 import logging
 import select
 import subprocess
-log = logging
+import sys
 
 from conary import conarycfg, conaryclient
+
+
+log = logging.getLogger(__name__)
+
+
+class CommandError(RuntimeError):
+    def __init__(self, cmd, rv, stdout, stderr):
+        self.cmd = cmd
+        self.rv = rv
+        self.stdout = stdout
+        self.stderr = stderr
+        self.args = (cmd, rv, stdout, stderr)
+
+    def __str__(self):
+        return "Error executing command: %s (return code %d)" % (
+                self.cmd, self.rv)
+
+
+class OutOfSpaceError(RuntimeError):
+    pass
+
 
 def rewriteFile(template, target, data):
     if not os.path.exists(template):
@@ -23,25 +44,81 @@ def rewriteFile(template, target, data):
     f.close()
     os.unlink(template)
 
-def logCall(cmd, ignoreErrors = False, logLevel=logging.DEBUG, **kwargs):
-    log.log(logLevel, "+ " + cmd)
-    p = subprocess.Popen(cmd, shell = True,
-        stdout = subprocess.PIPE, stderr = subprocess.PIPE, **kwargs)
-    while p.poll() is None:
-        rList, junk, junk = select.select([p.stdout, p.stderr], [], [])
-        for rdPipe in rList:
-            action = (rdPipe is p.stdout) and log.info or log.debug
-            msg = rdPipe.readline().strip()
-            if msg:
-                log.log(logLevel, "++ " + msg)
 
-    stdout, stderr = p.communicate()
-    [log.log(logLevel, "++ " + outLine) for outLine in
-        stderr.splitlines() + stdout.splitlines()]
-    if p.returncode and not ignoreErrors:
-        raise RuntimeError("Error executing command: %s (return code %d)" % (cmd, p.returncode))
+def _getLogger(levels=2):
+    caller = sys._getframe(levels)
+    name = caller.f_globals['__name__']
+    return logging.getLogger(name)
+
+
+def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
+    """
+    Run command C{cmd}, logging the command run and all its output.
+
+    If C{cmd} is a string, it will be interpreted as a shell command.
+    Otherwise, it should be a list where the first item is the program name and
+    subsequent items are arguments to the program.
+
+    @param cmd: Program or shell command to run.
+    @type  cmd: C{basestring or list}
+    @param ignoreErrors: If C{True}, don't raise an exception on a 
+            non-zero return code.
+    @type  ignoreErrors: C{bool}
+    @param logCmd: If C{False}, don't log the command invoked.
+    @type  logCmd: C{bool}
+    @param kw: All other keyword arguments are passed to L{subprocess.Popen}
+    @type  kw: C{dict}
+    """
+    logger = _getLogger()
+
+    if logCmd:
+        if isinstance(cmd, basestring):
+            niceString = cmd
+        else:
+            niceString = ' '.join(repr(x) for x in cmd)
+        env = kw.get('env', {})
+        env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
+        logger.info("+ %s%s", env, niceString)
+
+    kw.setdefault('close_fds', True)
+    kw.setdefault('shell', isinstance(cmd, basestring))
+    if 'stdin' not in kw:
+        kw['stdin'] = open('/dev/null')
+
+    pipe = captureOutput and subprocess.PIPE or None
+    p = subprocess.Popen(cmd, stdout=pipe, stderr=pipe, **kw)
+
+    stdout = stderr = ''
+    if captureOutput:
+        while p.poll() is None:
+            rList, _, _ = select.select([p.stdout, p.stderr], [], [])
+            for rdPipe in rList:
+                line = rdPipe.readline()
+                if rdPipe is p.stdout:
+                    which = 'stdout'
+                    stdout += line
+                else:
+                    which = 'stderr'
+                    stderr += line
+                if line.strip():
+                    logger.info("++ (%s) %s", which, line.rstrip())
+
+        # pylint: disable-msg=E1103
+        stdout_, stderr_ = p.communicate()
+        stdout += stdout_
+        stderr += stderr_
+        for x in stderr_.splitlines():
+            logger.info("++ (stderr) %s", x)
+        for x in stdout_.splitlines():
+            logger.info("++ (stdout) %s", x)
     else:
-        return p.returncode
+        p.wait()
+
+    if p.returncode and not ignoreErrors:
+        raise CommandError(cmd, p.returncode, stdout, stderr)
+    else:
+        return p.returncode, stdout, stderr
+
 
 def getIP():
     p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
@@ -88,3 +165,34 @@ def getRunningKernel():
     else:
         raise RuntimeError('Could not determine currently running kernel')
 
+
+def allocateScratch(cfg, name, disks):
+    # Determine how many free extents there are, and how big an extent is.
+    ret = logCall(['/usr/sbin/lvm', 'vgs',
+        '-o', 'extent_size,free_count', cfg.lvmVolumeName],
+        logCmd=False)[1]
+    ret = ret.splitlines()[1:]
+    if not ret:
+        raise RuntimeError("Volume group %s could not be read"
+                % (cfg.lvmVolumeName,))
+    extent_size, extents_free = ret[0].split()
+    assert extent_size.endswith('M')
+    extent_size = 1048576 * int(extent_size[:-1])
+    extents_free = int(extents_free)
+
+    extents_required = 0
+    to_allocate = []
+    for suffix, bytes in disks:
+        # Round up to the nearest extent
+        extents = (int(bytes) + extent_size - 1) / extent_size
+        extents_required += extents
+        to_allocate.append((suffix, extents))
+
+    if extents_required > extents_free:
+        raise OutOfSpaceError("%d extents required but only %d free"
+                % (extents_required, extents_free))
+
+    for suffix, extents in disks:
+        diskName = '%s-%s' % (name, suffix)
+        logCall(['/usr/bin/lvm', 'lvcreate', '-l', str(extents),
+            '-n', diskName, cfg.lvmVolumeName])

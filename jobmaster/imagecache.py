@@ -32,29 +32,20 @@ CYLINDERSIZE = 516096
 SECTORS         = 63
 HEADS           = 16
 
-###########
-# all image building related functions are not class members to
-# enforce prevention of side effects
-###########
+# Increment this if the image generation process changes, so that the hash
+# will change and old cached images will be discarded.
+IMAGE_SERIAL = 2
 
-def md5sum(s):
-    m = md5.new()
-    m.update(s)
-    return m.hexdigest()
 
-def roundUpSize(size, swapsize=SWAP_SIZE):
+def roundUpSize(size):
     # 13% accounts for reserved block and inode consumption
-    size = int(math.ceil((size + TAGSCRIPT_GROWTH + swapsize) / 0.87))
+    size = int(math.ceil((size + TAGSCRIPT_GROWTH) / 0.87))
     # now round up to next cylinder size
     return size + ((CYLINDERSIZE - (size % CYLINDERSIZE)) % CYLINDERSIZE)
 
-def createDir(d):
-    if not os.path.exists(d):
-        createDir(os.path.split(d)[0])
-        os.mkdir(d)
 
 def mkBlankFile(fn, size, sparse = True):
-    createDir(os.path.split(fn)[0])
+    util.mkdirChain(os.path.dirname(fn))
     f = open(fn, 'w')
     if sparse:
         f.seek(size - 1)
@@ -63,19 +54,17 @@ def mkBlankFile(fn, size, sparse = True):
         for i in range(size / 512):
             f.write(512 * chr(0))
         f.write((size % 512) * chr(0))
-    f.close()
+
 
 def createFile(fn, contents):
-    createDir(os.path.split(fn)[0])
-    f = open(fn, 'w')
-    f.write(contents)
-    f.close()
+    util.mkdirChain(os.path.dirname(fn))
+    open(fn, 'w').write(contents)
+
 
 def appendFile(fn, contents):
-    createDir(os.path.split(fn)[0])
-    f = open(fn, 'a')
-    f.write(contents)
-    f.close()
+    util.mkdirChain(os.path.dirname(fn))
+    open(fn, 'a').write(contents)
+
 
 def writeConaryRc(d, mirrorUrl = ''):
     # write the conaryrc file
@@ -100,18 +89,16 @@ def createTemporaryRoot(fakeRoot):
               'boot/grub', 'tmp', 'proc', 'sys', 'root', 'var'):
         util.mkdirChain(os.path.join(fakeRoot, d))
 
-def fsOddsNEnds(d, swapsize):
+def fsOddsNEnds(d):
+    # NB: /tmp is mounted by the jobslave initscript, so the scratch disk
+    # will always be /dev/xvda2 .
     createFile(os.path.join(d, 'etc', 'fstab'),
-               '\n'.join(('LABEL=/ / ext3 defaults 1 1',
+               '\n'.join(('/dev/xvda1 / ext3 defaults 1 1',
                           'none /dev/pts devpts gid=5,mode=620 0 0',
                           'none /dev/shm tmpfs defaults 0 0',
                           'none /proc proc defaults 0 0',
                           'none /sys sysfs defaults 0 0',
-                          '/var/swap swap swap defaults 0 0\n')))
-    #create a swap file
-    mkBlankFile(os.path.join(d, 'var', 'swap'), swapsize, sparse = False)
-    logCall('/sbin/mkswap %s' % \
-                  os.path.join(d, 'var', 'swap'))
+                          '/dev/sdc swap swap defaults 0 0\n')))
 
     util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
                       os.path.join(d, 'boot', 'grub'))
@@ -156,8 +143,10 @@ def fsOddsNEnds(d, swapsize):
         'ethtool -K eth0 tx off')
 
     # symlink /var/tmp -> /tmp to avoid running out of space on / (RBL-4202)
-    util.rmtree(os.path.join(d, 'var', 'tmp'), ignore_errors = True)
-    os.symlink(os.path.join('..', 'tmp'), os.path.join(d, 'var', 'tmp'))
+    util.mkdirChain(os.path.join(d, 'var'))
+    util.rmtree(os.path.join(d, 'var/tmp'), ignore_errors=True)
+    os.symlink('../tmp', os.path.join(d, 'var/tmp'))
+
 
 def signalHandler(*args, **kwargs):
     # change signals into exceptions
@@ -203,8 +192,10 @@ class ImageCache(object):
         return os.path.exists(self.imagePath(troveSpec, kernelData))
 
     def imageHash(self, troveSpec, kernelData):
-        kernelSpec = "%s=%s[%s]" % kernelData['trove']
-        return md5sum(troveSpec + kernelSpec)
+        ctx = md5.new()
+        ctx.update('%d\0%s\0' % (IMAGE_SERIAL, troveSpec))
+        ctx.update('%s=%s[%s]\0' % kernelData['trove'])
+        return ctx.hexdigest()
 
     def imagePath(self, troveSpec, kernelData):
         imageFile = os.path.join(self.cachePath,
@@ -357,7 +348,7 @@ class ImageCache(object):
         return os.path.join(self.cachePath, hash)
 
 class UpdateCallback(callbacks.UpdateCallback):
-    def eatMe(*P, **K):
+    def eatMe(self, *P, **K):
         pass
 
     tagHandlerOutput = troveScriptOutput = troveScriptFailure = eatMe

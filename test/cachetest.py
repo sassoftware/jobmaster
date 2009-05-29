@@ -25,7 +25,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         path = self.jobMaster.imageCache.imagePath('notreal',
             jobmaster_helper.kernelData)
         self.assertEquals(path, os.path.join(self.cfg.basePath, 'imageCache',
-            'cdafbe7a9ae28670181209c1e8cf2e5d'))
+            'b5038b0c970a6ec56a316b6b3d1a1035'))
 
     def testGetExistingImage(self):
         troveSpec = 'existingImage'
@@ -149,13 +149,9 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             jobmaster_helper.kernelData)
 
     def testImageSize(self):
-        # Put the default 256MB swap size back temporarily
-        # (it's reduced since some tests actually create files)
-        oldSwapSize, imagecache.SWAP_SIZE = imagecache.SWAP_SIZE, 256 * 1048576
-        self.assertEquals(imagecache.roundUpSize(0), 332881920)
-        self.assertEquals(imagecache.roundUpSize(100000), 332881920)
-        self.assertEquals(imagecache.roundUpSize(300 * 1024 * 1024), 694665216)
-        imagecache.SWAP_SIZE = oldSwapSize
+        self.assertEquals(imagecache.roundUpSize(0), 24256512)
+        self.assertEquals(imagecache.roundUpSize(100000), 24256512)
+        self.assertEquals(imagecache.roundUpSize(300 * 1024 * 1024), 386039808)
 
     def testCreateBlank(self):
         fd, tmpFile = tempfile.mkstemp()
@@ -213,7 +209,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testFsOddsNEnds(self):
         tmpDir = tempfile.mkdtemp()
         try:
-            imagecache.fsOddsNEnds(tmpDir, 256)
+            imagecache.fsOddsNEnds(tmpDir)
             self.failUnlessEqual(
                 set(os.listdir(tmpDir)),
                 set(['boot', 'etc', 'var']))

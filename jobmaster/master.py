@@ -24,7 +24,9 @@ import weakref
 from jobmaster import master_error
 from jobmaster import imagecache
 from jobmaster import templateserver
+from jobmaster import util as jmutil
 from jobmaster import xencfg, xenmac
+from jobmaster.imagecache import createFile
 from jobmaster.util import getRunningKernel
 from jobmaster.util import rewriteFile, logCall, getIP
 
@@ -196,16 +198,18 @@ class SlaveHandler(threading.Thread):
                                   self.jobQueueName.replace('job', ''), jobId)
 
     def start(self):
-        xenCfg = xencfg.XenCfg(os.path.join(os.path.sep,
-            'dev', self.master().cfg.lvmVolumeName),
-                               {'memory' : self.master().cfg.slaveMemory,
-                                'kernel': self.kernelData['kernel'],
-                                'initrd': self.kernelData['initrd'],
-                                'extra': 'console=xvc0',
-                                'root': '/dev/xvda1 ro'},
-                                extraDiskTemplate = '/dev/%s/%%s' % (self.master().cfg.lvmVolumeName))
+        xenCfg = xencfg.XenCfg(
+                '/dev/%s' % (self.master().cfg.lvmVolumeName),
+                {
+                    'memory' : self.master().cfg.slaveMemory,
+                    'kernel': self.kernelData['kernel'],
+                    'initrd': self.kernelData['initrd'],
+                    'extra': 'console=xvc0',
+                    })
+
         self.slaveName = xenCfg.cfg['name']
-        self.imagePath = '/dev/%s/%s-base' % (self.master().cfg.lvmVolumeName, self.slaveName)
+        self.imageBase = '/dev/%s/%s' % (self.master().cfg.lvmVolumeName,
+                self.slaveName)
         self.ip = xenCfg.ip
         self.slaveStatus(slavestatus.BUILDING, jobId = self.data['UUID'])
         fd, self.cfgPath = tempfile.mkstemp( \
@@ -215,7 +219,7 @@ class SlaveHandler(threading.Thread):
         xenCfg.write(f)
         f.close()
         threading.Thread.start(self)
-        log.info('requesting slave: %s' % self.slaveName)
+        log.info('requesting slave %s for job %s', self.slaveName, self.data['UUID'])
         return xenCfg.cfg['name']
 
     def stop(self):
@@ -255,6 +259,7 @@ class SlaveHandler(threading.Thread):
         return 'job%s:%s' % (jsVersion, arch)
 
     def writeSlaveConfig(self, cfgPath, cfg):
+        util.mkdirChain(os.path.dirname(cfgPath))
         f = open(cfgPath, 'w')
 
         # It never makes sense to direct a remote machine to
@@ -346,6 +351,14 @@ class SlaveHandler(threading.Thread):
         else:
             return minslavesize
 
+    def calcSwapSize(self):
+        """
+        Return the needed amount of swap in bytes.
+        """
+        slaveMemory = self.master().cfg.slaveMemory
+        # Return 2x up to 2GiB, then x + 2GiB after that
+        return (slaveMemory + max(slaveMemory, 2048)) * 1048576
+
     def isOnline(self):
         self.lock.acquire()
         try:
@@ -359,108 +372,87 @@ class SlaveHandler(threading.Thread):
             os.setpgid(0, 0)
             try:
                 cfg = self.master().cfg
-                # don't use original. make a backup
-                log.info('Getting slave image: %s' % self.troveSpec)
+
+                # Generate or retrieve the root image
+                log.info("Getting base image: %s", self.troveSpec)
                 cachedImage = self.imageCache().getImage(self.troveSpec,
                     self.kernelData, cfg.debugMode)
-                log.info("Making runtime copy of cached image at: %s" % \
-                             self.imagePath)
-                slaveSize = os.stat(cachedImage)[stat.ST_SIZE]
-                # size was given in bytes, but we need megs
-                slaveSize = slaveSize / (1024 * 1024) + \
-                        ((slaveSize % (1024 * 1024)) and 1)
-                logCall("lvcreate -n %s-base -L%dM %s" % (self.slaveName, slaveSize, cfg.lvmVolumeName))
-                logCall("dd if=%s of=%s bs=16K" % (cachedImage, self.imagePath))
-                log.info("making mount point")
-                # now add per-instance settings. such as path to MCP
-                mntPoint = tempfile.mkdtemp(\
-                    dir = os.path.join(cfg.basePath, 'tmp'))
-                f = None
 
+                # Calculate needed scratch sizes and allocate space
+                jmutil.allocateScratch(cfg, self.slaveName, [
+                    ('base', os.stat(cachedImage).st_size),
+                    ('scratch', self.estimateScratchSize()),
+                    ('swap', self.calcSwapSize()),
+                    ])
+
+                mntPoint = tempfile.mkdtemp(prefix='mount-')
                 try:
-                    # creating temporary scratch space
-                    scratchSize = self.estimateScratchSize()
-                    scratchName = "%s-scratch" % self.slaveName
-                    log.info("creating %dM of scratch temporary space (/dev/%s/%s)" % (scratchSize, cfg.lvmVolumeName, scratchName))
+                    # Copy the base image
+                    log.info("Preparing disks for %s", self.slaveName)
+                    logCall("dd if=%s of=%s-base bs=64K"
+                            % (cachedImage, self.imageBase))
 
-                    logCall("lvcreate -n %s -L%dM %s" % (scratchName, scratchSize, cfg.lvmVolumeName))
-                    logCall("mke2fs -m0 /dev/%s/%s" % (cfg.lvmVolumeName, scratchName))
+                    # Format scratch and swap
+                    logCall("mkfs.xfs -fq %s-scratch" % (self.imageBase,))
+                    logCall("mkswap -f %s-swap" % (self.imageBase,))
 
-                    log.info('inserting runtime settings into slave')
-                    logCall('mount %s %s' % (self.imagePath, mntPoint))
+                    log.info("Inserting runtime settings for %s",
+                            self.slaveName)
+                    logCall("mount %s-base %s" % (self.imageBase, mntPoint))
 
-                    # write python SlaveConfig
-                    cfgPath = os.path.join(mntPoint, 'srv', 'jobslave', 'config.d',
-                                          'runtime')
-                    util.mkdirChain(os.path.split(cfgPath)[0])
-                    self.writeSlaveConfig(cfgPath, cfg)
-
-                    # insert jobData into slave
-                    dataPath = os.path.join(mntPoint, 'srv', 'jobslave', 'data')
-                    f = open(dataPath, 'w')
-                    f.write(simplejson.dumps(self.data))
-                    f.close()
+                    self.writeSlaveConfig(os.path.join(mntPoint,
+                        'srv/jobslave/config.d/runtime'), cfg)
+                    createFile(os.path.join(mntPoint, 'srv/jobslave/data'),
+                            simplejson.dumps(self.data))
 
                     # write init script settings
-                    initSettings = os.path.join(mntPoint, 'etc', 'sysconfig',
-                                                'slave_runtime')
-                    util.mkdirChain(os.path.split(initSettings)[0])
-                    f = open(initSettings, 'w')
-
                     # the host IP address is domU IP address + 127 of the last quad
                     quads = [int(x) for x in self.ip.split(".")]
                     masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
-
-                    f.write('MASTER_IP=%s' % masterIP)
-                    f.close()
-                    entitlementsDir = os.path.join(os.path.sep, 'srv',
-                                                   'rbuilder', 'entitlements')
-                    if os.path.exists(entitlementsDir):
-                        util.copytree(entitlementsDir,
-                                      os.path.join(mntPoint, 'srv', 'jobslave'))
+                    createFile(os.path.join(mntPoint,
+                        'etc/sysconfig/slave_runtime'),
+                        'MASTER_IP=%s' % masterIP)
 
                     # set up networking inside domU
-                    ifcfg = os.path.join(mntPoint, 'etc', 'sysconfig', 'network-scripts', 'ifcfg-eth0')
-                    rewriteFile(ifcfg + ".template", ifcfg, dict(masterip = masterIP, ipaddr = self.ip))
+                    ifcfg = os.path.join(mntPoint,
+                            'etc/sysconfig/network-scripts/ifcfg-eth0')
+                    rewriteFile(ifcfg + ".template", ifcfg,
+                            dict(masterip=masterIP, ipaddr=self.ip))
 
-                    resolv = os.path.join(mntPoint, 'etc', 'resolv.conf')
-                    util.copyfile('/etc/resolv.conf', resolv)
+                    util.copyfile('/etc/resolv.conf',
+                            os.path.join(mntPoint, 'etc/resolv.conf'))
 
                     # Intelligently copy /etc/hosts into the jobslave.
                     copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
 
                 finally:
-                    if f:
-                        f.close()
-                    logCall('umount %s' % mntPoint, ignoreErrors = True)
-                    util.rmtree(mntPoint, ignore_errors = True)
+                    logCall('umount %s' % mntPoint, ignoreErrors=True)
+                    util.rmtree(mntPoint, ignore_errors=True)
 
-                log.info('booting slave: %s' % self.slaveName)
+                log.info('booting slave: %s', self.slaveName)
                 logCall('xm create %s' % self.cfgPath)
             except:
                 try:
-                    exc, e, tb = sys.exc_info()
-                    log.error(''.join(traceback.format_tb(tb)))
-                    log.error(e)
+                    log.exception("Error creating jobslave:")
                     try:
                         self.lock.acquire()
                         self.offline = True
                         self.lock.release()
                         self.slaveStatus(slavestatus.OFFLINE)
-                    except Exception, innerException:
-                        # this process must exit regardless of failure to log.
-                        log.error("Error setting slave status to OFFLINE: " + str(innerException))
-                # forcibly exit *now* sys.exit raises a SystemExit exception
+                    except:
+                        log.exception("Error setting jobslave status:")
+
                 finally:
                     os._exit(1)
             else:
                 try:
                     self.slaveStatus(slavestatus.STARTED,
-                            jobId = self.data['UUID'])
+                            jobId=self.data['UUID'])
                 finally:
                     os._exit(0)
         os.waitpid(self.pid, 0)
         self.pid = None
+
 
 class JobMaster(object):
     def __init__(self, cfg):
