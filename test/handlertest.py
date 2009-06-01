@@ -68,17 +68,24 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         genMac = xenmac.genMac
         genIP = xenip.genIP
         waitForSlave = master.waitForSlave
+        exists = os.path.exists
         try:
             master.waitForSlave = lambda *args, **kwargs: None
             xenmac.genMac = lambda: '00:16:3e:00:01:22'
             xenip.genIP = lambda: '10.0.0.1'
+            os.path.exists = lambda path: True
             handler.start()
             handler.stop()
         finally:
             master.waitForSlave = waitForSlave
             xenmac.genMac = genMac
             xenip.genIP = genIP
-        self.failUnlessEqual(self.callLog, ['xm destroy slave22', 'lvremove -f /dev/vg00/slave22-scratch', 'lvremove -f /dev/vg00/slave22-base'])
+            os.path.exists = exists
+        self.failUnlessEqual(self.callLog, ['xm destroy slave22',
+            'lvremove -f /dev/vg00/slave22-base >/dev/null',
+            'lvremove -f /dev/vg00/slave22-scratch >/dev/null',
+            'lvremove -f /dev/vg00/slave22-swap >/dev/null',
+            ])
 
     def testRunHandler(self):
         class SysExit(Exception):
@@ -145,7 +152,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
 
         syscalls = (
                 'dd if=\S+/imageCache/\S+ of=\S+-base',
-                'mkfs.xfs -fq \S+-scratch',
+                'mkfs -t ext2 -F -q -m0 \S+-scratch',
                 'mkswap -f \S+-swap',
                 'mount \S+-base \S+$',
                 'umount \S+$',
@@ -229,8 +236,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         try:
             conaryclient.ConaryClient = MockClient
             res = handler.estimateScratchSize()
-            self.failIf(res != 1264,
-                    "scratch calculation did not match expected value")
+            self.failUnlessEqual(res, 1265)
         finally:
             conaryclient.ConaryClient = ConaryClient
 
@@ -249,6 +255,17 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         res = handler.estimateScratchSize()
         self.failIf(res != 1024,
                 "scratch calculation did not match expected value")
+
+    def testSwapSizeCalc(self):
+        troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
+        handler = master.SlaveHandler(self.jobMaster, troveSpec,
+                jobmaster_helper.kernelData,
+                {'UUID' : 'test.rpath.local-build-55'})
+        #2x memory size until 2GB, then memsize + 2GB
+        self.assertEquals(512 * 1048576, handler.calcSwapSize(256))
+        self.assertEquals(2048 * 1048576, handler.calcSwapSize(1024))
+        self.assertEquals(4096 * 1048576, handler.calcSwapSize(2048))
+        self.assertEquals(6144 * 1048576, handler.calcSwapSize(4096))
 
 
 if __name__ == "__main__":

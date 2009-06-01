@@ -353,13 +353,14 @@ class SlaveHandler(threading.Thread):
         else:
             return minslavesize
 
-    def calcSwapSize(self):
+    def calcSwapSize(self, slaveMemory=None):
         """
         Return the needed amount of swap in bytes.
         """
-        slaveMemory = self.master().cfg.slaveMemory
+        if not slaveMemory:
+            slaveMemory = self.master().cfg.slaveMemory
         # Return 2x up to 2GiB, then x + 2GiB after that
-        return (slaveMemory + max(slaveMemory, 2048)) * 1048576
+        return (slaveMemory + min(slaveMemory, 2048)) * 1048576
 
     def isOnline(self):
         self.lock.acquire()
@@ -376,7 +377,7 @@ class SlaveHandler(threading.Thread):
             try:
                 if self.boot():
                     self.slaveStatus(slavestatus.STARTED,
-                            jobIf=self.data['UUID'])
+                            jobId=self.data['UUID'])
                     rv = 0
                 else:
                     self.lock.acquire()
@@ -391,12 +392,13 @@ class SlaveHandler(threading.Thread):
         self.pid = None
 
     def boot(self):
-        cfg = self.master().cfg
         mounted = []
         mntPoint = None
 
         try:
-        # Generate or retrieve the root image
+            cfg = self.master().cfg
+
+            # Generate or retrieve the root image
             log.info("Getting base image: %s", self.troveSpec)
             cachedImage = self.imageCache().getImage(self.troveSpec,
                 self.kernelData, cfg.debugMode)
@@ -457,7 +459,7 @@ class SlaveHandler(threading.Thread):
         for path in reversed(mounted):
             logCall('umount %s' % path, ignoreErrors=True)
         if mntPoint:
-            os.rmdir(mntPoint)
+            util.rmtree(mntPoint, ignore_errors=True)
 
         if okay:
             log.info('booting slave: %s', self.slaveName)

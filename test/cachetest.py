@@ -149,9 +149,9 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             jobmaster_helper.kernelData)
 
     def testImageSize(self):
-        self.assertEquals(imagecache.roundUpSize(0), 24256512)
-        self.assertEquals(imagecache.roundUpSize(100000), 24256512)
-        self.assertEquals(imagecache.roundUpSize(300 * 1024 * 1024), 386039808)
+        self.assertEquals(imagecache.roundUpSize(0), 96509952)
+        self.assertEquals(imagecache.roundUpSize(100000), 97026048)
+        self.assertEquals(imagecache.roundUpSize(300 * 1024 * 1024), 458293248)
 
     def testCreateBlank(self):
         fd, tmpFile = tempfile.mkstemp()
@@ -262,14 +262,6 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         finally:
             util.rmtree(tmpDir)
 
-    def testSwapSizeCalc(self):
-        tmpDir = tempfile.mkdtemp()
-        imageCache = imagecache.ImageCache(tmpDir, self.cfg)
-        #2x memory size until 2GB, then memsize + 2GB
-        self.assertEquals(512 * 1048576, imageCache.calcSwapSize(256))
-        self.assertEquals(2048 * 1048576, imageCache.calcSwapSize(1024))
-        self.assertEquals(4096 * 1048576, imageCache.calcSwapSize(2048))
-        self.assertEquals(6144 * 1048576, imageCache.calcSwapSize(4096))
 
 if __name__ == "__main__":
     testsuite.main()
