@@ -86,12 +86,15 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
         kw['stdin'] = open('/dev/null')
 
     pipe = captureOutput and subprocess.PIPE or None
-    p = subprocess.Popen(cmd, stdout=pipe, stderr=pipe, **kw)
+    kw.setdefault('stdout', pipe)
+    kw.setdefault('stderr', pipe)
+    p = subprocess.Popen(cmd, **kw)
 
     stdout = stderr = ''
     if captureOutput:
         while p.poll() is None:
-            rList, _, _ = select.select([p.stdout, p.stderr], [], [])
+            rList = [x for x in (p.stdout, p.stderr) if x]
+            rList, _, _ = select.select(rList, [], [])
             for rdPipe in rList:
                 line = rdPipe.readline()
                 if rdPipe is p.stdout:
@@ -100,17 +103,21 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
                 else:
                     which = 'stderr'
                     stderr += line
-                if line.strip():
+                if logCmd and line.strip():
                     logger.info("++ (%s) %s", which, line.rstrip())
 
         # pylint: disable-msg=E1103
         stdout_, stderr_ = p.communicate()
-        stdout += stdout_
-        stderr += stderr_
-        for x in stderr_.splitlines():
-            logger.info("++ (stderr) %s", x)
-        for x in stdout_.splitlines():
-            logger.info("++ (stdout) %s", x)
+        if stderr_ is not None:
+            stderr += stderr_
+            if logCmd:
+                for x in stderr_.splitlines():
+                    logger.info("++ (stderr) %s", x)
+        if stdout_ is not None:
+            stdout += stdout_
+            if logCmd:
+                for x in stdout_.splitlines():
+                    logger.info("++ (stdout) %s", x)
     else:
         p.wait()
 
@@ -177,7 +184,7 @@ def allocateScratch(cfg, name, disks):
                 % (cfg.lvmVolumeName,))
     extent_size, extents_free = ret[0].split()
     assert extent_size.endswith('M')
-    extent_size = 1048576 * int(extent_size[:-1])
+    extent_size = 1048576 * int(float(extent_size[:-1]))
     extents_free = int(extents_free)
 
     extents_required = 0
@@ -192,7 +199,11 @@ def allocateScratch(cfg, name, disks):
         raise OutOfSpaceError("%d extents required but only %d free"
                 % (extents_required, extents_free))
 
-    for suffix, extents in disks:
+    for suffix, extents in to_allocate:
         diskName = '%s-%s' % (name, suffix)
-        logCall(['/usr/bin/lvm', 'lvcreate', '-l', str(extents),
-            '-n', diskName, cfg.lvmVolumeName])
+        logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents),
+            '-n', diskName, cfg.lvmVolumeName], stdout=null())
+
+
+def null():
+    return open('/dev/null', 'w')

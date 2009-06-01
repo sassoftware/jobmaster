@@ -234,14 +234,16 @@ class SlaveHandler(threading.Thread):
                 if e.errno != 3:
                     raise
 
-        log.info("destroying slave")
         logCall('xm destroy %s' % self.slaveName, ignoreErrors = True)
 
         waitForSlave(self.slaveName)
 
-        log.info("destroying scratch space")
-        logCall("lvremove -f /dev/%s/%s-scratch" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
-        logCall("lvremove -f /dev/%s/%s-base" % (self.master().cfg.lvmVolumeName, self.slaveName), ignoreErrors = True)
+        for suffix in ('base', 'scratch', 'swap'):
+            path = '/dev/%s/%s-%s' % (self.master().cfg.lvmVolumeName,
+                    self.slaveName, suffix)
+            if os.path.exists(path):
+                logCall("lvremove -f %s >/dev/null" % (path,),
+                        ignoreErrors=True)
 
         self.slaveStatus(slavestatus.OFFLINE)
         self.join()
@@ -343,7 +345,7 @@ class SlaveHandler(threading.Thread):
         # little harm in overesitmation.
         size *= 4
         blockSize = 1024 * 1024
-        size /= blockSize + ((size % blockSize) and 1 or 0)
+        size = (size + blockSize - 1) / blockSize
 
         minslavesize = self.master().cfg.minSlaveSize
         if size > minslavesize:
@@ -370,88 +372,99 @@ class SlaveHandler(threading.Thread):
         self.pid = os.fork()
         if not self.pid:
             os.setpgid(0, 0)
+            rv = 1
             try:
-                cfg = self.master().cfg
-
-                # Generate or retrieve the root image
-                log.info("Getting base image: %s", self.troveSpec)
-                cachedImage = self.imageCache().getImage(self.troveSpec,
-                    self.kernelData, cfg.debugMode)
-
-                # Calculate needed scratch sizes and allocate space
-                jmutil.allocateScratch(cfg, self.slaveName, [
-                    ('base', os.stat(cachedImage).st_size),
-                    ('scratch', self.estimateScratchSize()),
-                    ('swap', self.calcSwapSize()),
-                    ])
-
-                mntPoint = tempfile.mkdtemp(prefix='mount-')
-                try:
-                    # Copy the base image
-                    log.info("Preparing disks for %s", self.slaveName)
-                    logCall("dd if=%s of=%s-base bs=64K"
-                            % (cachedImage, self.imageBase))
-
-                    # Format scratch and swap
-                    logCall("mkfs.xfs -fq %s-scratch" % (self.imageBase,))
-                    logCall("mkswap -f %s-swap" % (self.imageBase,))
-
-                    log.info("Inserting runtime settings for %s",
-                            self.slaveName)
-                    logCall("mount %s-base %s" % (self.imageBase, mntPoint))
-
-                    self.writeSlaveConfig(os.path.join(mntPoint,
-                        'srv/jobslave/config.d/runtime'), cfg)
-                    createFile(os.path.join(mntPoint, 'srv/jobslave/data'),
-                            simplejson.dumps(self.data))
-
-                    # write init script settings
-                    # the host IP address is domU IP address + 127 of the last quad
-                    quads = [int(x) for x in self.ip.split(".")]
-                    masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
-                    createFile(os.path.join(mntPoint,
-                        'etc/sysconfig/slave_runtime'),
-                        'MASTER_IP=%s' % masterIP)
-
-                    # set up networking inside domU
-                    ifcfg = os.path.join(mntPoint,
-                            'etc/sysconfig/network-scripts/ifcfg-eth0')
-                    rewriteFile(ifcfg + ".template", ifcfg,
-                            dict(masterip=masterIP, ipaddr=self.ip))
-
-                    util.copyfile('/etc/resolv.conf',
-                            os.path.join(mntPoint, 'etc/resolv.conf'))
-
-                    # Intelligently copy /etc/hosts into the jobslave.
-                    copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
-
-                finally:
-                    logCall('umount %s' % mntPoint, ignoreErrors=True)
-                    util.rmtree(mntPoint, ignore_errors=True)
-
-                log.info('booting slave: %s', self.slaveName)
-                logCall('xm create %s' % self.cfgPath)
-            except:
-                try:
-                    log.exception("Error creating jobslave:")
-                    try:
-                        self.lock.acquire()
-                        self.offline = True
-                        self.lock.release()
-                        self.slaveStatus(slavestatus.OFFLINE)
-                    except:
-                        log.exception("Error setting jobslave status:")
-
-                finally:
-                    os._exit(1)
-            else:
-                try:
+                if self.boot():
                     self.slaveStatus(slavestatus.STARTED,
-                            jobId=self.data['UUID'])
-                finally:
-                    os._exit(0)
+                            jobIf=self.data['UUID'])
+                    rv = 0
+                else:
+                    self.lock.acquire()
+                    try:
+                        self.offline = True
+                    finally:
+                        self.lock.release()
+                    self.slaveStatus(slavestatus.OFFLINE)
+            finally:
+                os._exit(rv)
         os.waitpid(self.pid, 0)
         self.pid = None
+
+    def boot(self):
+        cfg = self.master().cfg
+        mounted = []
+        mntPoint = None
+
+        try:
+        # Generate or retrieve the root image
+            log.info("Getting base image: %s", self.troveSpec)
+            cachedImage = self.imageCache().getImage(self.troveSpec,
+                self.kernelData, cfg.debugMode)
+
+            # Calculate needed scratch sizes and allocate space
+            jmutil.allocateScratch(cfg, self.slaveName, [
+                ('base', os.stat(cachedImage).st_size),
+                ('scratch', self.estimateScratchSize() * 1048576),
+                ('swap', self.calcSwapSize()),
+                ])
+
+            # Copy the base image
+            log.info("Preparing disks for %s", self.slaveName)
+            logCall("dd if=%s of=%s-base bs=64K"
+                    % (cachedImage, self.imageBase))
+
+            # Format scratch and swap
+            logCall("mkfs -t ext2 -F -q -m0 %s-scratch" % (self.imageBase,))
+            logCall("mkswap -f %s-swap >/dev/null" % (self.imageBase,))
+
+            log.info("Inserting runtime settings for %s",
+                    self.slaveName)
+            mntPoint = tempfile.mkdtemp(prefix='mount-')
+            logCall("mount %s-base %s" % (self.imageBase, mntPoint))
+            mounted.append(mntPoint)
+
+            self.writeSlaveConfig(os.path.join(mntPoint,
+                'srv/jobslave/config.d/runtime'), cfg)
+            createFile(os.path.join(mntPoint, 'srv/jobslave/data'),
+                    simplejson.dumps(self.data))
+
+            # write init script settings
+            # the host IP address is domU IP address + 127 of the last quad
+            quads = [int(x) for x in self.ip.split(".")]
+            masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
+            createFile(os.path.join(mntPoint,
+                'etc/sysconfig/slave_runtime'),
+                'MASTER_IP=%s' % masterIP)
+
+            # set up networking inside domU
+            ifcfg = os.path.join(mntPoint,
+                    'etc/sysconfig/network-scripts/ifcfg-eth0')
+            rewriteFile(ifcfg + ".template", ifcfg,
+                    dict(masterip=masterIP, ipaddr=self.ip))
+
+            util.copyfile('/etc/resolv.conf',
+                    os.path.join(mntPoint, 'etc/resolv.conf'))
+
+            # Intelligently copy /etc/hosts into the jobslave.
+            copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
+
+        except:
+            log.exception("Error building jobslave:")
+            okay = False
+        else:
+            okay = True
+
+        for path in reversed(mounted):
+            logCall('umount %s' % path, ignoreErrors=True)
+        if mntPoint:
+            os.rmdir(mntPoint)
+
+        if okay:
+            log.info('booting slave: %s', self.slaveName)
+            logCall('xm create %s' % self.cfgPath)
+            return True
+
+        return False
 
 
 class JobMaster(object):
@@ -579,7 +592,12 @@ class JobMaster(object):
 
         # add up the total memory of all domains
         # tradeoff. more complex bash script for far less complex test cases
-        p = os.popen("n = 0; for x in `xm list | grep -v 'Mem(MiB)' | awk '{print $3}'`; do n=$(( $n + $x )); done; echo $n")
+        p = os.popen(
+                "n=0;"
+                "for x in `xm list | tail -n +2 | awk '{print $3}'`; do "
+                    "n=$(( $n + $x ));"
+                "done;"
+                "echo $n")
         domMem = p.read().strip()
         if domMem.isdigit():
             domMem = int(domMem)

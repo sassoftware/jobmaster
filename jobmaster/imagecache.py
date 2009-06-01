@@ -26,11 +26,13 @@ from conary.lib import util
 
 from jobmaster.util import logCall
 
-SWAP_SIZE = 268435456 # 256 MB in bytes
-TAGSCRIPT_GROWTH = 20971520 # 20MB in bytes
-CYLINDERSIZE = 516096
+
+TAGSCRIPT_GROWTH = 80 * 1048576 # 80 MiB
+
+CYLINDERSIZE    = 516096
 SECTORS         = 63
 HEADS           = 16
+
 
 # Increment this if the image generation process changes, so that the hash
 # will change and old cached images will be discarded.
@@ -98,7 +100,7 @@ def fsOddsNEnds(d):
                           'none /dev/shm tmpfs defaults 0 0',
                           'none /proc proc defaults 0 0',
                           'none /sys sysfs defaults 0 0',
-                          '/dev/sdc swap swap defaults 0 0\n')))
+                          '/dev/sdb swap swap defaults 0 0\n')))
 
     util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
                       os.path.join(d, 'boot', 'grub'))
@@ -221,9 +223,6 @@ class ImageCache(object):
             finally:
                 self.stopBuildingImage(hash)
 
-    def calcSwapSize(self, slaveMemory):
-        return (slaveMemory < 2048 and slaveMemory * 2 or slaveMemory + 2048) * 1024 * 1024
-
     def makeImage(self, troveSpec, kernelData, hash):
         logging.info('Building image')
 
@@ -235,9 +234,7 @@ class ImageCache(object):
         spec_n, spec_v, spec_f = cmdline.parseTroveSpec(troveSpec)
         n, v, f = nc.findTrove(None, (spec_n, spec_v, spec_f), ccfg.flavor)[0]
         trv = nc.getTrove(n, v, f, withFiles = False)
-        swapsize = self.calcSwapSize(self.masterCfg.slaveMemory)
-        size = trv.getSize()
-        size = roundUpSize(size, swapsize)
+        size = roundUpSize(trv.getSize())
 
         k_n, k_v, k_f = kernelData['trove']
 
@@ -251,6 +248,7 @@ class ImageCache(object):
         os.close(fd)
         #  mount point
         mntDir = tempfile.mkdtemp(dir = self.tmpPath)
+        mounted = []
 
         # XXX: This can probably go away if modprobe is loaded on startup
         logCall('modprobe loop')
@@ -261,15 +259,18 @@ class ImageCache(object):
             mkBlankFile(filesystem, size)
 
             # run mke2fs on blank image
-            logCall('mkfs -t ext2 -F -L / %s %d' % \
+            logCall('mkfs -t ext2 -F -q -L / %s %d' % \
                           (filesystem, size / 1024))
-            logCall('tune2fs -m 0 -i 0 -c 0 %s' % filesystem)
+            logCall('tune2fs -m 0 -i 0 -c 0 %s >/dev/null' % filesystem)
 
             logCall('mount -o loop %s %s' % (filesystem, mntDir))
+            mounted.append(mntDir)
 
             createTemporaryRoot(mntDir)
             logCall('mount -t proc none %s' % os.path.join(mntDir, 'proc'))
+            mounted.append(os.path.join(mntDir, 'proc'))
             logCall('mount -t sysfs none %s' % os.path.join(mntDir, 'sys'))
+            mounted.append(os.path.join(mntDir, 'sys'))
 
             # Prepare conary client
             cfg = conarycfg.ConaryConfiguration(True)
@@ -292,7 +293,7 @@ class ImageCache(object):
 
             # Create various filesystem pieces
             logging.info('Preparing filesystem')
-            fsOddsNEnds(mntDir, swapsize)
+            fsOddsNEnds(mntDir)
 
             # Assemble tag script and run it
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
@@ -335,12 +336,9 @@ class ImageCache(object):
                 if client:
                     client.close()
                     del job
-                logCall('umount %s' % os.path.join(mntDir, 'proc'))
-                logCall('umount %s' % os.path.join(mntDir, 'sys'))
-                logCall('sync')
-                logCall('umount %s' % mntDir)
-                logCall('sync')
-                util.rmtree(mntDir, ignore_errors = True)
+                for path in reversed(mounted):
+                    logCall('umount %s' % (path,), ignoreErrors=True)
+                os.rmdir(mntDir)
             except:
                 logging.error('Unhandled exception while finalizing '
                     'jobslave:\n' + traceback.format_exc())
