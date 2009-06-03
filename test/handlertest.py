@@ -28,7 +28,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
     def testTroveSpec(self):
         troveSpec = 'group-test=/test.rpath.local@rpl:1/1-1-1[is: x86]'
         handler = master.SlaveHandler(self.jobMaster, troveSpec,
-            jobmaster_helper.kernelData, {})
+                jobmaster_helper.kernelData, {'UUID': 'uuid'})
         self.failIf(troveSpec != handler.troveSpec,
                     "Slave Handler should not alter troveSpec")
 

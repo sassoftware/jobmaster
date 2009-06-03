@@ -30,6 +30,7 @@ from jobmaster.imagecache import createFile
 from jobmaster.util import getRunningKernel
 from jobmaster.util import rewriteFile, logCall, getIP
 
+from mcp import jobstatus
 from mcp import mcp_log
 from mcp import queue
 from mcp import response
@@ -185,6 +186,7 @@ class SlaveHandler(threading.Thread):
         self.master = weakref.ref(master)
         self.slaveName = None
         self.troveSpec = troveSpec
+        self.uuid = data['UUID']
 
         self.jobQueueName = self.getJobQueueName()
         self.lock = threading.RLock()
@@ -211,7 +213,7 @@ class SlaveHandler(threading.Thread):
         self.imageBase = '/dev/%s/%s' % (self.master().cfg.lvmVolumeName,
                 self.slaveName)
         self.ip = xenCfg.ip
-        self.slaveStatus(slavestatus.BUILDING, jobId = self.data['UUID'])
+        self.slaveStatus(slavestatus.BUILDING, jobId=self.uuid)
         fd, self.cfgPath = tempfile.mkstemp( \
             dir = os.path.join(self.master().cfg.basePath, 'tmp'))
         os.close(fd)
@@ -219,7 +221,7 @@ class SlaveHandler(threading.Thread):
         xenCfg.write(f)
         f.close()
         threading.Thread.start(self)
-        log.info('requesting slave %s for job %s', self.slaveName, self.data['UUID'])
+        log.info('requesting slave %s for job %s', self.slaveName, self.uuid)
         return xenCfg.cfg['name']
 
     def stop(self):
@@ -376,8 +378,7 @@ class SlaveHandler(threading.Thread):
             rv = 1
             try:
                 if self.boot():
-                    self.slaveStatus(slavestatus.STARTED,
-                            jobId=self.data['UUID'])
+                    self.slaveStatus(slavestatus.STARTED, jobId=self.uuid)
                     rv = 0
                 else:
                     self.lock.acquire()
@@ -450,6 +451,11 @@ class SlaveHandler(threading.Thread):
             # Intelligently copy /etc/hosts into the jobslave.
             copyHosts(os.path.join(mntPoint, 'etc', 'hosts'), masterIP)
 
+        except jmutil.OutOfSpaceError, error:
+            log.error("Not enough scratch space for job (%d needed, %d free)",
+                    error.required, error.free)
+            self.master().jobStatus(self.uuid, jobstatus.FAILED, str(error))
+            okay = False
         except:
             log.exception("Error building jobslave:")
             okay = False
@@ -784,10 +790,13 @@ class JobMaster(object):
                             (slaves + handlers)])
 
     def slaveStatus(self, slaveName, status, slaveType, jobId):
-        log.info('sending slave status: %s %s %s' % \
-                     (self.cfg.nodeName + ':' + slaveName, status, slaveType))
+        log.debug('sending slave status: %s %s %s',
+                self.cfg.nodeName + ':' + slaveName, status, slaveType)
         self.response.slaveStatus(self.cfg.nodeName + ':' + slaveName,
                                   status, slaveType, jobId)
+
+    def jobStatus(self, jobId, status, statusMessage):
+        self.response.jobStatus(jobId, status, statusMessage)
 
     def getBestProtocol(self, protocols):
         common = PROTOCOL_VERSIONS.intersection(protocols)

@@ -30,7 +30,14 @@ class CommandError(RuntimeError):
 
 
 class OutOfSpaceError(RuntimeError):
-    pass
+    def __init__(self, required, free):
+        self.required = required
+        self.free = free
+        self.args = (required, free)
+
+    def __str__(self):
+        return ("Not enough scratch space for build: %d extents required "
+                "but only %d free" % (self.required, self.free))
 
 
 def rewriteFile(template, target, data):
@@ -196,8 +203,7 @@ def allocateScratch(cfg, name, disks):
         to_allocate.append((suffix, extents))
 
     if extents_required > extents_free:
-        raise OutOfSpaceError("%d extents required but only %d free"
-                % (extents_required, extents_free))
+        raise OutOfSpaceError(extents_required, extents_free)
 
     for suffix, extents in to_allocate:
         diskName = '%s-%s' % (name, suffix)
