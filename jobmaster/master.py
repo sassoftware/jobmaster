@@ -111,6 +111,7 @@ class MasterConfig(client.MCPClientConfig):
     templateCache = os.path.join(basePath, 'anaconda-templates')
     lvmVolumeName = 'vg00'
     debugMode = (cfgtypes.CfgBool, False)
+    allowReducedScratch = (cfgtypes.CfgBool, False)
 
     # This should either be the URI of a rBuilder, or "self" to use the
     # local IP. It must be an rBuilder since the template generation code
@@ -406,9 +407,10 @@ class SlaveHandler(threading.Thread):
 
             # Calculate needed scratch sizes and allocate space
             jmutil.allocateScratch(cfg, self.slaveName, [
-                ('base', os.stat(cachedImage).st_size),
-                ('scratch', self.estimateScratchSize() * 1048576),
-                ('swap', self.calcSwapSize()),
+                ('base', os.stat(cachedImage).st_size, False),
+                ('swap', self.calcSwapSize(), False),
+                ('scratch', self.estimateScratchSize() * 1048576,
+                    cfg.allowReducedScratch),
                 ])
 
             # Copy the base image

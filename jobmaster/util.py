@@ -194,12 +194,22 @@ def allocateScratch(cfg, name, disks):
     extent_size = 1048576 * int(float(extent_size[:-1]))
     extents_free = int(extents_free)
 
-    extents_required = 0
     to_allocate = []
-    for suffix, bytes in disks:
+    extents_required = 0
+    for suffix, bytes, fuzzy in disks:
         # Round up to the nearest extent
         extents = (int(bytes) + extent_size - 1) / extent_size
+
         extents_required += extents
+        if extents_required > extents_free and fuzzy:
+            # Shrink the disk to what's available.
+            shrink = extents_required - extents_free
+            log.warning("Shrinking disk %s-%s from %d to %d extents due to "
+                    "scratch shortage", name, suffix,
+                    extents, extents - shrink)
+            extents -= shrink
+            extents_required -= shrink
+
         to_allocate.append((suffix, extents))
 
     if extents_required > extents_free:
