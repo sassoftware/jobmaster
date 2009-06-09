@@ -225,8 +225,6 @@ class MountRoot(ResourceStack):
                 os.path.join(self.mountPoint, 'tmp')))
             self.append(BindMountResource(self.scratch.mountPoint,
                 os.path.join(self.mountPoint, 'var/tmp')))
-            self.append(BindMountResource('/home/gxti/hg/jobslave-ng/jobslave', os.path.join(self.mountPoint, 'usr/lib64/python2.4/site-packages/jobslave')))
-            self.append(BindMountResource('/home/gxti/hg/jobslave-ng/bin/jobslave', os.path.join(self.mountPoint, 'usr/bin/jobslave')))
 
         except:
             self.close()
