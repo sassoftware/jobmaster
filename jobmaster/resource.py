@@ -22,7 +22,7 @@ import stat
 import subprocess
 import tempfile
 from jobmaster.networking import formatIPv6
-from jobmaster.util import logCall, CommandError
+from jobmaster.util import call, logCall, CommandError
 
 log = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class MountResource(Resource):
         """
         Call C{umount} on close, optionally deleting the mount point.
         """
-        logCall(['/bin/umount', '-fd', self.mountPoint])
+        call(['/bin/umount', '-fdn', self.mountPoint])
         if self.delete:
             os.rmdir(self.mountPoint)
 
@@ -190,7 +190,7 @@ class AutoMountResource(MountResource):
         """
         Mount using the provided options.
         """
-        logCall(['/bin/mount', self.device, self.mountPoint]
+        logCall(['/bin/mount', '-n', self.device, self.mountPoint]
                 + list(self.options))
 
 
@@ -208,13 +208,16 @@ class BindMountResource(AutoMountResource):
         """
         Bind-mount, then remount read-only if requested.
         """
-        logCall(['/bin/mount', '--bind', self.device, self.mountPoint])
+        cmd = ['/bin/mount', '-n', '--bind', self.device, self.mountPoint]
+        logCall(cmd)
         try:
             if self.readOnly:
-                logCall(['/bin/mount', '-o', 'remount,ro',
-                    self.mountPoint])
+                # Bind mounts can be read-only, but it is only effective if you
+                # re-mount.
+                cmd += ['-o', 'remount,ro']
+                logCall(cmd)
         except:
-            logCall(['/bin/umount', '-f', self.mountPoint],
+            call(['/bin/umount', '-fn', self.mountPoint],
                     ignoreErrors=True)
             raise
 
@@ -238,7 +241,7 @@ class LinuxContainerResource(Resource):
 
 class NetworkPairResource(Resource):
     """
-    Resource that sets up and ters down a veth network pair.
+    Resource that sets up and tears down a veth network pair.
     """
 
     def __init__(self, masterName, masterAddr, slaveName):

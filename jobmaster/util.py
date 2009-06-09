@@ -38,7 +38,8 @@ class CommandError(RuntimeError):
                 self.cmd, self.rv)
 
 
-def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
+def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
+        captureOutput=True, **kw):
     """
     Run command C{cmd}, optionally logging the invocation and output.
 
@@ -59,7 +60,7 @@ def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
     @param kw: All other keyword arguments are passed to L{subprocess.Popen}
     @type  kw: C{dict}
     """
-    logger = _getLogger()
+    logger = _getLogger(kw.pop('_levels', 2))
 
     if logCmd:
         if isinstance(cmd, basestring):
@@ -68,7 +69,7 @@ def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
             niceString = ' '.join(repr(x) for x in cmd)
         env = kw.get('env', {})
         env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
-        logger.info("+ %s%s", env, niceString)
+        logger.log(logLevel, "+ %s%s", env, niceString)
 
     kw.setdefault('close_fds', True)
     kw.setdefault('shell', isinstance(cmd, basestring))
@@ -94,7 +95,7 @@ def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
                     which = 'stderr'
                     stderr += line
                 if logCmd and line.strip():
-                    logger.info("++ (%s) %s", which, line.rstrip())
+                    logger.log(logLevel, "++ (%s) %s", which, line.rstrip())
 
         # pylint: disable-msg=E1103
         stdout_, stderr_ = p.communicate()
@@ -102,12 +103,12 @@ def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
             stderr += stderr_
             if logCmd:
                 for x in stderr_.splitlines():
-                    logger.info("++ (stderr) %s", x)
+                    logger.log(logLevel, "++ (stderr) %s", x)
         if stdout_ is not None:
             stdout += stdout_
             if logCmd:
                 for x in stdout_.splitlines():
-                    logger.info("++ (stdout) %s", x)
+                    logger.log(logLevel, "++ (stdout) %s", x)
     else:
         p.wait()
 
@@ -115,7 +116,17 @@ def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
         raise CommandError(cmd, p.returncode, stdout, stderr)
     else:
         return p.returncode, stdout, stderr
-logCall = call
+
+
+def logCall(cmd, **kw):
+    # This function logs by default.
+    kw.setdefault('logCmd', True)
+
+    # _getLogger() will need to go out an extra frame to get the original
+    # caller's module name.
+    kw['_levels'] = 3
+
+    return call(cmd, **kw)
 
 
 def getIP():

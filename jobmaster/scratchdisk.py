@@ -42,7 +42,7 @@ class ScratchDisk(ResourceStack):
         self.append(LVMResource(self.lvPath))
 
         # Format
-        logCall(["/sbin/mkfs.xfs", "-f", self.lvPath])
+        logCall(["/sbin/mkfs.xfs", "-fq", self.lvPath])
 
         # Mount
         mount = AutoMountResource(self.lvPath, options=["-t", "xfs"])
