@@ -16,6 +16,10 @@ log = logging.getLogger(__name__)
 
 
 def _getLogger(levels=2):
+    """
+    Get a logger for the function two stack frames up, e.g. the caller of the
+    function calling this one.
+    """
     caller = sys._getframe(levels)
     name = caller.f_globals['__name__']
     return logging.getLogger(name)
@@ -34,9 +38,9 @@ class CommandError(RuntimeError):
                 self.cmd, self.rv)
 
 
-def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
+def call(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
     """
-    Run command C{cmd}, logging the command run and all its output.
+    Run command C{cmd}, optionally logging the invocation and output.
 
     If C{cmd} is a string, it will be interpreted as a shell command.
     Otherwise, it should be a list where the first item is the program name and
@@ -44,11 +48,14 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
 
     @param cmd: Program or shell command to run.
     @type  cmd: C{basestring or list}
-    @param ignoreErrors: If C{True}, don't raise an exception on a 
-            non-zero return code.
+    @param ignoreErrors: If C{False}, a L{CommandError} will be raised if the
+            program exits with a non-zero return code.
     @type  ignoreErrors: C{bool}
-    @param logCmd: If C{False}, don't log the command invoked.
+    @param logCmd: If C{True}, log the invocation and its output.
     @type  logCmd: C{bool}
+    @param captureOutput: If C{True}, standard output and standard error are
+            captured as strings and returned.
+    @type  captureOutput: C{bool}
     @param kw: All other keyword arguments are passed to L{subprocess.Popen}
     @type  kw: C{dict}
     """
@@ -69,12 +76,15 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
         kw['stdin'] = open('/dev/null')
 
     pipe = captureOutput and subprocess.PIPE or None
-    p = subprocess.Popen(cmd, stdout=pipe, stderr=pipe, **kw)
+    kw.setdefault('stdout', pipe)
+    kw.setdefault('stderr', pipe)
+    p = subprocess.Popen(cmd, **kw)
 
     stdout = stderr = ''
     if captureOutput:
         while p.poll() is None:
-            rList, _, _ = select.select([p.stdout, p.stderr], [], [])
+            rList = [x for x in (p.stdout, p.stderr) if x]
+            rList, _, _ = select.select(rList, [], [])
             for rdPipe in rList:
                 line = rdPipe.readline()
                 if rdPipe is p.stdout:
@@ -83,17 +93,21 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
                 else:
                     which = 'stderr'
                     stderr += line
-                if line.strip():
+                if logCmd and line.strip():
                     logger.info("++ (%s) %s", which, line.rstrip())
 
         # pylint: disable-msg=E1103
         stdout_, stderr_ = p.communicate()
-        stdout += stdout_
-        stderr += stderr_
-        for x in stderr_.splitlines():
-            logger.info("++ (stderr) %s", x)
-        for x in stdout_.splitlines():
-            logger.info("++ (stdout) %s", x)
+        if stderr_ is not None:
+            stderr += stderr_
+            if logCmd:
+                for x in stderr_.splitlines():
+                    logger.info("++ (stderr) %s", x)
+        if stdout_ is not None:
+            stdout += stdout_
+            if logCmd:
+                for x in stdout_.splitlines():
+                    logger.info("++ (stdout) %s", x)
     else:
         p.wait()
 
@@ -101,6 +115,8 @@ def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
         raise CommandError(cmd, p.returncode, stdout, stderr)
     else:
         return p.returncode, stdout, stderr
+logCall = call
+
 
 def getIP():
     p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
