@@ -258,7 +258,7 @@ class NetworkPairResource(Resource):
 
     def _close(self):
             try:
-                logCall(['/sbin/ip', 'link', 'del', self.masterName])
+                call(['/sbin/ip', 'link', 'del', self.masterName])
             except CommandError:
                 # Checking first is racy, so check afterwards and only raise
                 # if it's still present
