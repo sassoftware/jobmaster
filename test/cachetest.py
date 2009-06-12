@@ -21,12 +21,6 @@ from conary.lib import util
 from jobmaster import imagecache
 
 class CacheTest(jobmaster_helper.JobMasterHelper):
-    def testImagePath(self):
-        path = self.jobMaster.imageCache.imagePath('notreal',
-            jobmaster_helper.kernelData)
-        self.assertEquals(path, os.path.join(self.cfg.basePath, 'imageCache',
-            'b5038b0c970a6ec56a316b6b3d1a1035'))
-
     def testGetExistingImage(self):
         troveSpec = 'existingImage'
         path = self.jobMaster.imageCache.imagePath(troveSpec,
@@ -171,12 +165,12 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testCreateFile(self):
         tmpDir = tempfile.mkdtemp()
         try:
-            filePath = os.path.join(tmpDir, 'test', 'path', 'file.txt')
-
+            filePath = 'test/path/file.txt'
             contents = 'test'
-            imagecache.createFile(filePath, contents)
 
-            f = open(filePath)
+            imagecache.createFile(tmpDir, filePath, contents)
+
+            f = open(os.path.join(tmpDir, filePath))
             assert f.read() == contents
             f.close()
         finally:
@@ -209,7 +203,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testFsOddsNEnds(self):
         tmpDir = tempfile.mkdtemp()
         try:
-            imagecache.fsOddsNEnds(tmpDir)
+            imagecache.preScript(tmpDir)
             self.failUnlessEqual(
                 set(os.listdir(tmpDir)),
                 set(['boot', 'etc', 'var']))
