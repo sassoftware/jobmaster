@@ -8,7 +8,6 @@
 import os, sys
 import inspect
 import logging
-log = logging
 import math
 import simplejson
 import tempfile
@@ -43,6 +42,8 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.deps import deps
 from conary import versions
+
+log = logging.getLogger(__name__)
 
 CONFIG_PATH = os.path.join(os.path.sep, 'srv', 'rbuilder', 'jobmaster',
                            'config.d', 'runtime')
@@ -378,16 +379,19 @@ class SlaveHandler(threading.Thread):
             os.setpgid(0, 0)
             rv = 1
             try:
-                if self.boot():
-                    self.slaveStatus(slavestatus.STARTED, jobId=self.uuid)
-                    rv = 0
-                else:
-                    self.lock.acquire()
-                    try:
-                        self.offline = True
-                    finally:
-                        self.lock.release()
-                    self.slaveStatus(slavestatus.OFFLINE)
+                try:
+                    if self.boot():
+                        self.slaveStatus(slavestatus.STARTED, jobId=self.uuid)
+                        rv = 0
+                    else:
+                        self.lock.acquire()
+                        try:
+                            self.offline = True
+                        finally:
+                            self.lock.release()
+                        self.slaveStatus(slavestatus.OFFLINE)
+                except:
+                    log.exception("Error handling job:")
             finally:
                 os._exit(rv)
         os.waitpid(self.pid, 0)
@@ -430,15 +434,14 @@ class SlaveHandler(threading.Thread):
 
             self.writeSlaveConfig(os.path.join(mntPoint,
                 'srv/jobslave/config.d/runtime'), cfg)
-            createFile(os.path.join(mntPoint, 'srv/jobslave/data'),
+            createFile(mntPoint, 'srv/jobslave/data',
                     simplejson.dumps(self.data))
 
             # write init script settings
             # the host IP address is domU IP address + 127 of the last quad
             quads = [int(x) for x in self.ip.split(".")]
             masterIP = ".".join(str(x) for x in quads[:3] + [(quads[3]+127) % 256])
-            createFile(os.path.join(mntPoint,
-                'etc/sysconfig/slave_runtime'),
+            createFile(mntPoint, 'etc/sysconfig/slave_runtime',
                 'MASTER_IP=%s' % masterIP)
 
             # set up networking inside domU

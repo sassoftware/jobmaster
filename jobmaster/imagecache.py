@@ -36,7 +36,7 @@ HEADS           = 16
 
 # Increment this if the image generation process changes, so that the hash
 # will change and old cached images will be discarded.
-IMAGE_SERIAL = 2
+IMAGE_SERIAL = 3
 
 
 def roundUpSize(size):
@@ -58,12 +58,14 @@ def mkBlankFile(fn, size, sparse = True):
         f.write((size % 512) * chr(0))
 
 
-def createFile(fn, contents):
+def createFile(root, path, contents):
+    fn = os.path.join(root, path)
     util.mkdirChain(os.path.dirname(fn))
     open(fn, 'w').write(contents)
 
 
-def appendFile(fn, contents):
+def appendFile(root, path, contents):
+    fn = os.path.join(root, path)
     util.mkdirChain(os.path.dirname(fn))
     open(fn, 'a').write(contents)
 
@@ -91,63 +93,75 @@ def createTemporaryRoot(fakeRoot):
               'boot/grub', 'tmp', 'proc', 'sys', 'root', 'var'):
         util.mkdirChain(os.path.join(fakeRoot, d))
 
-def fsOddsNEnds(d):
+def preScript(d):
     # NB: /tmp is mounted by the jobslave initscript, so the scratch disk
     # will always be /dev/xvda2 .
-    createFile(os.path.join(d, 'etc', 'fstab'),
+    createFile(d, 'etc/fstab',
                '\n'.join(('/dev/xvda1 / ext3 defaults 1 1',
                           'none /dev/pts devpts gid=5,mode=620 0 0',
                           'none /dev/shm tmpfs defaults 0 0',
                           'none /proc proc defaults 0 0',
                           'none /sys sysfs defaults 0 0',
-                          '/dev/sdb swap swap defaults 0 0\n')))
+                          '')))
 
     util.copytree(os.path.join(d, 'usr', 'share', 'grub', '*', '*'), \
                       os.path.join(d, 'boot', 'grub'))
 
     #copy the files needed by grub and set up the links
-    grubContents = \
+    createFile(d, 'boot/grub/grub.conf',
         '\n'.join(('default=0',
                    'timeout=0',
                    'title rBuilder Job Slave (template)',
                    '    root (hd0,0)',
                    '    kernel /boot/vmlinuz-template ro root=LABEL=/ quiet',
-                   '    initrd /boot/initrd-template.img\n'))
-    createFile(os.path.join(d, 'boot', 'grub', 'grub.conf'), grubContents)
+                   '    initrd /boot/initrd-template.img\n')))
     os.symlink('grub.conf', os.path.join(d, 'boot', 'grub', 'menu.1st'))
 
     #Add the other miscellaneous files needed
-    createFile(os.path.join(d, 'etc', 'hosts'),
+    createFile(d, 'etc/hosts',
                '127.0.0.1       localhost.localdomain   localhost\n')
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'network'),
+    createFile(d, 'etc/sysconfig/network',
                '\n'.join(('NETWORKING=yes',
                           'HOSTNAME=localhost.localdomain\n')))
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'network-scripts',
-                            'ifcfg-eth0.template'),
+    createFile(d, 'etc/sysconfig/network-scripts/ifcfg-eth0.template',
                '\n'.join(('DEVICE=eth0',
                           'BOOTPROTO=static',
                           'IPADDR=%(ipaddr)s',
                           'GATEWAY=%(masterip)s',
                           'ONBOOT=yes',
                           'TYPE=Ethernet\n')))
-    createFile(os.path.join(d, 'etc', 'sysconfig', 'keyboard'),
+    createFile(d, 'etc/sysconfig/keyboard',
                '\n'.join(('KEYBOARDTYPE="pc"',
                           'KEYTABLE="us"\n')))
     writeConaryRc(d)
 
     # Set up a TTY on xvc0 as a debugging aid
-    appendFile(os.path.join(d, 'etc', 'inittab'),
-        'xvc:2345:respawn:/sbin/mingetty xvc0\n')
-    appendFile(os.path.join(d, 'etc', 'securetty'), 'xvc0\n')
+    appendFile(d, 'etc/inittab', 'xvc:2345:respawn:/sbin/mingetty xvc0\n')
+    appendFile(d, 'etc/securetty', 'xvc0\n')
 
     # Turn TX checksum offloading off (for TCP & UDP)
-    appendFile(os.path.join(d, 'etc', 'rc.local'),
-        'ethtool -K eth0 tx off')
+    appendFile(d, 'etc/rc.local', 'ethtool -K eth0 tx off')
 
     # symlink /var/tmp -> /tmp to avoid running out of space on / (RBL-4202)
     util.mkdirChain(os.path.join(d, 'var'))
     util.rmtree(os.path.join(d, 'var/tmp'), ignore_errors=True)
     os.symlink('../tmp', os.path.join(d, 'var/tmp'))
+
+
+def postScript(d):
+    # authconfig can whack the domainname in certain circumstances
+    oldDomainname = os.popen('domainname').read().strip() # save old domainname
+    logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % d)
+    # Only restore the domain if it was set in the first place.
+    if oldDomainname != "" and oldDomainname != "(none)":
+        logCall("domainname %s" % oldDomainname)
+
+    logCall("chroot %s /usr/sbin/usermod -p '' root" % d)
+    logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(d, 'boot', 'grub', 'grub.conf'))
+
+    # Add swap to fstab after tag scripts, as libatamigrate seems to mess it
+    # up if we do it earlier.
+    appendFile(d, 'etc/fstab', '/dev/sdb swap swap defaults 0 0\n')
 
 
 def signalHandler(*args, **kwargs):
@@ -293,7 +307,7 @@ class ImageCache(object):
 
             # Create various filesystem pieces
             logging.info('Preparing filesystem')
-            fsOddsNEnds(mntDir)
+            preScript(mntDir)
 
             # Assemble tag script and run it
             outScript = os.path.join(mntDir, 'root', 'conary-tag-script')
@@ -317,18 +331,7 @@ class ImageCache(object):
             util.execute("chroot %s bash -c 'sh -x %s > %s 2>&1'" % (
                     mntDir, outScriptInRoot, outScriptOutput))
 
-            # the preload wrapper isn't working yet, work around until we know why
-            #safeEnv = {"LD_PRELOAD": "/usr/lib/jobmaster/chrootsafe_wrapper.so"}
-
-            # authconfig can whack the domainname in certain circumstances
-            oldDomainname = os.popen('domainname').read().strip() # save old domainname
-            logCall("chroot %s /usr/sbin/authconfig --kickstart --enablemd5 --enableshadow --disablecache" % mntDir)
-            # Only restore the domain if it was set in the first place.
-            if oldDomainname != "" and oldDomainname != "(none)":
-                logCall("domainname %s" % oldDomainname)
-
-            logCall("chroot %s /usr/sbin/usermod -p '' root" % mntDir)
-            logCall('grubby --remove-kernel=/boot/vmlinuz-template --config-file=%s' % os.path.join(mntDir, 'boot', 'grub', 'grub.conf'))
+            postScript(mntDir)
 
             logging.info('Image built')
         finally:

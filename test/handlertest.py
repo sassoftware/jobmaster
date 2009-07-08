@@ -11,6 +11,7 @@ testsuite.setup()
 import jobmaster_helper
 
 import glob
+import logging
 import os, sys
 import re
 import time
@@ -116,6 +117,19 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         handler.ip = '10.0.0.1'
         waitForSlave = master.waitForSlave
 
+        class TestLogHandler(logging.Handler):
+            def __init__(self):
+                logging.Handler.__init__(self)
+                self.recorded = []
+
+            def emit(self, record):
+                self.recorded.append(record)
+
+        rootLogger = logging.getLogger()
+        oldHandlers = rootLogger.handlers
+        catcher = TestLogHandler()
+        rootLogger.handlers = [catcher]
+
         makeImage = imagecache.ImageCache.makeImage
         genMac = xenmac.genMac
         genIP = xenip.genIP
@@ -124,20 +138,30 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         exit = os._exit
         alloc = jmutil.allocateScratch
         try:
-            master.waitForSlave = lambda *args, **kwargs: None
-            imagecache. ImageCache.makeImage = dummyMakeImage
-            os.fork = lambda: 0
-            os.setsid = lambda: None
-            xenmac.genMac = lambda: '00:16:3e:00:01:66'
-            xenip.genIP = lambda: '10.0.0.1'
-            os._exit = dummyExit
-            jmutil.allocateScratch = lambda *args, **kwargs: None
-            handler.estimateScratchSize = lambda *args, **kwargs: 10240
             try:
-                handler.run()
-            except SysExit, e:
-                self.failIf(e.exitCode != 0,
-                            "Run exited abnormally: exit code %d" % e.exitCode)
+                master.waitForSlave = lambda *args, **kwargs: None
+                imagecache. ImageCache.makeImage = dummyMakeImage
+                os.fork = lambda: 0
+                os.setsid = lambda: None
+                xenmac.genMac = lambda: '00:16:3e:00:01:66'
+                xenip.genIP = lambda: '10.0.0.1'
+                os._exit = dummyExit
+                jmutil.allocateScratch = lambda *args, **kwargs: None
+                handler.estimateScratchSize = lambda *args, **kwargs: 10240
+                try:
+                    handler.run()
+                except SysExit, e:
+                    self.failIf(e.exitCode != 0,
+                                "Run exited abnormally: exit code %d" % e.exitCode)
+            except:
+                print >> sys.stderr
+                print >> sys.stderr, "Recorded log messages:"
+                printer = logging.StreamHandler()
+                printer.setFormatter(logging.Formatter(
+                    '%(asctime)s %(levelname)s %(name)s %(message)s'))
+                for record in catcher.recorded:
+                    printer.emit(record)
+                raise
         finally:
             master.waitForSlave = waitForSlave
             imagecache.ImageCache.makeImage = makeImage
@@ -147,6 +171,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             os.setsid = setsid
             os._exit = exit
             jmutil.allocateScratch = alloc
+            rootLogger.handlers = oldHandlers
 
             util.rmtree(temp, ignore_errors=True)
 
