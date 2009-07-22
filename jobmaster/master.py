@@ -201,6 +201,9 @@ class SlaveHandler(threading.Thread):
         self.master().slaveStatus(self.slaveName, status,
                                   self.jobQueueName.replace('job', ''), jobId)
 
+    def jobStatus(self, status, message):
+        self.master().jobStatus(self.uuid, status, message)
+
     def start(self):
         xenCfg = xencfg.XenCfg(
                 '/dev/%s' % (self.master().cfg.lvmVolumeName),
@@ -406,8 +409,19 @@ class SlaveHandler(threading.Thread):
 
             # Generate or retrieve the root image
             log.info("Getting base image: %s", self.troveSpec)
-            cachedImage = self.imageCache().getImage(self.troveSpec,
-                self.kernelData, cfg.debugMode)
+            def _statusHook(status):
+                self.jobStatus(jobstatus.WAITING,
+                        "Preparing build environment: %s" % (status,))
+
+            try:
+                cachedImage = self.imageCache().getImage(self.troveSpec,
+                        self.kernelData, cfg.debugMode, _statusHook)
+            except:
+                self.jobStatus(jobstatus.FAILED,
+                        "Failed to prepare build environment")
+                raise
+
+            self.jobStatus(jobstatus.WAITING, "Launching build environment")
 
             # Calculate needed scratch sizes and allocate space
             jmutil.allocateScratch(cfg, self.slaveName, [
@@ -459,7 +473,7 @@ class SlaveHandler(threading.Thread):
         except jmutil.OutOfSpaceError, error:
             log.error("Not enough scratch space for job (%d needed, %d free)",
                     error.required, error.free)
-            self.master().jobStatus(self.uuid, jobstatus.FAILED, str(error))
+            self.jobStatus(jobstatus.FAILED, str(error))
             okay = False
         except:
             log.exception("Error building jobslave:")
@@ -843,7 +857,6 @@ class JobMaster(object):
     @controlMethod
     @protocols((1,))
     def status(self):
-        log.info('status requested')
         self.sendStatus()
 
     @controlMethod

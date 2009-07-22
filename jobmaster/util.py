@@ -4,11 +4,13 @@
 # All rights reserved
 #
 
-import os
+import errno
 import logging
+import os
 import select
 import subprocess
 import sys
+import tempfile
 
 from conary import conarycfg, conaryclient
 
@@ -219,6 +221,53 @@ def allocateScratch(cfg, name, disks):
         diskName = '%s-%s' % (name, suffix)
         logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents),
             '-n', diskName, cfg.lvmVolumeName], stdout=null())
+
+
+class AtomicFile(object):
+    """
+    Open a temporary file adjacent to C{path} for writing. When
+    C{f.commit()} is called, the temporary file will be flushed and
+    renamed on top of C{path}, constituting an atomic file write.
+    """
+
+    fObj = None
+
+    def __init__(self, path, mode='w+b', chmod=0644):
+        self.finalPath = os.path.realpath(path)
+        self.finalMode = chmod
+
+        fDesc, self.name = tempfile.mkstemp(dir=os.path.dirname(self.finalPath))
+        self.fObj = os.fdopen(fDesc, mode)
+
+    def __getattr__(self, name):
+        return getattr(self.fObj, name)
+
+    def commit(self):
+        """
+        C{flush()}, C{chmod()}, and C{rename()} to the target path.
+        C{close()} afterwards.
+        """
+        if self.fObj.closed:
+            raise RuntimeError("Can't commit a closed file")
+
+        # Flush and change permissions before renaming so the contents
+        # are immediately present and accessible.
+        self.fObj.flush()
+        os.chmod(self.name, self.finalMode)
+        os.fsync(self.fObj)
+
+        # Rename to the new location. Since both are on the same
+        # filesystem, this will atomically replace the old with the new.
+        os.rename(self.name, self.finalPath)
+
+        # Now close the file.
+        self.fObj.close()
+
+    def close(self):
+        if self.fObj and not self.fObj.closed:
+            os.unlink(self.name)
+            self.fObj.close()
+    __del__ = close
 
 
 def null():

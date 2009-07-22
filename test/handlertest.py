@@ -103,7 +103,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                 jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-55'})
 
-        def dummyMakeImage(self, troveSpec, kernelData, hash):
+        def dummyMakeImage(self, troveSpec, kernelData, hash, hook):
             filePath = os.path.join(handler.imageCache().cachePath, hash)
             f = open(filePath, 'w')
             f.write('')

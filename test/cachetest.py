@@ -60,7 +60,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
         kernelData = dict(jobmaster_helper.kernelData)
         kernelData['trove'] = ('another:trove', None, None)
 
-        def stubMakeImage(troveSpec, kernelData, hash):
+        def stubMakeImage(troveSpec, kernelData, hash, hook):
             return 'success!'
 
         origMakeImage = self.jobMaster.imageCache.makeImage
@@ -76,7 +76,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
     def testMissingImage(self):
         troveSpec = 'nonExistentImage'
 
-        def stubMakeImage(troveSpec, kernelData, hash):
+        def stubMakeImage(troveSpec, kernelData, hash, hook):
             return 'makeImage was called successfully'
 
         origMakeImage = self.jobMaster.imageCache.makeImage
@@ -95,7 +95,7 @@ class CacheTest(jobmaster_helper.JobMasterHelper):
             jobmaster_helper.kernelData) + '.lock'
         util.mkdirChain(lockDir)
 
-        def stubMakeImage(troveSpec, kernelData, hash):
+        def stubMakeImage(troveSpec, kernelData, hash, hook):
             return 'makeImage was called successfully'
 
         def dummySleep(*args, **kwargs):

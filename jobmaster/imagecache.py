@@ -24,7 +24,7 @@ from conary import conaryclient
 from conary.conaryclient import cmdline
 from conary.lib import util
 
-from jobmaster.util import logCall
+from jobmaster.util import AtomicFile, logCall
 
 
 TAGSCRIPT_GROWTH = 80 * 1048576 # 80 MiB
@@ -176,15 +176,22 @@ class ImageCache(object):
 
         self.tmpPath = os.path.join(os.path.split(cachePath)[0], 'tmp')
 
-    def startBuildingImage(self, hash, output = True):
+    def startBuildingImage(self, hash, output=True, statusHook=None):
         # this function is designed to block if an image is being built already
         lockPath = os.path.join(self.cachePath, hash + '.lock')
         done = False
+        lastStatus = None
+        statusPath = os.path.join(self.cachePath, hash + '.status')
         while not done:
             while os.path.exists(lockPath):
                 if output:
                     logging.info('Waiting for building lock: %s' % lockPath)
                     output = False
+                if statusHook and os.path.exists(statusPath):
+                    status = open(statusPath).read().strip()
+                    if status != lastStatus:
+                        statusHook(status)
+                        lastStatus = status
                 time.sleep(1)
             try:
                 os.mkdir(lockPath)
@@ -218,7 +225,8 @@ class ImageCache(object):
             self.imageHash(troveSpec, kernelData))
         return imageFile
 
-    def getImage(self, troveSpec, kernelData, debugMode=False):
+    def getImage(self, troveSpec, kernelData, debugMode=False,
+            statusHook=None):
         hash = self.imageHash(troveSpec, kernelData)
         imageFile = self.imagePath(troveSpec, kernelData)
         if os.path.exists(imageFile):
@@ -229,16 +237,24 @@ class ImageCache(object):
                     troveSpec)
             signal.signal(signal.SIGTERM, signalHandler)
             signal.signal(signal.SIGINT, signalHandler)
-            self.startBuildingImage(hash)
+            self.startBuildingImage(hash, statusHook=statusHook)
             try:
                 if os.path.exists(imageFile):
                     return imageFile
-                return self.makeImage(troveSpec, kernelData, hash)
+                return self.makeImage(troveSpec, kernelData, hash, statusHook)
             finally:
                 self.stopBuildingImage(hash)
 
-    def makeImage(self, troveSpec, kernelData, hash):
+    def makeImage(self, troveSpec, kernelData, hash, statusHook=None):
         logging.info('Building image')
+
+        statusPath = os.path.join(self.cachePath, hash + '.status')
+        def sendStatus(msg):
+            if statusHook:
+                statusHook(msg)
+            fObj = AtomicFile(statusPath)
+            fObj.write(msg)
+            fObj.commit()
 
         ccfg = conarycfg.ConaryConfiguration(True)
         cc = conaryclient.ConaryClient(ccfg)
@@ -293,11 +309,12 @@ class ImageCache(object):
                 cfg.conaryProxy['https'] = self.masterCfg.conaryProxy
             cfg.root = mntDir
             client = conaryclient.ConaryClient(cfg)
-            client.setUpdateCallback(UpdateCallback())
+            client.setUpdateCallback(UpdateCallback(sendStatus))
 
             # Install jobslave root and kernel
             job = client.newUpdateJob()
             logging.info('Preparing update job')
+            sendStatus("preparing to install")
             client.prepareUpdateJob(job, (
                 (n,   (None, None), (v,   f),    True), # root
                 (k_n, (None, None), (k_v, k_f),  True), # kernel
@@ -307,6 +324,7 @@ class ImageCache(object):
 
             # Create various filesystem pieces
             logging.info('Preparing filesystem')
+            sendStatus("finalizing")
             preScript(mntDir)
 
             # Assemble tag script and run it
@@ -346,9 +364,14 @@ class ImageCache(object):
                 logging.error('Unhandled exception while finalizing '
                     'jobslave:\n' + traceback.format_exc())
         shutil.move(filesystem, os.path.join(self.cachePath, hash))
+        os.unlink(statusPath)
         return os.path.join(self.cachePath, hash)
 
 class UpdateCallback(callbacks.UpdateCallback):
+    def __init__(self, status):
+        callbacks.UpdateCallback.__init__(self)
+        self.status = status
+
     def eatMe(self, *P, **K):
         pass
 
@@ -356,3 +379,5 @@ class UpdateCallback(callbacks.UpdateCallback):
 
     def setUpdateHunk(self, hunk, total):
         logging.info('Applying %d of %d', hunk, total)
+        percent = 100 * (hunk - 1) / total
+        self.status("installing (%02d%%)" % (percent,))
