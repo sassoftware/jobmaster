@@ -1,4 +1,4 @@
-#!/usr/bin/python2.4
+#!/usr/bin/python
 # -*- mode: python -*-
 #
 # Copyright (c) 2004-2006 rPath, Inc.
@@ -18,8 +18,6 @@ import time
 import types
 import unittest
 import __builtin__
-
-testPath = None
 
 #from pychecker import checker
 
@@ -50,37 +48,20 @@ def filteredCall(self, *args, **kwargs):
     else:
         self.handleError(result)
 
-conaryDir = None
 _setupPath = None
 def setup():
     global _setupPath
     if _setupPath:
         return _setupPath
-    global testPath
 
-    if not os.environ.has_key('MCP_PATH'):
-        print "please set MCP_PATH"
-        sys.exit(1)
-    if not os.environ.has_key('CONARY_PATH'):
-        print "please set CONARY_PATH"
-        sys.exit(1)
-
-    conaryPath      = os.getenv('CONARY_PATH')
-    conaryTestPath  = os.getenv('CONARY_TEST_PATH',     os.path.join(conaryPath, '..', 'conary-test'))
-    mcpPath         = os.getenv('MCP_PATH',             '../../mcp')
-    jobmasterPath   = os.getenv('JOB_MASTER_PATH',      '..')
-    jmTestPath      = os.getenv('JOB_MASTER_TEST_PATH', '.')
-
-    sys.path = [os.path.realpath(x) for x in (jobmasterPath, jmTestPath, mcpPath, conaryPath, conaryTestPath)] + sys.path
-    os.environ.update(dict(CONARY_PATH=conaryPath, CONARY_TEST_PATH=conaryTestPath,
-        MCP_PATH=mcpPath, JOB_MASTER_PATH=jobmasterPath, JOB_MASTER_TEST_PATH=jmTestPath,
-        PYTHONPATH=(':'.join(sys.path))))
-
-    from testrunner import testhelp
-    testPath = testhelp.getTestPath()
-
-    global conaryDir
-    conaryDir = os.environ['CONARY_PATH']
+    from testrunner import pathManager
+    mcpPath = pathManager.addExecPath('MCP_PATH')
+    conaryPath = pathManager.addExecPath('CONARY_PATH')
+    conaryTestPath = pathManager.addExecPath('CONARY_TEST_PATH')
+    jobmasterPath = pathManager.addExecPath('JOB_MASTER_PATH')
+    jmTestPath = pathManager.addExecPath('JOB_MASTER_TEST_PATH')
+    pathManager.addResourcePath('TEST_PATH',path=jmTestPath)
+    stompPath = pathManager.addExecPath('STOMP_PATH')
 
     from conary.lib import util
     sys.excepthook = util.genExcepthook(True)
@@ -101,11 +82,10 @@ def setup():
     stomp.Connection = jobmaster_helper.DummyConnection
     #end MCP specific tweaks
 
-    _setupPath = testPath
-    return testPath
+    _setupPath = jmTestPath
+    return jmTestPath
 
 _individual = False
-
 def isIndividual():
     global _individual
     return _individual
@@ -128,18 +108,16 @@ def main(argv=None, individual=True):
     global _handler
     global _individual
     _individual = individual
+
+    from testrunner import pathManager
+    handler = rBuilderTestSuiteHandler(individual=individual, topdir=pathManager.getPath('JOB_MASTER_TEST_PATH'), 
+                                       testPath=pathManager.getPath('JOB_MASTER_TEST_PATH'), 
+                                       conaryDir=pathManager.getPath('CONARY_PATH')
+                                       )
+    _handler = handler
+
     if argv is None:
         argv = list(sys.argv)
-    topdir = testhelp.getTestPath()
-    cwd = os.getcwd()
-    if topdir not in sys.path:
-        sys.path.insert(0, topdir)
-    if cwd != topdir and cwd not in sys.path:
-        sys.path.insert(0, cwd)
-
-    handler = rBuilderTestSuiteHandler(individual=individual, topdir=topdir,
-                                       testPath=testPath, conaryDir=conaryDir)
-    _handler = handler
     results = handler.main(argv)
     return (not results.wasSuccessful())
 
