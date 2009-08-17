@@ -14,9 +14,7 @@ from testrunner import testhelp
 def setup():
     pathManager.addExecPath('MCP_PATH')
     pathManager.addExecPath('CONARY_PATH')
-    pathManager.addExecPath('CONARY_TEST_PATH')
     pathManager.addExecPath('JOB_MASTER_PATH', isTestRoot=True)
-    pathManager.addExecPath('STOMP_PATH')
 
     from conary.lib import util
     sys.excepthook = util.genExcepthook(True)
@@ -58,7 +56,8 @@ def main(argv=None):
     if argv is None:
         argv = list(sys.argv)
     results = handler.main(argv)
-    return (not results.wasSuccessful())
+    return results.getExitCode()
+
 
 if __name__ == '__main__':
     setup()
