@@ -43,6 +43,10 @@ class TemplateServerTest(testsuite.TestCase):
             def accept(x):
                 self.started = True
                 raise socket.timeout
+            def gettimeout(self):
+                return 100.0
+            def fileno(self):
+                return 1
         self.srv.socket = FakeSocket()
         self.srv.start()
         started = False
@@ -58,6 +62,11 @@ class TemplateServerTest(testsuite.TestCase):
             def accept(*args, **kwargs):
                 self.srv.running = False
                 raise socket.timeout
+            def gettimeout(self):
+                return 100.0
+            def fileno(self):
+                return 1
+
         self.srv.socket = FakeSocket()
         self.srv.run()
 
@@ -66,6 +75,11 @@ class TemplateServerTest(testsuite.TestCase):
             def __init__(x, *args, **kwargs):
                 exc = socket.error(101)
                 raise exc
+            def gettimeout(self):
+                return 100.0
+            def fileno(self):
+                return 1
+
         TemplateServer = templateserver.TemplateServer
         try:
             templateserver.TemplateServer = FakeServer
@@ -92,6 +106,10 @@ class TemplateServerTest(testsuite.TestCase):
             def accept(*args, **kwargs):
                 self.srv.running = False
                 raise socket.timeout
+            def gettimeout(self):
+                return 100.0
+            def fileno(self):
+                return 1
 
         _listdir = os.listdir
         _unlink = os.unlink
