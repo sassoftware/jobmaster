@@ -267,7 +267,9 @@ class SlaveHandler(threading.Thread):
                 break
         return 'job%s:%s' % (jsVersion, arch)
 
-    def writeSlaveConfig(self, cfgPath, cfg):
+    def writeSlaveConfig(self, mntPoint):
+        cfg = self.master().cfg
+        cfgPath = os.path.join(mntPoint, 'srv/jobslave/config.d/runtime')
         util.mkdirChain(os.path.dirname(cfgPath))
         f = open(cfgPath, 'w')
 
@@ -283,8 +285,11 @@ class SlaveHandler(threading.Thread):
         f.write('jobQueueName %s\n' % self.jobQueueName)
         if cfg.conaryProxy:
             f.write('conaryProxy %s\n' % cfg.conaryProxy)
+            self.data['outputUrl'] = cfg.conaryProxy
         f.write('debugMode %s\n' % str(cfg.debugMode))
         f.close()
+
+        createFile(mntPoint, 'srv/jobslave/data', simplejson.dumps(self.data))
 
     def getTroveSize(self):
         protocolVersion = self.data.get('protocolVersion')
@@ -293,8 +298,12 @@ class SlaveHandler(threading.Thread):
 
         if self.data['type'] == 'build':
             # parse the configuration passed in from the job
-            ccfg = conarycfg.ConaryConfiguration()
-            [ccfg.configLine(x) for x in self.data['project']['conaryCfg'].split("\n")]
+            ccfg = conarycfg.ConaryConfiguration(False)
+            for line in self.data['project']['conaryCfg'].splitlines():
+                ccfg.configLine(line)
+            masterCfg = self.master().cfg
+            ccfg.conaryProxy['http']  = masterCfg.conaryProxy
+            ccfg.conaryProxy['https'] = masterCfg.conaryProxy
 
             cc = conaryclient.ConaryClient(ccfg)
             repos = cc.getRepos()
@@ -446,10 +455,7 @@ class SlaveHandler(threading.Thread):
             logCall("mount %s-base %s" % (self.imageBase, mntPoint))
             mounted.append(mntPoint)
 
-            self.writeSlaveConfig(os.path.join(mntPoint,
-                'srv/jobslave/config.d/runtime'), cfg)
-            createFile(mntPoint, 'srv/jobslave/data',
-                    simplejson.dumps(self.data))
+            self.writeSlaveConfig(mntPoint)
 
             # write init script settings
             # the host IP address is domU IP address + 127 of the last quad
