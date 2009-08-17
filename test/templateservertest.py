@@ -53,10 +53,6 @@ class TemplateServerTest(testsuite.TestCase):
             self.srv.lock.release()
         self.srv.stop()
 
-    def testRunAfterStopped(self):
-        self.srv.running = False
-        self.srv.run()
-
     def testInlineRun(self):
         class FakeSocket(object):
             def accept(*args, **kwargs):
