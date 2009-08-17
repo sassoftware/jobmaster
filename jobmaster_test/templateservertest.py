@@ -11,6 +11,7 @@ testsuite.setup()
 import cPickle
 import os
 import socket
+import sys
 import StringIO
 import tempfile
 import time
@@ -38,6 +39,8 @@ class TemplateServerTest(testsuite.TestCase):
         templateserver.TIMEOUT = self.TIMEOUT
 
     def testStop(self):
+        if sys.version_info > (2, 5):
+            raise testsuite.SkipTestException("Only works in python 2.4")
         self.started = False
         class FakeSocket(object):
             def accept(x):
@@ -58,6 +61,8 @@ class TemplateServerTest(testsuite.TestCase):
         self.srv.stop()
 
     def testInlineRun(self):
+        if sys.version_info > (2, 5):
+            raise testsuite.SkipTestException("Only works in python 2.4")
         class FakeSocket(object):
             def accept(*args, **kwargs):
                 self.srv.running = False
@@ -92,6 +97,8 @@ class TemplateServerTest(testsuite.TestCase):
         Ensure that stale lockfiles are deleted on server start.
         Tests RBL-2155
         '''
+        if sys.version_info > (2, 5):
+            raise testsuite.SkipTestException("Only works in python 2.4")
         def listdir(dir):
             self.assertEquals(dir, self.templateRoot)
             return ['.00112233445566778899aabbccddeeff.status',

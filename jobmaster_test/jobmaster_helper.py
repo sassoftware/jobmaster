@@ -9,7 +9,6 @@ import os
 import subprocess
 import signal
 import tempfile
-import testsuite
 import threading
 
 from conary import versions

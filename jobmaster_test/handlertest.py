@@ -194,11 +194,11 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
                 jobmaster_helper.kernelData,
                 {'UUID' : 'test.rpath.local-build-55'})
 
-        fd, cfgPath = tempfile.mkstemp()
-        os.close(fd)
+        cfgDir = tempfile.mkdtemp()
+        cfgPath = cfgDir + '/srv/jobslave/config.d/runtime'
         handler.slaveName = 'xen44'
 
-        cfg = master.MasterConfig()
+        cfg = self.jobMaster.cfg
         cfg.queueHost = '127.0.0.1'
         cfg.nodeName = 'testMaster'
         cfg.jobQueueName = 'job1-1-1:x86'
@@ -216,7 +216,7 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
         try:
             master.getIP = lambda: '192.168.0.1'
             cfg.conaryProxy = 'http://192.168.0.1/'
-            handler.writeSlaveConfig(cfgPath, cfg)
+            handler.writeSlaveConfig(cfgDir)
             res = open(cfgPath).read()
             self.failIf(ref1 != res,
                     "EXPECTED:\n%s\nBUT GOT:\n%s" % (ref1, res))
@@ -224,12 +224,12 @@ class HandlerTest(jobmaster_helper.JobMasterHelper):
             # Make a second pass, tweaking some options
             cfg.conaryProxy = None
             cfg.debugMode = True
-            handler.writeSlaveConfig(cfgPath, cfg)
+            handler.writeSlaveConfig(cfgDir)
             res = open(cfgPath).read()
             self.failIf(ref2 != res,
                     "EXPECTED:\n%s\nBUT GOT:\n%s" % (ref2, res))
         finally:
-            util.rmtree(cfgPath, ignore_errors = True)
+            util.rmtree(cfgDir, ignore_errors = True)
             master.getIP = getIP
 
     def testEstimateTroveSize(self):
