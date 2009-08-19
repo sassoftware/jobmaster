@@ -17,7 +17,7 @@ from setuptools import setup, find_packages
 setup(
     name = "jobmaster",
     version = constants.version,
-    packages = find_packages(),
+    packages = ['jobmaster'],
 )
 
 # include data separately to avoid complicated setuptools rules
