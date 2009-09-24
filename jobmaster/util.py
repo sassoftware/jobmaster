@@ -38,6 +38,10 @@ class CommandError(RuntimeError):
                 self.cmd, self.rv)
 
 
+def null():
+    return open('/dev/null', 'w+')
+
+
 def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
         captureOutput=True, **kw):
     """
@@ -183,6 +187,9 @@ def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
     formatter = logging.Formatter(
         '%(asctime)s %(levelname)s %(name)s %(message)s')
 
+    if isinstance(logLevel, basestring):
+        logLevel = logging.getLevelName(logLevel.upper())
+
     rootLogger = logging.getLogger()
     rootLogger.setLevel(logLevel)
 
@@ -256,4 +263,3 @@ def createFile(fsRoot, path, contents, mode=0644):
     _writeContents(fObj, contents)
     fObj.close()
     os.chmod(path, mode)
-

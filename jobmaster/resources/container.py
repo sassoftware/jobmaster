@@ -12,10 +12,11 @@ import tempfile
 import time
 from conary import conarycfg
 from conary import conaryclient
-from jobmaster.chroot import MountRoot
 from jobmaster.config import MasterConfig
 from jobmaster.networking import AddressGenerator, formatIPv6
-from jobmaster.resource import ResourceStack, NetworkPairResource
+from jobmaster.resource import ResourceStack
+from jobmaster.resources.chroot import MountRoot
+from jobmaster.resources.network import NetworkPairResource
 from jobmaster.util import createFile, logCall, setupLogging
 
 log = logging.getLogger(__name__)
@@ -96,9 +97,8 @@ class Container(ResourceStack):
 
 
 def main(args):
-    from conary import conaryclient
     from conary.conaryclient import cmdline
-    from jobmaster.devfs import LoopManager
+    from jobmaster.resources.devfs import LoopManager
 
     if len(args) < 2:
         sys.exit("Usage: %s <cfg> <trovespec>+" % sys.argv[0])

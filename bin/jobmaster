@@ -1,9 +1,9 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2007 rPath, Inc.
+# Copyright (c) 2007-2009 rPath, Inc.
 #
 # All rights reserved
 #
 
-from jobmaster import master
-master.runDaemon()
+from jobmaster import server
+server.runDaemon()

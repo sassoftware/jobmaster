@@ -10,7 +10,6 @@ import fcntl
 import logging
 import os
 import random
-import shutil
 import sys
 import time
 from conary import conarycfg
@@ -18,10 +17,10 @@ from conary.lib.util import mkdirChain
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.config import MasterConfig
-from jobmaster.devfs import DevFS
-from jobmaster.scratchdisk import ScratchDisk
-from jobmaster.resource import (Resource, ResourceStack,
-        AutoMountResource, BindMountResource)
+from jobmaster.resource import Resource, ResourceStack
+from jobmaster.resources.block import ScratchDisk
+from jobmaster.resources.devfs import DevFS
+from jobmaster.resources.mount import BindMountResource
 from jobmaster.util import setupLogging, specHash
 
 log = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ class ContentsRoot(Resource):
         
         self._hash = specHash(troves)
         self._basePath = os.path.join(rootPath, self._hash)
-        self._archivePath = os.path.join(archivePath, self._hash) + '.tar.lzma'
+        self._archivePath = os.path.join(archivePath, self._hash) + '.tar.xz'
         self._lockFile = None
         self._lockLevel = fcntl.LOCK_UN
 
@@ -141,9 +140,9 @@ class ContentsRoot(Resource):
             self.buildRoot()
             self._lock(fcntl.LOCK_SH)
 
-            if self.cfg.archiveRoots:
-                # Fork and archive the root.
-                self.archiveRoot()
+            #if self.cfg.archiveRoots:
+            #    # Fork and archive the root.
+            #    self.archiveRoot()
 
             return self._basePath
 
@@ -200,7 +199,7 @@ class MountRoot(ResourceStack):
 
         scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
         self.scratch = ScratchDisk(self.cfg.lvmVolumeName,
-                'scratch_' + self.name, scratchSize)
+                'scratch_' + self.name, scratchSize * 1048576)
         self.append(self.scratch)
 
         self.devFS = DevFS(loopManager)

@@ -1,41 +1,34 @@
+#/usr/bin/python
 #
-# Copyright (c) 2009 rPath, Inc.
+# Copyright (c) 2005-2009 rPath, Inc.
 #
-# All rights reserved.
+# All rights reserved
 #
 
-from conary.lib.cfg import ConfigFile
-from conary.lib.cfgtypes import CfgBool, CfgEnum, CfgInt, CfgPath, CfgString
+from conary.lib import cfgtypes
+from mcp import config
 
 
-class CfgLogLevel(CfgEnum):
-    validValues = ['CRITICAL', 'WARNING', 'INFO', 'DEBUG']
-    def checkEntry(self, val):
-        CfgEnum.checkEntry(self, val.upper())
+CONFIG_PATH = '/srv/rbuilder/jobmaster/config'
+RUNTIME_CONFIG_PATH = '/srv/rbuilder/jobmaster/config.d/runtime'
 
 
-class MasterConfig(ConfigFile):
-    basePath = (CfgPath, '/srv/rbuilder/jobmaster')
+class MasterConfig(config.MCPConfig):
+    # Paths
+    basePath = '/srv/rbuilder/jobmaster'
+    pidFile = '/var/run/jobmaster.pid'
+    templateCache = 'anaconda-templates'
 
-    logFile = (CfgPath, '/var/log/rbuilder/jobmaster.log')
-    logLevel = (CfgLogLevel, 'INFO')
+    # Runtime settings
+    slaveLimit = (cfgtypes.CfgInt, 1)
 
-    slaveLimit = (CfgInt, 1)
-    nodeName = (CfgString, None)
-
-    # Jobslave parameters
-    archiveRoots = (CfgBool, False)
+    # Misc settings
+    debugMode = (cfgtypes.CfgBool, False)
     lvmVolumeName = 'vg00'
-    minSlaveSize = (CfgInt, 1024, "Minimum scratch space in MiB")
-    masterIP = (CfgString, 'fdf0:dbe6:3760::/64',
-            "IPv6 address for the jobmaster on the private VM network")
+    minSlaveSize = (cfgtypes.CfgInt, 1024) # scratch space in MB
+    rbuilderUrl = 'http://127.0.0.1/'
+    slaveSubnet = 'fdf0:dbe6:3760::/48'
 
-    # This should either be the URI of a rBuilder, or "self" to use the
-    # local IP. It must be an rBuilder since the template generation code
-    # assumes it can find a conaryrc file here.
-    conaryProxy = 'self'
-
-    # DEPRECATED: These are ignored for backwards compatibility
-    debugMode = (CfgBool, False)
-    maxSlaveLimit = (CfgInt, 0)
-    templateCache = (CfgString, 'anaconda-templates')
+    # DEPRECATED
+    conaryProxy = None
+    maxSlaveLimit = None

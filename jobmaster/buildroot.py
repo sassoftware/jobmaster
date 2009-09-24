@@ -1,8 +1,12 @@
 #
 # Copyright (c) 2009 rPath, Inc.
 #
-# All Rights Reserved
+# All rights reserved.
 #
+
+"""
+Code for installing a jobslave into a target root.
+"""
 
 import copy
 import hashlib

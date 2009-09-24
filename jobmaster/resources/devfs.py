@@ -11,11 +11,13 @@ import logging
 import os
 import random
 import threading
-from jobmaster.resource import ResourceStack, AutoMountResource
+from jobmaster.resource import ResourceStack
+from jobmaster.resources.mount import AutoMountResource
 from jobmaster.util import call
 
 log = logging.getLogger(__name__)
 
+# /usr/include/linux/loop.h
 LOOP_CLR_FD = 0x4C01
 
 

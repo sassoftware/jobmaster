@@ -15,7 +15,6 @@ import sys
 import tempfile
 from conary import callbacks
 from conary import conarycfg
-from conary import conaryclient
 from conary import updatecmd
 from conary.conaryclient import cmdline
 from jobmaster.util import setupLogging, createFile
@@ -24,6 +23,10 @@ log = logging.getLogger(__name__)
 
 
 def archiveRoot(fsRoot, destPath, metadata=None):
+    """
+    Archive the contents of the directory C{fsRoot} to the xzball C{destPath}.
+    Additional C{metadata} may be provided.
+    """
     metadata = metadata and dict(metadata) or {}
 
     metaPath = destPath + '.metadata'
@@ -32,7 +35,7 @@ def archiveRoot(fsRoot, destPath, metadata=None):
                 #"--exclude var/lib/conarydb "
                 "--exclude var/lib/conarydb/rollbacks "
                 "--exclude var/log/conary "
-                "| /usr/bin/lzma -c2" % (fsRoot,),
+                "| /usr/bin/xz -2c" % (fsRoot,),
                 shell=True, stdout=subprocess.PIPE)
 
         try:
@@ -70,6 +73,11 @@ def archiveRoot(fsRoot, destPath, metadata=None):
 
 
 def unpackRoot(archivePath, destRoot):
+    """
+    Unpack the xzball at C{archivePath} to the target directory C{destRoot}.
+    The accompanying metadata file will be used to verify the integrity of the
+    archive as it is unpacked.
+    """
     destRoot = os.path.realpath(destRoot)
 
     metaPath = archivePath + '.metadata'
@@ -78,7 +86,7 @@ def unpackRoot(archivePath, destRoot):
     tmpRoot = tempfile.mkdtemp(prefix='temproot-',
             dir=os.path.dirname(destRoot))
     try:
-        proc = subprocess.Popen("/usr/bin/lzma -dc "
+        proc = subprocess.Popen("/usr/bin/xz -dc "
                 "| /bin/tar -xC '%s'" % (tmpRoot,),
                 shell=True, stdin=subprocess.PIPE)
 
