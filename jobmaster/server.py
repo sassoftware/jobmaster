@@ -17,6 +17,7 @@ from mcp.messagebus import nodetypes
 from rmake.lib import procutil
 
 from jobmaster import config
+from jobmaster import jobhandler
 from jobmaster import util
 
 log = logging.getLogger(__name__)
@@ -64,14 +65,35 @@ class JobMaster(bus_node.BusNode):
         Terminate all jobs, esp. after a dispatcher restart.
         """
         log.info("Terminating all jobs per dispatcher request.")
-        #TODO
+        for handler in self.handlers.values():
+            handler.kill()
+        self.handlers = {}
 
     def doJobCommand(self, msg):
         """
         Run a new image job.
         """
         job = msg.payload.job
-        log.info("Got new job %s.", job.uuid)
+        handler = self.handlers[job.uuid] = jobhandler.JobHandler(self, job)
+        handler.start()
+
+    def handleRequestIfReady(self, sleepTime):
+        bus_node.BusNode.handleRequestIfReady(self, sleepTime)
+        for handler in self.handlers.values():
+            if not handler.check():
+                self.handlerStopped(handler)
+
+    def handlerStopped(self, handler):
+        """
+        Clean up after a handler has exited.
+        """
+        # Notify the dispatcher that the job is done.
+        uuid = handler.job.uuid
+        msg = messages.JobCompleteMessage()
+        msg.set(uuid)
+        self.bus.sendMessage('/image_event', msg)
+
+        del self.handlers[uuid]
 
 
 def main(cfg=None):
