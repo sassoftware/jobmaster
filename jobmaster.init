@@ -43,8 +43,6 @@ cleanImageCacheLocks() {
 }
 
 start() {
-    action "Updating firewall rules:" /usr/libexec/jobmaster-proxy-firewall
-
     echo -n "Starting $LONGNAME:"
 
     pid=$(pidofproc $(basename $DAEMON))
@@ -53,12 +51,6 @@ start() {
     else
         # clean up any dead LVM partitions
         cleanLvm
-
-        # clean up image cache locks (RBL-2444)
-        cleanImageCacheLocks
-
-        # Enable IP forwarding for NATted slaves
-        echo 1 >/proc/sys/net/ipv4/conf/all/forwarding
 
         # start the image
         daemon $DAEMON
