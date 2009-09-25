@@ -29,7 +29,7 @@ class MountResource(Resource):
         """
         Call C{umount} on close, optionally deleting the mount point.
         """
-        call(['/bin/umount', '-fdn', self.mountPoint])
+        call(['/bin/umount', '-dn', self.mountPoint])
         if self.delete:
             os.rmdir(self.mountPoint)
 

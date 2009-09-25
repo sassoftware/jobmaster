@@ -88,9 +88,9 @@ class ContentsRoot(Resource):
                 self._lockFile.close()
                 self._lockFile = None
 
-        return oldLevel
+        return True
 
-    def _lockWait(self, mode=fcntl.LOCK_SH, timeout=600.0):
+    def _lockWait(self, mode=fcntl.LOCK_SH, timeout=600.0, breakIf=None):
         logged = False
         runUntil = time.time() + timeout
         while True:
@@ -99,6 +99,9 @@ class ContentsRoot(Resource):
                 return self._lock(mode)
             except LockError:
                 pass
+
+            if breakIf and breakIf():
+                return False
 
             if time.time() > runUntil:
                 raise LockTimeoutError()
@@ -114,37 +117,43 @@ class ContentsRoot(Resource):
             self._lockFile.close()
             self._lockFile = None
 
+    def _rootExists(self):
+        return os.path.isdir(self._basePath)
+
     def getRoot(self):
         # Grab a shared lock and check if the root exists.
         self._lockWait(fcntl.LOCK_SH)
-        if os.path.isdir(self._basePath):
+        if self._rootExists():
             log.info("Using existing contents for root %s", self._hash)
             return self._basePath
 
-        # Need an exclusive lock to unpack or build the root. There's no
-        # race here as other processes would need an exclusive lock to create
-        # the directory, and we already hold a shared lock.
+        # Now we need an exclusive lock to build the root. Drop the shared lock
+        # before attempting to get the exclusive lock to ensure that another
+        # process doing the same thing will not deadlock.
+        self._lock(fcntl.LOCK_UN)
+        log.info("pause")
+        time.sleep(5)
         log.debug("Acquiring exclusive lock on %s", self._basePath)
-        self._lockWait(fcntl.LOCK_EX)
+        self._lockWait(fcntl.LOCK_EX, breakIf=self._rootExists)
+
+        if self._rootExists():
+            # Contents were created while waiting to acquire the lock.
+            # Recursing is extremely paranoid, but it ensures that we get
+            # confirmation that the root is present while holding a shared
+            # lock.
+            return self.getRoot()
 
         if os.path.isfile(self._archivePath):
             # Check for an archived root. If it exists, unpack it and return.
             log.info("Unpacking contents for root %s", self._hash)
             self.unpackRoot()
-            self._lock(fcntl.LOCK_SH)
-
-            return self._basePath
         else:
             # Build the root from scratch.
             log.info("Building contents for root %s", self._hash)
             self.buildRoot()
-            self._lock(fcntl.LOCK_SH)
 
-            #if self.cfg.archiveRoots:
-            #    # Fork and archive the root.
-            #    self.archiveRoot()
-
-            return self._basePath
+        self._lock(fcntl.LOCK_SH)
+        return self._basePath
 
     def unpackRoot(self):
         self._lock(fcntl.LOCK_EX)

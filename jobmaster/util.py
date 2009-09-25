@@ -118,6 +118,12 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
     else:
         p.wait()
 
+    if p.returncode and not ignoreErrors:
+        raise CommandError(cmd, p.returncode, stdout, stderr)
+    else:
+        return p.returncode, stdout, stderr
+
+
 def rewriteFile(template, target, data):
     if not os.path.exists(template):
         return

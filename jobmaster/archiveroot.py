@@ -111,11 +111,11 @@ def unpackRoot(archivePath, destRoot):
             log.warning("SHA-512 missing from archive %s ; continuing",
                     archivePath)
 
+        os.rename(tmpRoot, destRoot)
+
     except:
         shutil.rmtree(tmpRoot)
         raise
-
-    os.rename(tmpRoot, destRoot)
 
     return metadata
 
