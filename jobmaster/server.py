@@ -10,6 +10,7 @@ import os
 import sys
 from conary import conarycfg
 from conary import conaryclient
+from mcp import image_job
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
 from mcp.messagebus import nodetypes
@@ -29,7 +30,9 @@ class JobMaster(bus_node.BusNode):
     timerPeriod = 5
 
     def __init__(self, cfg):
-        node = nodetypes.MasterNodeType(4, {}, procutil.MachineInformation())
+        node = nodetypes.MasterNodeType(cfg.slaveLimit,
+                procutil.MachineInformation())
+        log.close = lambda: None
         bus_node.BusNode.__init__(self, (cfg.queueHost, cfg.queuePort),
                 nodeInfo=node, logger=log)
         self.cfg = cfg
@@ -62,6 +65,13 @@ class JobMaster(bus_node.BusNode):
         """
         log.info("Terminating all jobs per dispatcher request.")
         #TODO
+
+    def doJobCommand(self, msg):
+        """
+        Run a new image job.
+        """
+        job = msg.payload.job
+        log.info("Got new job %s.", job.uuid)
 
 
 def main(cfg=None):

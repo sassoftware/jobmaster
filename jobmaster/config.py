@@ -20,7 +20,7 @@ class MasterConfig(config.MCPConfig):
     templateCache = 'anaconda-templates'
 
     # Runtime settings
-    slaveLimit = (cfgtypes.CfgInt, 1)
+    slaveLimit = (cfgtypes.CfgInt, 5)
 
     # Misc settings
     debugMode = (cfgtypes.CfgBool, False)
