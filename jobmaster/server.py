@@ -6,6 +6,7 @@
 #
 
 import logging
+import optparse
 import os
 import sys
 from conary import conarycfg
@@ -19,6 +20,7 @@ from rmake.lib import procutil
 from jobmaster import config
 from jobmaster import jobhandler
 from jobmaster import util
+from jobmaster.resources.devfs import LoopManager
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ class JobMaster(bus_node.BusNode):
         self.cfg = cfg
         self.handlers = {}
 
+        # Conary configuration for root building
         self.conaryCfg = conarycfg.ConaryConfiguration(True)
         self.conaryCfg.initializeFlavors()
         self.conaryCfg.configLine('conaryProxy http %sconary/'
@@ -46,6 +49,9 @@ class JobMaster(bus_node.BusNode):
         self.conaryCfg.configLine('conaryProxy https %sconary/'
                 % cfg.rbuilderUrl)
         self.conaryClient = conaryclient.ConaryClient(self.conaryCfg)
+
+        self.loopManager = LoopManager(
+                os.path.join(self.cfg.basePath, 'locks/loop'))
 
         log.info("Jobmaster %s started with pid %d.", self.bus.getSessionId(),
                 os.getpid())
@@ -96,44 +102,49 @@ class JobMaster(bus_node.BusNode):
         del self.handlers[uuid]
 
 
-def main(cfg=None):
-    if not cfg:
-        cfg = config.MasterConfig()
-    util.setupLogging(cfg.logLevel)
-    master = JobMaster(cfg)
-    master.serve_forever()
+def main(args):
+    parser = optparse.OptionParser()
+    parser.add_option('-c', '--config-file', default=config.CONFIG_PATH)
+    parser.add_option('-n', '--no-daemon', action='store_true')
+    options, args = parser.parse_args(args)
 
-def runDaemon():
     cfg = config.MasterConfig()
-    cfg.read(config.CONFIG_PATH)
+    cfg.read(options.config_file)
 
-    # Double-fork to daemonize
-    pid = os.fork()
-    if pid:
-        return
+    util.setupLogging(cfg.logLevel, toStderr=options.no_daemon)
+    master = JobMaster(cfg)
 
-    pid = os.fork()
-    if pid:
-        os._exit(0)
+    if options.no_daemon:
+        master.serve_forever()
+        return 0
+    else:
+        # Double-fork to daemonize
+        pid = os.fork()
+        if pid:
+            return
 
-    try:
-        os.setsid()
-        devNull = os.open(os.devnull, os.O_RDWR)
-        os.dup2(devNull, sys.stdout.fileno())
-        os.dup2(devNull, sys.stderr.fileno())
-        os.dup2(devNull, sys.stdin.fileno())
-        os.close(devNull)
+        pid = os.fork()
+        if pid:
+            os._exit(0)
 
-        fObj = open(cfg.pidFile, 'w')
-        fObj.write(str(os.getpid()))
-        fObj.close()
+        try:
+            os.setsid()
+            devNull = os.open(os.devnull, os.O_RDWR)
+            os.dup2(devNull, sys.stdout.fileno())
+            os.dup2(devNull, sys.stderr.fileno())
+            os.dup2(devNull, sys.stdin.fileno())
+            os.close(devNull)
 
-        main(cfg)
+            fObj = open(cfg.pidFile, 'w')
+            fObj.write(str(os.getpid()))
+            fObj.close()
 
-        os.unlink(cfg.pidFile)
-    finally:
-        os._exit(0)
+            master.serve_forever()
+
+            os.unlink(cfg.pidFile)
+        finally:
+            os._exit(0)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main(sys.argv[1:]))

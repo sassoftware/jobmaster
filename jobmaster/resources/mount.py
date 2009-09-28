@@ -4,6 +4,7 @@
 # All rights reserved.
 #
 
+import errno
 import logging
 import os
 import tempfile
@@ -31,7 +32,13 @@ class MountResource(Resource):
         """
         call(['/bin/umount', '-dn', self.mountPoint])
         if self.delete:
-            os.rmdir(self.mountPoint)
+            try:
+                os.rmdir(self.mountPoint)
+            except OSError, err:
+                if err.errno == errno.EBUSY:
+                    log.error("Could not delete mount point %s", self.mountPoint)
+                else:
+                    raise
 
 
 class AutoMountResource(MountResource):

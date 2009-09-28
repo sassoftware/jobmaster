@@ -6,20 +6,24 @@
 
 import logging
 import os
+import random
 import signal
+import simplejson
 import time
 import weakref
 
-from jobmaster.resources import container
+from jobmaster.resources.container import Container
 
 log = logging.getLogger(__name__)
 
 
 class JobHandler(object):
     def __init__(self, master, job):
-        self.master = weakref.ref(master)
+        #self.master = weakref.ref(master)
         self.cfg = master.cfg
         self.job = job
+
+        self.loopManager = master.loopManager
 
         self.pid = None
 
@@ -62,4 +66,19 @@ class JobHandler(object):
 
     def _run(self):
         log.info("Running job %s in pid %d", self.job.uuid, os.getpid())
-        time.sleep(3)
+        random.seed()
+
+        from conary import conarycfg
+        from conary import conaryclient
+        ccfg = conarycfg.ConaryConfiguration(True)
+        ccli = conaryclient.ConaryClient(ccfg)
+        repos = ccli.getRepos()
+        troveTup = repos.findTrove(None, ('group-jobslave', 'bananas.rb.rpath.com@rpl:trash', None))[0]
+        jobslave = Container([troveTup], self.cfg, ccfg, self.loopManager)
+        jobslave.start()
+        jobslave.createFile('tmp/jobslave/data',
+                simplejson.dumps(self.job.job_data))
+        try:
+            jobslave.run(['/usr/bin/jobslave'])
+        finally:
+            jobslave.close()

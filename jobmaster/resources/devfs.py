@@ -93,14 +93,10 @@ class OutOfLoopDevices(RuntimeError):
 
 
 class LoopAllocation(object):
-    def __init__(self, manager, index, start, end):
-        self.manager = manager
-        self.index = index
+    def __init__(self, lockObj, start, end):
+        self.lockObj = lockObj
         self.start = start
         self.end = end
-
-    def __del__(self):
-        self.manager.free(self.index)
 
     def __repr__(self):
         return '<LoopAllocation %d..%d>' % (self.start, self.end)
@@ -110,30 +106,30 @@ class LoopAllocation(object):
 
 
 class LoopManager(object):
-    def __init__(self, start=64, end=1024, chunk=8):
-        assert start % chunk == 0
-        assert end % chunk == 0
-        self.start, self.end, self.chunk = start, end, chunk
-        self._usageMap = [False] * ((end - start) / chunk)
-        self._lock = threading.Lock()
+    chunk = 8
+
+    def __init__(self, lockDir, start=64, end=1024):
+        assert start % self.chunk == 0
+        assert end % self.chunk == 0
+        self.lockDir = lockDir
+        self.start, self.end = start, end
+
+        if not os.path.isdir(lockDir):
+            os.makedirs(lockDir)
 
     def get(self):
-        self._lock.acquire()
-        try:
-            free = [n for n, used in enumerate(self._usageMap) if not used]
-            if not free:
-                raise OutOfLoopDevices()
-            index = random.choice(free)
-            self._usageMap[index] = True
-
-            start = self.start + self.chunk * index
-            return LoopAllocation(self, index, start, start + self.chunk)
-        finally:
-            self._lock.release()
-
-    def free(self, index):
-        self._lock.acquire()
-        try:
-            self._usageMap[index] = False
-        finally:
-            self._lock.release()
+        for start in xrange(self.start, self.end, self.chunk):
+            lockPath = os.path.join(self.lockDir, str(start))
+            fObj = open(lockPath, 'w')
+            try:
+                fcntl.flock(fObj.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except IOError, err:
+                if err.errno in (errno.EACCES, errno.EAGAIN):
+                    # Allocation is in use
+                    fObj.close()
+                    continue
+                raise
+            else:
+                return LoopAllocation(fObj, start, start + self.chunk)
+        else:
+            raise OutOfLoopDevices()

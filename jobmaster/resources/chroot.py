@@ -131,8 +131,6 @@ class ContentsRoot(Resource):
         # before attempting to get the exclusive lock to ensure that another
         # process doing the same thing will not deadlock.
         self._lock(fcntl.LOCK_UN)
-        log.info("pause")
-        time.sleep(5)
         log.debug("Acquiring exclusive lock on %s", self._basePath)
         self._lockWait(fcntl.LOCK_EX, breakIf=self._rootExists)
 

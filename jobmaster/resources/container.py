@@ -6,6 +6,7 @@
 #
 
 import logging
+import os
 import random
 import sys
 import tempfile
@@ -95,9 +96,13 @@ class Container(ResourceStack):
             "-f", self.config.name] + args, ignoreErrors=True,
             logCmd=logCmd, **kwargs)
 
+    def createFile(self, path, contents, mode=0644):
+        createFile(self.chroot.mountPoint, path, contents, mode)
+
 
 def main(args):
     from conary.conaryclient import cmdline
+    from conary.lib import util
     from jobmaster.resources.devfs import LoopManager
 
     if len(args) < 2:
@@ -122,19 +127,23 @@ def main(args):
     specTups = [cmdline.parseTroveSpec(x) for x in troveSpecs]
     troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
 
-    loopManager = LoopManager()
-    container = Container(troveTups, mcfg,
-            conaryCfg=ccfg, loopManager=loopManager)
-    _start = time.time()
-    container.start()
-    _end = time.time()
+    loopDir = tempfile.mkdtemp()
+    try:
+        loopManager = LoopManager(loopDir)
+        container = Container(troveTups, mcfg,
+                conaryCfg=ccfg, loopManager=loopManager)
+        _start = time.time()
+        container.start()
+        _end = time.time()
 
-    print
-    print 'Started in %.03f s' % (_end - _start)
-    print 'Master IP:', formatIPv6(container.masterAddr[0])
-    print 'Slave IP:', formatIPv6(container.slaveAddr[0])
+        print
+        print 'Started in %.03f s' % (_end - _start)
+        print 'Master IP:', formatIPv6(container.masterAddr[0])
+        print 'Slave IP:', formatIPv6(container.slaveAddr[0])
 
-    container.run(['/bin/bash'], interactive=True, logCmd=False)
+        container.run(['/bin/bash'], interactive=True, logCmd=False)
+    finally:
+        util.rmtree(loopDir)
 
 
 if __name__ == '__main__':

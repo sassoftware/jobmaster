@@ -160,6 +160,7 @@ def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
 
     rootLogger = logging.getLogger()
     rootLogger.setLevel(logLevel)
+    rootLogger.handlers = []
 
     if toStderr:
         streamHandler = logging.StreamHandler()
