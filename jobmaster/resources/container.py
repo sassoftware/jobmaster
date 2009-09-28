@@ -7,7 +7,6 @@
 
 import logging
 import os
-import random
 import sys
 import tempfile
 import time
@@ -30,7 +29,7 @@ class Container(ResourceStack):
         self.troves = troves
         self.cfg = cfg
 
-        self.name = '%08x' % random.getrandbits(32)
+        self.name = os.urandom(6).encode('hex')
 
         self.masterAddr, self.slaveAddr = AddressGenerator().generateHostPair()
 
