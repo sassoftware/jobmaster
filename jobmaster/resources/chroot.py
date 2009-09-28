@@ -1,8 +1,8 @@
 #!/usr/bin/python
 #
-# copyright (c) 2009 rpath, inc.
+# Copyright (c) 2009 rPath, Inc.
 #
-# all rights reserved
+# All rights reserved.
 #
 
 import errno
@@ -11,9 +11,10 @@ import logging
 import os
 import random
 import sys
+import tempfile
 import time
 from conary import conarycfg
-from conary.lib.util import mkdirChain
+from conary.lib.util import mkdirChain, rmtree
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.config import MasterConfig
@@ -34,7 +35,7 @@ class LockTimeoutError(LockError):
     pass
 
 
-class ContentsRoot(Resource):
+class _ContentsRoot(Resource):
     def __init__(self, troves, cfg, conaryCfg):
         Resource.__init__(self)
 
@@ -42,16 +43,17 @@ class ContentsRoot(Resource):
         self.cfg = cfg
         self.conaryCfg = conaryCfg
 
-        rootPath = os.path.realpath(os.path.join(cfg.basePath, 'roots'))
         archivePath = os.path.realpath(os.path.join(cfg.basePath, 'archive'))
-        mkdirChain(rootPath)
         mkdirChain(archivePath)
-        
+
         self._hash = specHash(troves)
-        self._basePath = os.path.join(rootPath, self._hash)
         self._archivePath = os.path.join(archivePath, self._hash) + '.tar.xz'
         self._lockFile = None
         self._lockLevel = fcntl.LOCK_UN
+
+        # To be set by subclasses
+        self._basePath = None
+        self._lockPath = None
 
     @staticmethod
     def _sleep():
@@ -63,7 +65,7 @@ class ContentsRoot(Resource):
             return True
 
         if not self._lockFile:
-            self._lockFile = open(self._basePath + '.lock', 'w')
+            self._lockFile = open(self._lockPath, 'w')
 
         oldLevel = self._lockLevel
 
@@ -117,6 +119,36 @@ class ContentsRoot(Resource):
             self._lockFile.close()
             self._lockFile = None
 
+    def unpackRoot(self, fObj=None):
+        if not fObj:
+            fObj = self._archivePath
+        archiveroot.unpackRoot(fObj, self._basePath)
+
+    def archiveRoot(self):
+        log.info("Archiving root %s", self._hash)
+        return archiveroot.archiveRoot(self._basePath, self._archivePath)
+
+    def buildRoot(self):
+        self._lock(fcntl.LOCK_EX)
+        buildroot.buildRoot(self.conaryCfg, self.troves, self._basePath)
+
+    def getRoot(self):
+        raise NotImplementedError
+
+
+class BoundContentsRoot(_ContentsRoot):
+    """
+    This strategy maintains a single contents root which is to be bind-mounted
+    read-only by users.
+    """
+    def __init__(self, troves, cfg, conaryCfg):
+        _ContentsRoot.__init__(self, troves, cfg, conaryCfg)
+
+        rootPath = os.path.realpath(os.path.join(cfg.basePath, 'roots'))
+        mkdirChain(rootPath)
+        self._basePath = os.path.join(rootPath, self._hash)
+        self._lockPath = self._basePath + '.lock'
+
     def _rootExists(self):
         return os.path.isdir(self._basePath)
 
@@ -153,40 +185,55 @@ class ContentsRoot(Resource):
         self._lock(fcntl.LOCK_SH)
         return self._basePath
 
-    def unpackRoot(self):
-        self._lock(fcntl.LOCK_EX)
-        archiveroot.unpackRoot(self._archivePath, self._basePath)
 
-    def archiveRoot(self):
-        pid = os.fork()
-        if not pid:
-            # TODO: double-fork
-            try:
-                try:
-                    log.info("Archiving root %s", self._hash)
+class ArchiveContentsRoot(_ContentsRoot):
+    """
+    This strategy maintains an archive and unpacks it once for each user, so
+    the resulting roots can be modified.
+    """
+    def __init__(self, troves, cfg, conaryCfg):
+        _ContentsRoot.__init__(self, troves, cfg, conaryCfg)
 
-                    # Re-acquire the lock under the child process so the parent
-                    # doesn't yank the root out from under us.
-                    self._lockFile.close()
-                    self._lockFile = None
-                    self._lockWait()
+        self._lockPath = self._archivePath + '.lock'
+        self._basePath = tempfile.mkdtemp(prefix='contents-')
 
-                    archiveroot.archiveRoot(self._basePath, self._archivePath)
+    def _close(self):
+        _ContentsRoot._close(self)
+        if self._basePath:
+            rmtree(self._basePath)
+            self._basePath = None
 
-                    log.debug("Archiving of root %s done", self._hash)
-                    os._exit(0)
-                except:
-                    log.exception("Error archiving root at %s :",
-                            self._basePath)
-            finally:
-                os._exit(1)
-        else:
-            os.waitpid(pid, 0)
+    def _archiveExists(self):
+        return os.path.isfile(self._archivePath)
 
-    def buildRoot(self):
-        self._lock(fcntl.LOCK_EX)
+    def _openArchive(self):
+        try:
+            return open(self._archivePath, 'rb')
+        except IOError, err:
+            if err.errno == errno.ENOENT:
+                return None
+            else:
+                raise
 
-        buildroot.buildRoot(self.conaryCfg, self.troves, self._basePath)
+    def getRoot(self):
+        fObj = self._openArchive()
+        if not fObj:
+            log.debug("Acquiring exclusive lock on %s", self._archivePath)
+            self._lockWait(fcntl.LOCK_EX, breakIf=self._archiveExists)
+            if not self._archiveExists():
+                log.info("Building contents for root %s", self._hash)
+                self.buildRoot()
+                log.info("Archiving root %s", self._hash)
+                self.archiveRoot()
+                # At this point we already have the root we need, so just
+                # return.
+                self._lock(fcntl.LOCK_UN)
+                return self._basePath
+            self._lock(fcntl.LOCK_UN)
+
+        log.info("Unpacking contents for root %s", self._hash)
+        self.unpackRoot(fObj)
+        return self._basePath
 
 
 class MountRoot(ResourceStack):
@@ -201,7 +248,7 @@ class MountRoot(ResourceStack):
 
         self.mountPoint = None
 
-        self.contents = ContentsRoot(troves, cfg, conaryCfg)
+        self.contents = ArchiveContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
         scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)

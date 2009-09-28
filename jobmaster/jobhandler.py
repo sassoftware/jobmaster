@@ -6,6 +6,7 @@
 
 import logging
 import os
+import random
 import signal
 import simplejson
 import time
@@ -65,6 +66,7 @@ class JobHandler(object):
 
     def _run(self):
         log.info("Running job %s in pid %d", self.job.uuid, os.getpid())
+        random.seed()
 
         from conary import conarycfg
         from conary import conaryclient

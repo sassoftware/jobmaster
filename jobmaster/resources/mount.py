@@ -30,7 +30,7 @@ class MountResource(Resource):
         """
         Call C{umount} on close, optionally deleting the mount point.
         """
-        call(['/bin/umount', '-dn', self.mountPoint])
+        logCall(['/bin/umount', '-dn', self.mountPoint])
         if self.delete:
             try:
                 os.rmdir(self.mountPoint)
@@ -100,7 +100,7 @@ class BindMountResource(AutoMountResource):
                 cmd += ['-o', 'remount,ro']
                 logCall(cmd)
         except:
-            call(['/bin/umount', '-fn', self.mountPoint],
+            logCall(['/bin/umount', '-fn', self.mountPoint],
                     ignoreErrors=True)
             raise
 
