@@ -62,9 +62,9 @@ class Container(ResourceStack):
                     % (proxyURL, proxyURL))
 
             # Write out LXC config
-            config = tempfile.NamedTemporaryFile()
+            config = tempfile.NamedTemporaryFile(prefix='lxc-')
             print >> config, 'lxc.utsname = localhost'
-            print >> config, 'lxc.rootfs = ' + root
+            #print >> config, 'lxc.rootfs = ' + root
 
             print >> config, 'lxc.cgroup.devices.deny = a'
             print >> config, 'lxc.cgroup.devices.allow = b *:* m' # allow mknod
@@ -91,9 +91,11 @@ class Container(ResourceStack):
             kwargs = dict(captureOutput=False, stdin=None)
         else:
             kwargs = dict()
+        sys.stdin.read()
         logCall(["/usr/bin/lxc-execute", "-n", self.name,
-            "-f", self.config.name] + args, ignoreErrors=True,
-            logCmd=logCmd, **kwargs)
+            "-f", self.config.name, #"chroot", self.chroot.mountPoint
+            ] + args,
+            ignoreErrors=True, logCmd=logCmd, **kwargs)
 
     def createFile(self, path, contents, mode=0644):
         createFile(self.chroot.mountPoint, path, contents, mode)

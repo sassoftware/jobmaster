@@ -248,7 +248,7 @@ class MountRoot(ResourceStack):
 
         self.mountPoint = None
 
-        self.contents = ArchiveContentsRoot(troves, cfg, conaryCfg)
+        self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
         scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
