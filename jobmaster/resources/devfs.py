@@ -11,8 +11,9 @@ import logging
 import os
 import random
 import threading
+from jobmaster import cgroup
 from jobmaster.resource import ResourceStack
-from jobmaster.resources.mount import AutoMountResource
+from jobmaster.resources.mount import AutoMountResource, BindMountResource
 from jobmaster.util import call
 
 log = logging.getLogger(__name__)
@@ -82,10 +83,12 @@ class DevFS(ResourceStack):
             kind, str(major), str(minor)])
         self.devices.append((path, kind, major, minor))
 
-    def writeCaps(self, fObj):
+    def writeCaps(self, pid):
         for _, kind, major, minor in self.devices:
-            print >> fObj, 'lxc.cgroup.devices.allow = %s %s:%s rwm' % (
-                    kind, major, minor)
+            cgroup.addDeviceCap(pid, kind, major, minor)
+
+    def mount(self, path, readOnly=True):
+        return BindMountResource(self.mountPoint, path, readOnly=readOnly)
 
 
 class OutOfLoopDevices(RuntimeError):

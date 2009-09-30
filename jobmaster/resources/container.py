@@ -10,95 +10,135 @@ import os
 import sys
 import tempfile
 import time
+import traceback
 from conary import conarycfg
 from conary import conaryclient
+from jobmaster import cgroup, linuxns
 from jobmaster.config import MasterConfig
-from jobmaster.networking import AddressGenerator, formatIPv6
-from jobmaster.resource import ResourceStack
-from jobmaster.resources.chroot import MountRoot
+from jobmaster.resource import Resource, ResourceStack
+from jobmaster.resources.block import ScratchDisk
+from jobmaster.resources.chroot import BoundContentsRoot
+from jobmaster.resources.devfs import DevFS
 from jobmaster.resources.network import NetworkPairResource
+from jobmaster.resources.tempdir import TempDir
+from jobmaster.subprocutil import Subprocess
 from jobmaster.util import createFile, logCall, setupLogging
 
 log = logging.getLogger(__name__)
 
 
-class Container(ResourceStack):
+class ContainerWrapper(ResourceStack):
+    """
+    This resource stack creates and tears down all resources that live outside
+    of the container process, specifically the scratch disk and contents root.
+    """
     def __init__(self, troves, cfg, conaryCfg, loopManager=None):
         ResourceStack.__init__(self)
 
-        self.troves = troves
         self.cfg = cfg
-
         self.name = os.urandom(6).encode('hex')
 
-        self.masterAddr, self.slaveAddr = AddressGenerator().generateHostPair()
+        self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
+        self.append(self.contents)
 
-        self.chroot = MountRoot(self.name, troves, cfg, conaryCfg,
-                loopManager=loopManager)
-        self.append(self.chroot)
+        scratchSize = self.cfg.minSlaveSize
+        self.scratch = ScratchDisk(cfg.lvmVolumeName, 'scratch_' + self.name,
+                scratchSize * 1048576)
+        self.append(self.scratch)
 
-        self.config = None
-        self.started = False
+        self.devFS = DevFS(loopManager)
+        self.append(self.devFS)
+
+        self.network = NetworkPairResource(self.name)
+        self.append(self.network)
+
+        self.container = Container(self.name, cfg)
+        self.append(self.container)
 
     def start(self):
-        if self.started:
+        self.contents.start()
+        self.scratch.start()
+        self.devFS.start()
+        self.network.start()
+
+        pid = self.container.start(self.network,
+                mounts=[
+                    (self.contents, '', True),
+                    (self.devFS, 'dev', True),
+                    (self.scratch, 'tmp', False),
+                    (self.scratch, 'var/tmp', False),
+                    ])
+
+        # Set up device capabilities and networking for the now-running cgroup
+        #cgroup.clearDeviceCaps(pid)
+        #cgroup.addDeviceCap(pid, perms='m') # allow mknod
+        #self.devFS.writeCaps(pid)
+        self.network.moveSlave(pid)
+
+    def check(self):
+        return self.container.check()
+
+    def wait(self):
+        return self.container.wait()
+
+    def kill(self):
+        return self.container.kill()
+
+
+class Container(TempDir, Subprocess):
+    def __init__(self, name, cfg): 
+        TempDir.__init__(self, prefix='root-')
+        self.name = name
+        self.cfg = cfg
+        self.pid = self.network = self.mounts = None
+
+    def start(self, network, mounts):
+        if self.pid:
             return
+        self.network = network
+        self.mounts = mounts
 
+        self.pid = linuxns.clone(self._run_wrapper, (), new_uts=True,
+                new_ipc=True, new_pid=True, new_net=True, new_user=True)
+        return self.pid
+
+    def _close(self):
+        self.kill()
+
+    def _run_wrapper(self):
         try:
-            # Build chroot
-            self.chroot.start()
-            root = self.chroot.mountPoint
+            try:
+                self._run()
+                os._exit(0)
+            except:
+                traceback.print_exc()
+        finally:
+            os._exit(70)
 
-            # Configure network devices
-            self.append(NetworkPairResource('jm.' + self.name,
-                self.masterAddr, 'js.' + self.name))
+    def _run(self):
+        self.doMounts()
+        self.writeConfigs()
 
-            # Write out system configuration
-            proxyURL = 'http://[%s]:7778/conary/' % formatIPv6(
-                    self.masterAddr[0])
-            createFile(root, 'tmp/etc/conary/config.d/runtime',
-                    'conaryProxy http %s\n'
-                    'conaryProxy https %s\n'
-                    % (proxyURL, proxyURL))
+        os.chroot(self.path)
+        os.chdir('/')
 
-            # Write out LXC config
-            config = tempfile.NamedTemporaryFile(prefix='lxc-')
-            print >> config, 'lxc.utsname = localhost'
-            #print >> config, 'lxc.rootfs = ' + root
+        logCall(["/usr/bin/jobslave"], ignoreErrors=True, logCmd=True)
 
-            print >> config, 'lxc.cgroup.devices.deny = a'
-            print >> config, 'lxc.cgroup.devices.allow = b *:* m' # allow mknod
-            print >> config, 'lxc.cgroup.devices.allow = c *:* m' # allow mknod
-            self.chroot.devFS.writeCaps(config)
+    def doMounts(self):
+        for resource, path, readOnly in self.mounts:
+            target = os.path.join(self.path, path)
+            mount = resource.mount(target, readOnly)
+            mount.release()
+        logCall(['/bin/mount', 'proc', self.path + '/proc', '-t', 'proc'])
+        logCall(['/bin/mount', 'sysfs', self.path + '/sys', '-t', 'sysfs'])
 
-            print >> config, 'lxc.network.type = phys'
-            print >> config, 'lxc.network.name = eth0'
-            print >> config, 'lxc.network.link = js.' + self.name
-            print >> config, 'lxc.network.ipv6 = ' + (
-                    formatIPv6(*self.slaveAddr))
-            print >> config, 'lxc.network.flags = up'
-            config.flush()
-            self.config = config
-        except:
-            self.close()
-            raise
-
-        self.started = True
-
-    def run(self, args, interactive=False, logCmd=True):
-        self.start()
-        if interactive:
-            kwargs = dict(captureOutput=False, stdin=None)
-        else:
-            kwargs = dict()
-        sys.stdin.read()
-        logCall(["/usr/bin/lxc-execute", "-n", self.name,
-            "-f", self.config.name, #"chroot", self.chroot.mountPoint
-            ] + args,
-            ignoreErrors=True, logCmd=logCmd, **kwargs)
-
-    def createFile(self, path, contents, mode=0644):
-        createFile(self.chroot.mountPoint, path, contents, mode)
+    def writeConfigs(self):
+        proxyURL = ('http://[%s]:7778/conary/' %
+                self.network.masterAddr.format(False))
+        createFile(self.path, 'tmp/etc/conary/config.d/runtime',
+                'conaryProxy http %s\n'
+                'conaryProxy https %s\n'
+                % (proxyURL, proxyURL))
 
 
 def main(args):
@@ -131,7 +171,7 @@ def main(args):
     loopDir = tempfile.mkdtemp()
     try:
         loopManager = LoopManager(loopDir)
-        container = Container(troveTups, mcfg,
+        container = ContainerWrapper(troveTups, mcfg,
                 conaryCfg=ccfg, loopManager=loopManager)
         _start = time.time()
         container.start()
@@ -139,10 +179,11 @@ def main(args):
 
         print
         print 'Started in %.03f s' % (_end - _start)
-        print 'Master IP:', formatIPv6(container.masterAddr[0])
-        print 'Slave IP:', formatIPv6(container.slaveAddr[0])
+        print 'Master IP:', container.network.masterAddr.format(False)
+        print 'Slave IP:', container.network.slaveAddr.format(False)
 
-        container.run(['/bin/bash'], interactive=True, logCmd=False)
+        container.wait()
+
     finally:
         util.rmtree(loopDir)
 

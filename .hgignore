@@ -4,3 +4,4 @@
 \.times
 
 ^build/
+^.*\.egg-info/

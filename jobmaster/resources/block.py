@@ -10,7 +10,7 @@ import os
 import stat
 import subprocess
 from jobmaster.resource import Resource, ResourceStack
-from jobmaster.resources.mount import AutoMountResource
+from jobmaster.resources.mount import AutoMountResource, BindMountResource
 from jobmaster.util import call, logCall, null
 
 log = logging.getLogger(__name__)
@@ -27,69 +27,39 @@ class OutOfSpaceError(RuntimeError):
                 "only %d free" % (self.required, self.free))
 
 
-class LVMResource(Resource):
+class ScratchDisk(Resource):
     """
     Resource for a LVM2 logical volume to be removed on close.
     """
 
-    def __init__(self, devicePath):
+    def __init__(self, vgName, lvName, size):
         Resource.__init__(self)
-        self.devicePath = devicePath
+        self.vgName = vgName
+        self.lvName = lvName
+        self.size = size
+        self.devicePath = os.path.join('/dev', vgName, lvName)
+        self.firstMount = None
 
-        try:
-            devstat = os.stat(devicePath)
-        except OSError:
-            self._close()
-            raise
+    def start(self):
+        # Allocate LV
+        allocate_scratch(self.vgName, self.lvName, self.size)
 
-        if not stat.S_ISBLK(devstat.st_mode):
-            raise RuntimeError("%s is not a block device" % devicePath)
-
-        self.device = devstat.st_rdev
+        # Format
+        logCall(["/sbin/mkfs.xfs", "-fq", self.devicePath])
 
     def _close(self):
         """
         Call C{lvremove} on close.
         """
-        # Free loop devices
-        # Caveats: can't handle nested loops, or loops allocated
-        # non-sequentially (loop100 when loop99 has no node yet)
-        proc = subprocess.Popen(['/sbin/losetup', '-a'],
-                stdout=subprocess.PIPE, shell=False)
-        for line in proc.stdout.readlines():
-            node, dev = line.split()[:2]
-            node = node[:-1]
-            dev = dev.split(':')[0]
-            dev = int(dev[1:-1], 16)
-            if dev == self.device:
-                log.warning("Loop device %s references LV; destroying.", node)
-                logCall(['/sbin/losetup', '-d', node])
-
         logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
-
-class ScratchDisk(ResourceStack):
-    def __init__(self, vgName, lvName, diskSize):
-        ResourceStack.__init__(self)
-
-        self.vgName = vgName
-        self.lvName = lvName
-        self.diskSize = diskSize
-
-        self.lvPath = self.mountPoint = None
-
-    def start(self):
-        # Allocate LV
-        self.lvPath = allocate_scratch(self.vgName, self.lvName, self.diskSize)
-        self.append(LVMResource(self.lvPath))
-
-        # Format
-        logCall(["/sbin/mkfs.xfs", "-fq", self.lvPath])
-
-        # Mount
-        mount = AutoMountResource(self.lvPath, options=["-t", "xfs"])
-        self.mountPoint = mount.mountPoint
-        self.append(mount)
+    def mount(self, path, readOnly=False):
+        if self.firstMount:
+            return BindMountResource(self.firstMount, path)
+        else:
+            self.firstMount = path
+            return AutoMountResource(self.devicePath, path,
+                    options=["-t", "xfs"])
 
 
 def allocate_scratch(vg_name, lv_name, disk_bytes):
@@ -116,4 +86,3 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
 
     logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents_required),
         '-n', lv_name, vg_name], stdout=null())
-    return os.path.join('/dev', vg_name, lv_name)

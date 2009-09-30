@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #
 # Copyright (c) 2009 rPath, Inc.
 #
@@ -132,8 +131,11 @@ class _ContentsRoot(Resource):
         self._lock(fcntl.LOCK_EX)
         buildroot.buildRoot(self.conaryCfg, self.troves, self._basePath)
 
-    def getRoot(self):
+    def start(self):
         raise NotImplementedError
+
+    def mount(self, path, readOnly=True):
+        return BindMountResource(self._basePath, path, readOnly=readOnly)
 
 
 class BoundContentsRoot(_ContentsRoot):
@@ -152,12 +154,12 @@ class BoundContentsRoot(_ContentsRoot):
     def _rootExists(self):
         return os.path.isdir(self._basePath)
 
-    def getRoot(self):
+    def start(self):
         # Grab a shared lock and check if the root exists.
         self._lockWait(fcntl.LOCK_SH)
         if self._rootExists():
             log.info("Using existing contents for root %s", self._hash)
-            return self._basePath
+            return
 
         # Now we need an exclusive lock to build the root. Drop the shared lock
         # before attempting to get the exclusive lock to ensure that another
@@ -183,7 +185,6 @@ class BoundContentsRoot(_ContentsRoot):
             self.buildRoot()
 
         self._lock(fcntl.LOCK_SH)
-        return self._basePath
 
 
 class ArchiveContentsRoot(_ContentsRoot):
@@ -215,7 +216,7 @@ class ArchiveContentsRoot(_ContentsRoot):
             else:
                 raise
 
-    def getRoot(self):
+    def start(self):
         fObj = self._openArchive()
         if not fObj:
             log.debug("Acquiring exclusive lock on %s", self._archivePath)
@@ -228,98 +229,8 @@ class ArchiveContentsRoot(_ContentsRoot):
                 # At this point we already have the root we need, so just
                 # return.
                 self._lock(fcntl.LOCK_UN)
-                return self._basePath
+                return
             self._lock(fcntl.LOCK_UN)
 
         log.info("Unpacking contents for root %s", self._hash)
         self.unpackRoot(fObj)
-        return self._basePath
-
-
-class MountRoot(ResourceStack):
-    def __init__(self, name, troves, cfg, conaryCfg, scratchSize=0,
-            loopManager=None):
-        ResourceStack.__init__(self)
-
-        self.name = name
-        self.troves = troves
-        self.cfg = cfg
-        self.scratchSize = scratchSize
-
-        self.mountPoint = None
-
-        self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
-        self.append(self.contents)
-
-        scratchSize = max(self.scratchSize, self.cfg.minSlaveSize)
-        self.scratch = ScratchDisk(self.cfg.lvmVolumeName,
-                'scratch_' + self.name, scratchSize * 1048576)
-        self.append(self.scratch)
-
-        self.devFS = DevFS(loopManager)
-        self.append(self.devFS)
-
-    def start(self):
-        try:
-            contentsPath = self.contents.getRoot()
-
-            self.scratch.start()
-            self.devFS.start()
-
-            root = BindMountResource(contentsPath, readOnly=True,
-                    prefix='root-')
-            self.append(root)
-            self.mountPoint = root.mountPoint
-
-            self.append(BindMountResource(self.devFS.mountPoint,
-                os.path.join(self.mountPoint, 'dev'), readOnly=True))
-
-            self.append(BindMountResource(self.scratch.mountPoint,
-                os.path.join(self.mountPoint, 'tmp')))
-            self.append(BindMountResource(self.scratch.mountPoint,
-                os.path.join(self.mountPoint, 'var/tmp')))
-
-        except:
-            self.close()
-            raise
-
-
-def main(args):
-    from conary import conaryclient
-    from conary.conaryclient import cmdline
-
-    if len(args) < 3:
-        sys.exit("Usage: %s <cfg> <name> <trovespec>+" % sys.argv[0])
-
-    setupLogging(logging.DEBUG)
-
-    cfgPath, name = args[:2]
-    troveSpecs = args[2:]
-
-    mcfg = MasterConfig()
-    mcfg.read(cfgPath)
-
-    ccfg = conarycfg.ConaryConfiguration(True)
-    ccfg.initializeFlavors()
-    cli = conaryclient.ConaryClient(ccfg)
-    searchSource = cli.getSearchSource()
-
-    specTups = [cmdline.parseTroveSpec(x) for x in troveSpecs]
-    troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
-
-
-    root = MountRoot(name, troveTups, mcfg, conaryCfg=ccfg)
-
-    _start = time.time()
-    root.start()
-    _end = time.time()
-
-    print 'Mounted at %s in %.03f s -- Ctrl-D to clean up' % (
-            root.mountPoint, _end - _start)
-    sys.stdin.read()
-
-    root.close()
-
-
-if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
