@@ -5,7 +5,6 @@
 #
 
 import copy
-import hashlib
 import logging
 import os
 import shutil

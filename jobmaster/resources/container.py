@@ -21,8 +21,8 @@ from jobmaster.resources.chroot import BoundContentsRoot
 from jobmaster.resources.devfs import DevFS
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.resources.tempdir import TempDir
-from jobmaster.subprocutil import Subprocess
-from jobmaster.util import createFile, logCall, setupLogging
+from jobmaster.subprocutil import Pipe, Subprocess
+from jobmaster.util import createFile, logCall, mount, setupLogging
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +55,13 @@ class ContainerWrapper(ResourceStack):
         self.container = Container(self.name, cfg)
         self.append(self.container)
 
-    def start(self):
+    def start(self, jobData):
         self.contents.start()
         self.scratch.start()
         self.devFS.start()
         self.network.start()
 
-        pid = self.container.start(self.network,
+        pid = self.container.start(self.network, jobData,
                 mounts=[
                     (self.contents, '', True),
                     (self.devFS, 'dev', True),
@@ -70,10 +70,13 @@ class ContainerWrapper(ResourceStack):
                     ])
 
         # Set up device capabilities and networking for the now-running cgroup
-        #cgroup.clearDeviceCaps(pid)
-        #cgroup.addDeviceCap(pid, perms='m') # allow mknod
-        #self.devFS.writeCaps(pid)
+        cgroup.clearDeviceCaps(pid)
+        cgroup.addDeviceCap(pid, perms='m') # allow mknod
+        self.devFS.writeCaps(pid)
         self.network.moveSlave(pid)
+
+        # Done configuring, so tell the child process to move on.
+        self.container.release()
 
     def check(self):
         return self.container.check()
@@ -90,19 +93,42 @@ class Container(TempDir, Subprocess):
         TempDir.__init__(self, prefix='root-')
         self.name = name
         self.cfg = cfg
-        self.pid = self.network = self.mounts = None
+        self.pid = self.network = self.jobData = self.mounts = None
+        self.c2p_pipe = self.p2c_pipe = None
 
-    def start(self, network, mounts):
+    def start(self, network, jobData, mounts):
+        """
+        Start the child container process and return its pid. The child will
+        then wait for C{self.release()} to be called.
+        """
         if self.pid:
             return
         self.network = network
+        self.jobData = jobData
         self.mounts = mounts
 
+        self.c2p_pipe, self.p2c_pipe = Pipe(), Pipe()
         self.pid = linuxns.clone(self._run_wrapper, (), new_uts=True,
-                new_ipc=True, new_pid=True, new_net=True, new_user=True)
+                new_ipc=True, new_pid=True)#, new_net=True, new_user=True)
+        self.c2p_pipe.closeWriter()
+        self.p2c_pipe.closeReader()
+
+        # Wait for the jobslave to finish doing mounts so we don't deny it
+        # access to the scratch disk while it's still setting up.
+        self.c2p_pipe.read()
+        self.c2p_pipe.close()
+
         return self.pid
 
+    def release(self):
+        """
+        Close the write pipe to the child proccess, triggering it to move on
+        and do work. Call this after finished configuring the child's cgroup.
+        """
+        self.p2c_pipe.close()
+
     def _close(self):
+        TempDir._close(self)
         self.kill()
 
     def _run_wrapper(self):
@@ -116,29 +142,63 @@ class Container(TempDir, Subprocess):
             os._exit(70)
 
     def _run(self):
+        self.c2p_pipe.closeReader()
+        self.p2c_pipe.closeWriter()
+
+        linuxns.sethostname("localhost.localdomain")
+
         self.doMounts()
         self.writeConfigs()
+
+        # Signal the jobmaster to start configuring the cgroup.
+        self.c2p_pipe.close()
+
+        # Wait for the jobmaster to finish configuring the cgroup.
+        self.p2c_pipe.read()
+        self.p2c_pipe.close()
+
+        # Finish network configuration from inside the cgroup.
+        self.network.finishConfiguration()
+
+        # Import this early to make sure we can unpickle exceptions thrown by
+        # subprocess after chrooting, if the chroot python is different from
+        # our own.
+        import encodings.string_escape
 
         os.chroot(self.path)
         os.chdir('/')
 
-        logCall(["/usr/bin/jobslave"], ignoreErrors=True, logCmd=True)
+        #logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)
+        logCall(["/usr/bin/jobslave", "/tmp/etc/jobslave.conf"],
+                ignoreErrors=True, logCmd=True, captureOutput=False,
+                stdin=None)
 
     def doMounts(self):
+        """
+        Mount contents, scratch, devices, etc. This is after the filesystem was
+        unshared, so there's no need to ever unmount these -- when the
+        container exits, they will be obliterated.
+        """
         for resource, path, readOnly in self.mounts:
             target = os.path.join(self.path, path)
-            mount = resource.mount(target, readOnly)
-            mount.release()
-        logCall(['/bin/mount', 'proc', self.path + '/proc', '-t', 'proc'])
-        logCall(['/bin/mount', 'sysfs', self.path + '/sys', '-t', 'sysfs'])
+            mountRes = resource.mount(target, readOnly)
+            mountRes.release()
+        mount('proc', self.path + '/proc', 'proc')
+        mount('sysfs', self.path + '/sys', 'sysfs')
 
     def writeConfigs(self):
-        proxyURL = ('http://[%s]:7778/conary/' %
-                self.network.masterAddr.format(False))
-        createFile(self.path, 'tmp/etc/conary/config.d/runtime',
+        master = self.network.masterAddr.format(useMask=False)
+        masterURL = 'http://[%s]:7778/conary/' % master
+        createFile(self.path, 'tmp/etc/conaryrc',
                 'conaryProxy http %s\n'
                 'conaryProxy https %s\n'
-                % (proxyURL, proxyURL))
+                % (masterURL, masterURL))
+        createFile(self.path, 'tmp/etc/jobslave.conf',
+                'debugMode %s\n'
+                'masterAddress %s\n'
+                'jobDataPath /tmp/etc/jobslave.data\n'
+                % (self.cfg.debugMode, masterURL))
+        createFile(self.path, 'tmp/etc/jobslave.data', self.jobData)
 
 
 def main(args):
@@ -173,15 +233,7 @@ def main(args):
         loopManager = LoopManager(loopDir)
         container = ContainerWrapper(troveTups, mcfg,
                 conaryCfg=ccfg, loopManager=loopManager)
-        _start = time.time()
-        container.start()
-        _end = time.time()
-
-        print
-        print 'Started in %.03f s' % (_end - _start)
-        print 'Master IP:', container.network.masterAddr.format(False)
-        print 'Slave IP:', container.network.slaveAddr.format(False)
-
+        container.start(open('data').read())
         container.wait()
 
     finally:

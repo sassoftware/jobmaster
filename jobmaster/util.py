@@ -4,7 +4,7 @@
 # All rights reserved
 #
 
-import hashlib
+import errno
 import logging
 import os
 import select
@@ -13,6 +13,7 @@ import sys
 import tempfile
 from conary import conarycfg
 from conary import conaryclient
+from conary.lib import digestlib
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ class CommandError(RuntimeError):
 
 def null():
     return open('/dev/null', 'w+')
+
+
+def bindMount(device, mount, **kwargs):
+    return logCall(['/bin/mount', '-n', '--bind', device, mount], **kwargs) 
 
 
 def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
@@ -91,7 +96,7 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
     if captureOutput:
         while p.poll() is None:
             rList = [x for x in (p.stdout, p.stderr) if x]
-            rList, _, _ = select.select(rList, [], [])
+            rList, _, _ = tryInterruptable(select.select, rList, [], [])
             for rdPipe in rList:
                 line = rdPipe.readline()
                 if rdPipe is p.stdout:
@@ -116,7 +121,7 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
                 for x in stdout_.splitlines():
                     logger.log(logLevel, "++ (stdout) %s", x)
     else:
-        p.wait()
+        tryInterruptable(p.wait)
 
     if p.returncode and not ignoreErrors:
         raise CommandError(cmd, p.returncode, stdout, stderr)
@@ -145,6 +150,13 @@ def logCall(cmd, **kw):
     kw['_levels'] = 3
 
     return call(cmd, **kw)
+
+
+def mount(device, mount, fstype, options='', **kwargs):
+    args = ['/bin/mount', '-n', '-t', fstype, device, mount]
+    if options:
+        args.extend(('-o', options))
+    return logCall(args, **kwargs)
 
 
 def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
@@ -177,10 +189,21 @@ def specHash(troveTups):
     """
     Create a unique identifier for the troves C{troveTups}.
     """
-    ctx = hashlib.sha1()
+    ctx = digestlib.sha1()
     for tup in sorted(troveTups):
         ctx.update('%s\0%s\0%s\0' % tup)
     return ctx.hexdigest()
+
+
+def tryInterruptable(func, *args, **kwargs):
+    while True:
+        try:
+            return func(*args, **kwargs)
+        except Exception, err:
+            if getattr(err, 'errno', None) == errno.EINTR:
+                continue
+            else:
+                raise
 
 
 def createDirectory(fsRoot, path, mode=0755):
@@ -217,7 +240,7 @@ def appendFile(fsRoot, path, contents):
     fObj.close()
 
 
-def createFile(fsRoot, path, contents, mode=0644):
+def createFile(fsRoot, path, contents='', mode=0644):
     """
     Create a file at C{fsRoot}/C{path} with contents C{contents} and
     mode C{mode}.

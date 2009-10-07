@@ -4,9 +4,33 @@
 # All rights reserved.
 #
 
+import errno
 import os
 import signal
 import time
+
+
+class Pipe(object):
+    def __init__(self):
+        readFD, writeFD = os.pipe()
+        self.reader = os.fdopen(readFD, 'rb')
+        self.writer = os.fdopen(writeFD, 'wb')
+
+    def closeReader(self):
+        self.reader.close()
+
+    def closeWriter(self):
+        self.writer.close()
+
+    def close(self):
+        self.closeReader()
+        self.closeWriter()
+
+    def read(self):
+        self.reader.read()
+
+    def write(self, data):
+        self.writer.write(data)
 
 
 class Subprocess(object):
@@ -42,6 +66,8 @@ class Subprocess(object):
                     return False
                 else:
                     raise
+            except KeyboardInterrupt:
+                return self.kill()
             else:
                 # Process found and waited on.
                 self.pid = None

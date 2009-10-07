@@ -9,7 +9,6 @@ Code for installing a jobslave into a target root.
 """
 
 import copy
-import hashlib
 import logging
 import os
 import subprocess
@@ -82,6 +81,9 @@ def postTagScripts(fsRoot):
     """
     Clean up after running tag scripts.
     """
+    # tune2fs requires mtab to be present or it won't touch any block
+    # devices (e.g. /dev/loop*)
+    createFile(fsRoot, 'etc/mtab')
 
 
 class UpdateCallback(callbacks.UpdateCallback):
