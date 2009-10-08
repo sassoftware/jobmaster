@@ -11,7 +11,7 @@ import stat
 import subprocess
 from jobmaster.resource import Resource, ResourceStack
 from jobmaster.resources.mount import AutoMountResource, BindMountResource
-from jobmaster.util import call, logCall, null
+from jobmaster.util import call, logCall, devNull
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class ScratchDisk(Resource):
         else:
             self.firstMount = path
             return AutoMountResource(self.devicePath, path,
-                    options=["-t", "xfs"])
+                    options=["-t", "xfs", "-o", "noatime"])
 
 
 def allocate_scratch(vg_name, lv_name, disk_bytes):
@@ -85,4 +85,4 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
         raise OutOfSpaceError(extents_required, extents_free)
 
     logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents_required),
-        '-n', lv_name, vg_name], stdout=null())
+        '-n', lv_name, vg_name], stdout=devNull())

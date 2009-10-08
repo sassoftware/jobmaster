@@ -22,7 +22,7 @@ from jobmaster.resources.devfs import DevFS
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.resources.tempdir import TempDir
 from jobmaster.subprocutil import Pipe, Subprocess
-from jobmaster.util import createFile, logCall, mount, setupLogging
+from jobmaster.util import createFile, devNull, logCall, mount, setupLogging
 
 log = logging.getLogger(__name__)
 
@@ -168,10 +168,11 @@ class Container(TempDir, Subprocess):
         os.chroot(self.path)
         os.chdir('/')
 
-        #logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)
+        #return logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)
+        null = (not self.cfg.debugMode) and devNull() or None
         logCall(["/usr/bin/jobslave", "/tmp/etc/jobslave.conf"],
                 ignoreErrors=True, logCmd=True, captureOutput=False,
-                stdin=None)
+                stdin=null, stdout=null, stderr=null)
 
     def doMounts(self):
         """

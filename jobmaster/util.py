@@ -41,7 +41,7 @@ class CommandError(RuntimeError):
                 self.cmd, self.rv)
 
 
-def null():
+def devNull():
     return open('/dev/null', 'w+')
 
 
@@ -85,7 +85,7 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
     kw.setdefault('close_fds', True)
     kw.setdefault('shell', isinstance(cmd, basestring))
     if 'stdin' not in kw:
-        kw['stdin'] = open('/dev/null')
+        kw['stdin'] = devNull()
 
     pipe = captureOutput and subprocess.PIPE or None
     kw.setdefault('stdout', pipe)
