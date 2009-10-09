@@ -11,8 +11,6 @@ import select
 import subprocess
 import sys
 import tempfile
-from conary import conarycfg
-from conary import conaryclient
 from conary.lib import digestlib
 
 log = logging.getLogger(__name__)

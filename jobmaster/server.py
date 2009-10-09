@@ -20,6 +20,7 @@ from rmake.lib import procutil
 from jobmaster import config
 from jobmaster import jobhandler
 from jobmaster import util
+from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class JobMaster(bus_node.BusNode):
 
         self.loopManager = LoopManager(
                 os.path.join(self.cfg.basePath, 'locks/loop'))
+        self.proxyServer = ProxyServer(('', self.cfg.masterProxyPort))
 
         log.info("Jobmaster %s started with pid %d.", self.bus.getSessionId(),
                 os.getpid())
@@ -58,6 +60,19 @@ class JobMaster(bus_node.BusNode):
             ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
             self._configCache[rbuilderUrl] = ccfg
         return self._configCache[rbuilderUrl]
+
+    def run(self):
+        self.proxyServer.start()
+        try:
+            self.serve_forever()
+        finally:
+            self.proxyServer.kill()
+            self.killHandlers()
+
+    def killHandlers(self):
+        handlers, self.handlers = self.handlers, {}
+        for handler in handlers.values():
+            handler.kill()
 
     # Node client machinery and entry points
     def onTimer(self):
@@ -74,9 +89,7 @@ class JobMaster(bus_node.BusNode):
         Terminate all jobs, esp. after a dispatcher restart.
         """
         log.info("Terminating all jobs per dispatcher request.")
-        for handler in self.handlers.values():
-            handler.kill()
-        self.handlers = {}
+        self.killHandlers()
 
     def doJobCommand(self, msg):
         """
@@ -85,6 +98,10 @@ class JobMaster(bus_node.BusNode):
         job = msg.payload.job
         handler = self.handlers[job.uuid] = jobhandler.JobHandler(self, job)
         handler.start()
+
+    def doStopCommand(self, msg):
+        # TODO
+        pass
 
     def handleRequestIfReady(self, sleepTime):
         bus_node.BusNode.handleRequestIfReady(self, sleepTime)
@@ -118,7 +135,7 @@ def main(args):
     master = JobMaster(cfg)
 
     if options.no_daemon:
-        master.serve_forever()
+        master.run()
         return 0
     else:
         # Double-fork to daemonize
@@ -142,7 +159,7 @@ def main(args):
             fObj.write(str(os.getpid()))
             fObj.close()
 
-            master.serve_forever()
+            master.run()
 
             os.unlink(cfg.pidFile)
         finally:

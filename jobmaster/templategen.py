@@ -1,76 +1,68 @@
 #
-# Copyright (c) 2005-2007 rPath, Inc.
+# Copyright (c) 2005-2007, 2009 rPath, Inc.
 #
-# All rights reserved
+# All rights reserved.
 #
-
-from conary import callbacks
-from conary import conaryclient
-from conary import conarycfg
-from conary.errors import TroveNotFound
-from conary.lib import sha1helper
-from conary.lib import util
-from conary.conaryclient.cmdline import parseTroveSpec
 
 import cPickle
 import errno
-import os
+import logging
 import optparse
+import os
 import signal
-import sys
 import subprocess
+import sys
 import tempfile
 import time
 
+from conary import callbacks
+from conary import conarycfg
+from conary import conaryclient
+from conary.conaryclient.cmdline import parseTroveSpec
+from conary.deps import deps
+from conary.errors import TroveNotFound
+from conary.lib import digestlib
+from conary.lib import sha1helper
+from conary.lib import util
+
+from jobmaster.util import logCall
+
+log = logging.getLogger(__name__)
+
+
 MSG_INTERVAL = 1 # second (for Update Callbacks posted to logs)
-
-def call(cmds, env=None, logPath=None, statusPath=None):
-    msg = "Running " + " ".join(cmds)
-    kwargs = {'env': env}
-    log(msg, logPath, statusPath)
-    subprocess.call(cmds, **kwargs)
-
-def log(msg, logPath=None, statusPath=None, truncateLog=False):
-    statF = logF = None
-    msgWithTimestamp = "[%s] %s" % \
-            (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
-    try:
-        if truncateLog:
-            logOpt = 'w+'
-        else:
-            logOpt = 'a+'
-
-        if statusPath:
-            statF = open(statusPath, 'w+')
-            print >> statF, msg
-
-        if logPath:
-            logF = open(logPath, logOpt)
-        else:
-            logF = sys.stderr
-
-        print >> logF, msgWithTimestamp
-        logF.flush()
-
-    finally:
-        for f in (statF, logF):
-            if f and (f.fileno() > sys.stderr.fileno()):
-                f.close()
 
 
 class AnacondaTemplate(object):
+    def __init__(self, name, version, flavor, cacheDir, tmpDir='/var/tmp',
+            conaryProxy=None):
+        flavor = deps.parseFlavor(flavor)
+        self.troveSpec = (name, version, flavor)
+        self.conaryProxy = conaryProxy
+        self.cacheDir = cacheDir
+        self.tmpDir = tmpDir
+        self.tmpRoot = tempfile.mkdtemp(dir=self.tmpDir)
 
-    _fullTroveSpec = None
-    _fullTroveSpecHash = None
-    _conaryClient = None
-    _uJob = None
-    _callback = None
-    logPath = None
-    statusPath = None
+        self._client = self._getConaryClient()
+        self.troveTup = self._findTrove()
+        self.hash = self._getHash()
 
-    def _call(self, cmd, **kwargs):
-        return call(cmd, logPath=self.logPath, statusPath=self.statusPath,
-                **kwargs)
+        basePath = os.path.join(self.cacheDir, self.hash)
+        dotPath = os.path.join(self.cacheDir, '.' + self.hash)
+
+        self.templatePath = basePath + '.tar'
+        self.metadataPath = basePath + '.metadata'
+        self.statusPath = dotPath + '.status'
+        self.lockPath = dotPath + '.lock'
+
+        self.logger = logging.getLogger('template-' + self.hash[:12])
+
+    def __del__(self):
+        if self._conaryClient:
+            self._conaryClient.close()
+            self._conaryClient = None
+        if self.tmpRoot:
+            util.rmtree(self.tmpRoot, ignore_errors=True)
 
     def _lock(self):
         def _writeLockfile(lockPath):
@@ -110,132 +102,78 @@ class AnacondaTemplate(object):
             return True
         return False
 
-    def _getTroveSpecs(self, uJob):
-        assert(self._getUpdateJob())
-        ts = []
-        for job in self._getUpdateJob().getPrimaryJobs():
-            trvName, trvVersion, trvFlavor = job[0], str(job[2][0]), str(job[2][1])
-            ts.append("%s=%s[%s]" % (trvName, trvVersion, trvFlavor))
-        return ts
-
     def _getConaryClient(self):
-        if not self._conaryClient:
-            assert(self.tmpRoot)
-            cfg = conarycfg.ConaryConfiguration()
-            cfg.root = self.tmpRoot
-            cfg.tmpDir = self.tmpDir
-            if self.conaryProxy:
-                cfg.conaryProxy['http']  = self.conaryProxy
-                cfg.conaryProxy['https'] = self.conaryProxy
-            self._conaryClient = conaryclient.ConaryClient(cfg)
-
-        return self._conaryClient
+        cfg = conarycfg.ConaryConfiguration()
+        cfg.root = self.tmpRoot
+        cfg.tmpDir = self.tmpDir
+        if self.conaryProxy:
+            cfg.conaryProxy['http']  = self.conaryProxy
+            cfg.conaryProxy['https'] = self.conaryProxy
+        return conaryclient.ConaryClient(cfg)
 
     def _getUpdateJob(self):
-        if not self._uJob:
-            assert(self._getConaryClient())
-            trvName, trvVersion, trvFlavor = parseTroveSpec(self.troveSpec)
-            log("Finding update job for %s" % self.troveSpec)
-            itemList = [ (trvName, (None, None),
-                                   (trvVersion, trvFlavor), True) ]
-            self._callback = TemplateUpdateCallback(self.logPath,
-                    self.statusPath)
-            self._callback.setChangeSet(trvName)
-            self._getConaryClient().setUpdateCallback(self._callback)
-            self._uJob, _ = self._getConaryClient().updateChangeSet(itemList,
-                resolveDeps=False)
-        return self._uJob
+        trvName, trvVersion, trvFlavor = parseTroveSpec(self.troveSpec)
+        log("Finding update job for %s" % self.troveSpec)
+        itemList = [ (trvName, (None, None),
+                               (trvVersion, trvFlavor), True) ]
+        self._callback = TemplateUpdateCallback(self.logPath,
+                self.statusPath)
+        self._callback.setChangeSet(trvName)
+        self._client.setUpdateCallback(self._callback)
+        return self._client.updateChangeSet(itemList, resolveDeps=False)[0]
 
-    def _generateHash(self):
-        # Get the full trovespec (with branch and flavor)
-        # so we can hash it and make a unique template name
-        self._fullTroveSpec = self._getTroveSpecs(self._getUpdateJob())[0]
-        self._fullTroveSpecHash = \
-                sha1helper.md5ToString(sha1helper.md5String(self._fullTroveSpec))
+    def _findTrove(self):
+        """
+        Find the requested templates trove and return the trove tuple.
+        """
+        matches = self._client.getSearchSource().findTrove(self.troveSpec)
+        return sorted(matches)[0]
 
-    def __init__(self, version, flavor, cacheDir, tmpDir='/var/tmp',
-      conaryProxy=None):
-        self.troveSpec = 'anaconda-templates=%s[%s]' % (version, flavor)
-        self.conaryProxy = conaryProxy
-        self.cacheDir = cacheDir
-        self.tmpDir = tmpDir
-        self.tmpRoot = tempfile.mkdtemp(dir=self.tmpDir)
-        self.templatePath = os.path.join(self.cacheDir,
-            '%s.tar' % self.getFullTroveSpecHash())
-        self.metadataPath = os.path.join(self.cacheDir,
-            '.%s.metadata' % self.getFullTroveSpecHash())
-        self.statusPath = os.path.join(self.cacheDir,
-            '.%s.status' % self.getFullTroveSpecHash())
-        self.lockPath = os.path.join(self.cacheDir,
-            '.%s.lock' % self.getFullTroveSpecHash())
-        self.logPath = os.path.join(self.cacheDir,
-            '.%s.log' % self.getFullTroveSpecHash())
-
-    def __del__(self):
-        # XXX workaround for CNY-1834
-        if self._conaryClient:
-            if self._conaryClient.db:
-                self._conaryClient.db.close()
-            del self._conaryClient
-        if self.tmpRoot:
-            util.rmtree(self.tmpRoot, ignore_errors=True)
-
-    def getFullTroveSpec(self):
-        if not self._fullTroveSpec:
-            self._generateHash()
-        return self._fullTroveSpec
-
-    def getFullTroveSpecHash(self):
-        if not self._fullTroveSpecHash:
-            self._generateHash()
-        return self._fullTroveSpecHash
+    def _getHash(self):
+        """
+        Hash the trove tuple to get the name where the templates will be
+        cached.
+        """
+        return digestlib.md5('%s=%s[%s]' % self.troveTup).hexdigest()
 
     def exists(self):
-        return os.path.exists(self.templatePath) and \
-               os.path.exists(self.metadataPath)
+        """
+        Return C{True} if a cached copy of the template exists already.
+        """
+        return (os.path.exists(self.templatePath) and
+                os.path.exists(self.metadataPath))
 
     def status(self):
-        isRunning = False
-        status = ''
-        f = None
         try:
-            try:
-                f = open(self.statusPath, 'r')
-                isRunning = True
-                status = f.read()
-            except:
-                pass
-        finally:
-            if f:
-                f.close()
-        return (isRunning, status)
+            fObj = open(self.statusPath, 'r')
+        except IOError, err:
+            if err.errno == errno.ENOENT:
+                return False, ''
+            raise
+        else:
+            return True, fObj.read()
 
     def getMetadata(self):
-        metadata = {}
-        f = None
         try:
-            try:
-                f = open(self.metadataPath, 'r')
-                metadata = cPickle.load(f)
-            except (OSError, IOError), e:
-                log("ERROR: Failed to read metadata file %s (%s)" % \
-                        (self.metadataPath, str(e)))
-        finally:
-            if f:
-                f.close()
-        return metadata
+            fObj = open(self.metadataPath, 'rb')
+        except IOError, err:
+            if err.errno == errno.ENOENT:
+                self.logger.warning("Metadata file does not exist.")
+                return {}
+            raise
+        else:
+            return cPickle.load(fObj)
 
     def _cleanup(self):
         if self.templateWorkDir:
-            log("Cleaning up template working directory %s" % \
-                    self.templateWorkDir, self.logPath, self.statusPath)
+            self.logger.info("Cleaning up template working directory")
             util.rmtree(self.templateWorkDir, ignore_errors=True)
         if self.statusPath:
             os.unlink(self.statusPath)
         self._unlock()
 
     def _signaled(self, sig, frame):
-        log("Caught signal %d, cleaning up" % sig)
+        self.logger.info("Caught signal %d, cleaning up", sig)
         self._cleanup()
 
     def generate(self):
@@ -246,22 +184,19 @@ class AnacondaTemplate(object):
         rc = 0
         templateData = {}
         if self.exists():
-            log("Found a cached template based on %s in %s; exiting" % \
-                        (self.getFullTroveSpec(), self.cacheDir),
-                        self.logPath, self.statusPath)
+            self.logger.info("Serving cached template")
             return 2
 
         util.mkdirChain(self.cacheDir)
 
         if not self._lock():
-            log("Someone else is building a matching anaconda template",
-                    self.logPath, self.statusPath)
+            self.logger.info("Another process is already building "
+                    " this template")
             return 3
 
         # Create our logfile and status file
-        log("Caching anaconda-templates based upon %s" % \
-                self.getFullTroveSpec(),
-                self.logPath, self.statusPath, truncateLog = True)
+        self.logger.info("Caching anaconda-templates based upon %s=%s[%s]",
+                self.troveTup)
         self.templateWorkDir = self.templatePath + ".tmpdir"
 
         # Create a new callback to use the logfile and status file
@@ -272,7 +207,7 @@ class AnacondaTemplate(object):
         self._callback = TemplateUpdateCallback(self.logPath,
                     self.statusPath)
         self._callback.setChangeSet('anaconda-templates')
-        self._getConaryClient().setUpdateCallback(self._callback)
+        self._client.setUpdateCallback(self._callback)
         if oldcallback:
             del oldcallback
 
@@ -294,7 +229,7 @@ class AnacondaTemplate(object):
                 # Download the changeset and install it in the temproot
                 log("Applying changeset %s" % self.getFullTroveSpec(),
                         self.logPath, self.statusPath)
-                self._getConaryClient().applyUpdate(self._getUpdateJob())
+                self._client.applyUpdate(self._getUpdateJob())
                 util.copytree(os.path.join(self.tmpRoot, 'unified'),
                     self.templateWorkDir + os.path.sep)
 
@@ -355,6 +290,7 @@ class AnacondaTemplate(object):
                 log("Fatal error %s occurred while creating template %s" % \
                         (str(e), self.getFullTroveSpec()),
                         self.logPath, self.statusPath)
+                raise
         finally:
             self._cleanup()
 
@@ -501,7 +437,7 @@ class AnacondaTemplateGenerator(object):
             print >> sys.stderr, "anaconda-templates not found with version %s, flavor %s; exiting" % (self._options.version, self._options.flavor)
             return 1
 
-    def __init__(self, args = sys.argv):
+    def __init__(self, args = sys.argv[1:]):
         self.handle_args(args)
 
 if __name__ == '__main__':

@@ -5,9 +5,12 @@
 #
 
 import errno
+import logging
 import os
 import signal
 import time
+
+log = logging.getLogger(__name__)
 
 
 class Pipe(object):
@@ -35,6 +38,29 @@ class Pipe(object):
 
 class Subprocess(object):
     pid = None
+    procName = "subprocess"
+    setsid = False
+
+    def start(self):
+        self.pid = os.fork()
+        if not self.pid:
+            #pylint: disable-msg=W0702,W0212
+            try:
+                try:
+                    if self.setsid:
+                        os.setsid()
+                    ret = self.run()
+                    if not isinstance(ret, (int, long)):
+                        ret = bool(ret)
+                    os._exit(ret)
+                except:
+                    log.exception("Unhandled exception in %s:", self.procName)
+            finally:
+                os._exit(70)
+        return self.pid
+
+    def run(self):
+        raise NotImplementedError
 
     def check(self):
         """
@@ -66,8 +92,6 @@ class Subprocess(object):
                     return False
                 else:
                     raise
-            except KeyboardInterrupt:
-                return self.kill()
             else:
                 # Process found and waited on.
                 self.pid = None
@@ -80,7 +104,12 @@ class Subprocess(object):
         if not self.pid:
             return
         # Try SIGTERM first, but don't wait for longer than 1 second.
-        os.kill(self.pid, signal.SIGTERM)
+        try:
+            os.kill(self.pid, signal.SIGTERM)
+        except OSError, err:
+            if err.errno != errno.ESRCH:
+                raise
+            # Process doesn't exist (or is a zombie)
         start = time.time()
         while time.time() - start < 1.0:
             if not self.check():

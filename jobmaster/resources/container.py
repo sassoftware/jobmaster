@@ -109,7 +109,7 @@ class Container(TempDir, Subprocess):
 
         self.c2p_pipe, self.p2c_pipe = Pipe(), Pipe()
         self.pid = linuxns.clone(self._run_wrapper, (), new_uts=True,
-                new_ipc=True, new_pid=True)#, new_net=True, new_user=True)
+                new_ipc=True, new_pid=True, new_net=True, new_user=True)
         self.c2p_pipe.closeWriter()
         self.p2c_pipe.closeReader()
 
@@ -189,16 +189,19 @@ class Container(TempDir, Subprocess):
 
     def writeConfigs(self):
         master = self.network.masterAddr.format(useMask=False)
-        masterURL = 'http://[%s]:7778/conary/' % master
+        proxyURL = 'http://[%s]:%d/conary/' % (master,
+                self.cfg.conaryProxyPort)
+        masterURL = 'http://[%s]:%d/' % (master, self.cfg.masterProxyPort)
         createFile(self.path, 'tmp/etc/conaryrc',
                 'conaryProxy http %s\n'
                 'conaryProxy https %s\n'
-                % (masterURL, masterURL))
+                % (proxyURL, proxyURL))
         createFile(self.path, 'tmp/etc/jobslave.conf',
                 'debugMode %s\n'
-                'masterAddress %s\n'
+                'masterUrl %s\n'
+                'conaryProxy %s\n'
                 'jobDataPath /tmp/etc/jobslave.data\n'
-                % (self.cfg.debugMode, masterURL))
+                % (self.cfg.debugMode, masterURL, proxyURL))
         createFile(self.path, 'tmp/etc/jobslave.data', self.jobData)
 
 

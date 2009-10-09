@@ -23,11 +23,14 @@ class MasterConfig(config.MCPConfig):
     slaveLimit = (cfgtypes.CfgInt, 5)
 
     # Misc settings
-    debugMode = (cfgtypes.CfgBool, False)
-    lvmVolumeName = 'vg00'
-    minSlaveSize = (cfgtypes.CfgInt, 1024) # scratch space in MB
-    rbuilderUrl = 'http://127.0.0.1/'
-    slaveSubnet = 'fdf0:dbe6:3760::/48'
+    conaryProxyPort = (cfgtypes.CfgInt, 7778)
+    debugMode       = (cfgtypes.CfgBool, False)
+    lvmVolumeName   = 'vg00'
+    masterProxyPort = (cfgtypes.CfgInt, 1138)
+    minSlaveSize    = (cfgtypes.CfgInt, 1024) # scratch space in MB
+    rbuilderUrl     = 'http://127.0.0.1/'
+    slaveSubnet     = 'fdf0:dbe6:3760::/48'
+    troveSpec       = (cfgtypes.CfgString, None)
 
     # DEPRECATED
     conaryProxy = None

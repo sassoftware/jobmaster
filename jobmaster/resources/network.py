@@ -56,9 +56,9 @@ class NetworkPairResource(Resource):
         the slave cgroup.
         """
         # Loopback
-        #logCall(['/sbin/ip', 'addr', 'add', '127.0.0.1/8', 'dev', 'lo'])
-        #logCall(['/sbin/ip', 'addr', 'add', '::1/128', 'dev', 'lo'])
-        #logCall(['/sbin/ip', 'link', 'set', 'lo', 'up'])
+        logCall(['/sbin/ip', 'addr', 'add', '127.0.0.1/8', 'dev', 'lo'])
+        logCall(['/sbin/ip', 'addr', 'add', '::1/128', 'dev', 'lo'])
+        logCall(['/sbin/ip', 'link', 'set', 'lo', 'up'])
 
         # js.*
         logCall(['/sbin/ip', 'addr', 'add', self.slaveAddr.format(True),
