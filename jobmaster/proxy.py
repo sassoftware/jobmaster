@@ -16,14 +16,18 @@ request path is checked against a whitelist and forwarded to the originating
 rBuilder.
 """
 
+import asyncore
 import BaseHTTPServer
+import errno
 import httplib
 import logging
 import re
 import socket
 import SocketServer
+import sys
 import threading
 import urllib
+import weakref
 from conary.lib import util
 from jobmaster.subprocutil import Subprocess
 from jobmaster.util import setupLogging
@@ -43,138 +47,304 @@ ALLOWED_PATHS = {
         }
 
 
-class ProxyServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer,
-        Subprocess):
-    address_family = socket.AF_INET6
+class ConnectionClosed(Exception):
+    pass
 
-    def __init__(self, server_address):
-        BaseHTTPServer.HTTPServer.__init__(self, server_address, ProxyHandler)
+
+class AsyncProxyServer(asyncore.dispatcher):
+    def __init__(self, port=0, map=None):
+        asyncore.dispatcher.__init__(self, None, map)
+        self.create_socket(socket.AF_INET6, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.bind(('::', port))
+        self.port = self.socket.getsockname()[1]
+        self.listen(5)
+
         self.targetMap = {}
-        self._lock = threading.Lock()
+        self.lock = threading.Lock()
 
-    def run(self):
-        try:
-            self.serve_forever()
-        except KeyboardInterrupt:
-            pass
-
-    def handle_error(self, request, client_address):
-        log.exception("Unhandled exception in thread serving request for %s:",
-                client_address)
+    def handle_accept(self):
+        while True:
+            try:
+                sock, _ = self.socket.accept()
+            except socket.error, err:
+                if err.args[0] == errno.EAGAIN:
+                    break
+                raise
+            else:
+                ProxyClient(sock, self._map, self)
 
     def addTarget(self, address, target):
-        self._lock.acquire()
+        self.lock.acquire()
         try:
             self.targetMap[address] = target
         finally:
-            self._lock.release()
+            self.lock.release()
 
-    def removeTarget(self, address):
-        self._lock.acquire()
-        try:
-            del self.targetMap[address]
-        finally:
-            self._lock.release()
-
-    def getTarget(self, address):
+    def findTarget(self, address):
         return 'http://rbatest01.eng.rpath.com/'
-        self._lock.acquire()
-        try:
-            return self.targetMap.get(address)
-        finally:
-            self._lock.release()
 
 
-class ProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-    def do_proxy(self):
-        client = self.client_address[0]
-        # Strip IPv4-in-IPv6 address notation.
-        if client.startswith('::ffff:'):
-            client = client[7:]
+STATE_HEADER, STATE_COPY_ALL, STATE_COPY_SIZE, STATE_COPY_CHUNKED = range(4)
 
-        # Which rBuilder is this client working for?
-        target = self.server.getTarget(client)
-        if not target:
-            self.send_error(403, "Unknown client")
+
+class ProxyDispatcher(asyncore.dispatcher):
+    chunk_size = 8192
+    buffer_threshold = chunk_size * 8
+
+    def __init__(self, sock, map, server):
+        asyncore.dispatcher.__init__(self, sock, map)
+        self._server = weakref.ref(server)
+        self.in_buffer = self.out_buffer = ''
+        self.state = STATE_HEADER
+        self.copy_remaining = 0L
+        self._pair = None
+
+    @property
+    def pair(self):
+        return self._pair and self._pair()
+
+    @staticmethod
+    def _parse_header(header):
+        lines = header.rstrip().split('\r\n')
+        firstline = lines.pop(0)
+
+        headers = {}
+        for line in lines:
+            if ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            value = value.lstrip()
+            headers[key.lower()] = value
+
+        return firstline, headers
+
+    # Sending machinery
+    def send(self, data):
+        """
+        Send C{data} as soon as possible, without blocking.
+        """
+        self.out_buffer += data
+        self._do_send()
+
+    def _do_send(self):
+        """
+        Try to send the current contents of the send queue.
+        """
+        if not self.connected:
             return
+        while self.out_buffer:
+            try:
+                sent = self.socket.send(self.out_buffer)
+            except socket.error, err:
+                if err.args[0] == errno.EAGAIN:
+                    # OS send queue is full; save the rest for later.
+                    break
+                else:
+                    log.debug("Closing socket due to write error %s", str(err))
+                    raise ConnectionClosed
+            else:
+                self.out_buffer = self.out_buffer[sent:]
 
-        # Is this request allowed?
-        allowed = ALLOWED_PATHS.get(self.command)
-        if not allowed:
-            self.send_error(403, "Request not allowed")
-            return
-        for pattern in allowed:
-            if pattern.match(self.path):
-                self.forward_request(target)
-                break
+    def handle_write(self):
+        self._do_send()
+
+    def writable(self):
+        return (not self.connected) or len(self.out_buffer)
+
+    # Receiving machinery
+    def handle_read(self):
+        while len(self.in_buffer) < self.buffer_threshold:
+            try:
+                data = self.socket.recv(self.chunk_size)
+            except socket.error, err:
+                if err.args[0] == errno.EAGAIN:
+                    # OS recv queue is empty.
+                    break
+                else:
+                    log.debug("Closing socket due to read error %s", str(err))
+                    raise ConnectionClosed
+
+            if not data:
+                if self.in_buffer:
+                    # The connection is closed, but we still have to process
+                    # the data we received.
+                    self._do_recv()
+                raise ConnectionClosed
+
+            self.in_buffer += data
+        self._do_recv()
+
+    def _do_recv(self):
+        """
+        Try to process the contents of the input queue.
+        """
+        while self.in_buffer:
+            if self.state == STATE_HEADER:
+                end = self.in_buffer.find('\r\n\r\n')
+                if end > -1:
+                    end += 4
+                    header, self.in_buffer = (self.in_buffer[:end],
+                            self.in_buffer[end:])
+                    self.handle_header(header)
+                    continue
+                elif len(self.in_buffer) > self.buffer_threshold:
+                    log.warning("Dropping connection due to excessively large "
+                            "header.")
+                    raise ConnectionClosed
+                else:
+                    break
+            else:
+                self.handle_copy()
+
+    def readable(self):
+        # Read data if we're processing headers (not copying), or we're copying
+        # and the pair socket is not full.
+        return ((not self.connected) or self.state == STATE_HEADER
+                or self.pair_copyable())
+
+    def handle_header(self, header):
+        raise NotImplementedError
+
+    # Copying machinery
+    def copyable(self):
+        """
+        Return C{True} if the output buffer can accept more bytes.
+        """
+        return len(self.out_buffer) < self.buffer_threshold
+
+    def pair_copyable(self):
+        return self.pair and self.pair.copyable()
+
+    def start_copy(self, headers):
+        assert self.state == STATE_HEADER
+        if 'content-length' in headers:
+            self.copy_remaining = long(headers['content-length'])
+            self.state = STATE_COPY_SIZE
         else:
-            self.send_error(403, "Request not allowed")
+            self.state = STATE_COPY_ALL
 
-    def forward_request(self, target):
-        # Determine and connect to the target host.
-        scheme, url = urllib.splittype(target)
-        if scheme != 'http':
-            log.error("Can't forward to target %r", target)
-            self.send_error(500, "Unable to forward request")
-            return
+    def handle_copy(self):
+        if not self.pair:
+            # Copy to whom?
+            raise ConnectionClosed
 
-        host, url = urllib.splithost(url)
-        host, port = urllib.splitport(host)
+        if self.state == STATE_COPY_ALL:
+            copyBytes = len(self.in_buffer)
+        elif self.state == STATE_COPY_SIZE:
+            copyBytes = min(len(self.in_buffer), self.copy_remaining)
+        else:
+            assert False
 
-        conn = httplib.HTTPConnection(host, port)
-        conn.connect()
+        buffer, self.in_buffer = (
+                self.in_buffer[:copyBytes], self.in_buffer[copyBytes:])
+        self.pair.send(buffer)
 
-        # Forward the request and its entity (body) to the target.
-        self.headers['Connection'] = 'close'
-        if 'Expect' in self.headers:
-            del self.headers['Expect']
-        conn.putrequest(self.command, self.path, skip_host=True,
-                skip_accept_encoding=True)
-        for header in self.headers.headers:
-            conn.putheader(*header.rstrip().split(':', 1))
-        conn.endheaders()
-        length = long(self.headers.get('Content-Length', 0))
-        if length:
-            util.copyfileobj(self.rfile, conn, sizeLimit=length)
+        if self.state == STATE_COPY_SIZE:
+            self.copy_remaining -= copyBytes
+            if not self.copy_remaining:
+                # Done sending the entity; back to waiting for headers.
+                self.state == STATE_HEADER
 
-        # Get the response and forward it back to the caller.
-        resp = httplib.HTTPResponse(conn.sock, method=self.command)
-        resp.begin()
-        assert resp.version == 11
-        assert not resp.chunked
-        self.wfile.write('HTTP/1.1 %s %s\r\n%s\r\n'
-                % (resp.status, resp.reason, str(resp.msg)))
-        if resp.length:
-            util.copyfileobj(resp.fp, self.wfile, sizeLimit=resp.length)
+    # Cleanup machinery
+    def handle_close(self):
+        raise ConnectionClosed
 
-        resp.close()
-        conn.close()
+    def handle_error(self):
+        e_class, e_value, e_tb = sys.exc_info()
+        if e_class is ConnectionClosed:
+            self.close()
+        else:
+            raise #XXX
 
-    # Entry points from BaseHTTPRequestHandler
-    do_DELETE = do_proxy
-    do_GET = do_proxy
-    do_HEAD = do_proxy
-    do_POST = do_proxy
-    do_PUT = do_proxy
 
-    def log_error(self, format, *args):
-        self._log(logging.ERROR, format, *args)
-    def log_message(self, format, *args):
-        self._log(logging.ERROR, format, *args)
+class ProxyClient(ProxyDispatcher):
+    upstream = None
 
-    def _log(self, level, format, *args):
-        message = '[%s] %s' % (self.address_string(), format)
-        log.log(level, message, *args)
+    def close(self):
+        ProxyDispatcher.close(self)
+        if self.upstream:
+            self.upstream.close()
+            self.upstream = None
+
+    def handle_header(self, request):
+        """
+        Parse a request from the client and direct it where it needs to go.
+        """
+        requestline, headers = self._parse_header(request)
+
+        words = requestline.split()
+        if len(words) != 3:
+            log.error("Dropping client with unsupported request line: %s",
+                    requestline)
+            raise ConnectionClosed
+
+        self.method, self.path, version = words
+        if version != 'HTTP/1.1':
+            log.error("Dropping client with unsupported HTTP version %s",
+                    version)
+            raise ConnectionClosed
+
+        return self.do_proxy(request, headers)
+
+
+    def send_response(self, response, headers, body=''):
+        headers.append('Content-Length: %s' % len(body))
+        self.send('HTTP/1.1 %s\r\n%s\r\n\r\n%s' % (response,
+            '\r\n'.join(headers), body))
+
+    def do_proxy(self, request, headers):
+        ok = False
+        paths = ALLOWED_PATHS.get(self.method)
+        if paths:
+            for pattern in paths:
+                if pattern.match(self.path):
+                    ok = True
+                    break
+        if not ok:
+            return self.send_response('403 Forbidden',
+                    ['Content-Type: text/plain'], 'Proxying not permitted\r\n')
+
+        if self.pair:
+            self.pair.send(request)
+        else:
+            self.upstream = ProxyUpstream(None, self._map, self._server())
+            self.upstream._pair = weakref.ref(self)
+            self.upstream.send(request)
+            self.upstream.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.upstream.connect(('172.16.160.151', 80))
+            self._pair = weakref.ref(self.upstream)
+
+        self.start_copy(headers)
+
+
+class ProxyUpstream(ProxyDispatcher):
+    def handle_connect(self):
+        if not self.pair:
+            raise ConnectionClosed
+        self._do_send()
+
+    def handle_header(self, response):
+        if not self.pair:
+            raise ConnectionClosed
+        responseline, headers = self._parse_header(response)
+        self.start_copy(headers)
+        self.pair.send(response)
 
 
 def test():
+    import epdb, signal, os
+    print os.getpid()
+    def hdlr(signum, tb):
+        epdb.serve()
+    signal.signal(signal.SIGUSR1, hdlr)
+
     setupLogging(logging.DEBUG)
-    s = ProxyServer(('', 1138))
-    s.start()
+    s = AsyncProxyServer(1138)
     try:
-        s.wait()
+        asyncore.loop(use_poll=True)
     except KeyboardInterrupt:
-        s.kill()
+        print
 
 
 if __name__ == '__main__':
