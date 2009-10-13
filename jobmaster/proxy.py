@@ -85,20 +85,24 @@ class AsyncProxyServer(asyncore.dispatcher):
         return 'http://rbatest01.eng.rpath.com/'
 
 
-STATE_HEADER, STATE_COPY_ALL, STATE_COPY_SIZE, STATE_COPY_CHUNKED = range(4)
+(STATE_HEADER, STATE_COPY_ALL, STATE_COPY_SIZE, STATE_COPY_CHUNKED,
+        STATE_COPY_TRAILER, STATE_CLOSING) = range(6)
 
 
 class ProxyDispatcher(asyncore.dispatcher):
     chunk_size = 8192
     buffer_threshold = chunk_size * 8
 
-    def __init__(self, sock, map, server):
+    def __init__(self, sock, map, server, pair=None):
         asyncore.dispatcher.__init__(self, sock, map)
         self._server = weakref.ref(server)
         self.in_buffer = self.out_buffer = ''
         self.state = STATE_HEADER
         self.copy_remaining = 0L
-        self._pair = None
+        if pair:
+            self._pair = weakref.ref(pair)
+        else:
+            self._pair = None
 
     @property
     def pair(self):
@@ -146,6 +150,10 @@ class ProxyDispatcher(asyncore.dispatcher):
             else:
                 self.out_buffer = self.out_buffer[sent:]
 
+        if self.state == STATE_CLOSING:
+            # Write buffer is flushed; close it now.
+            raise ConnectionClosed
+
     def handle_write(self):
         self._do_send()
 
@@ -154,31 +162,28 @@ class ProxyDispatcher(asyncore.dispatcher):
 
     # Receiving machinery
     def handle_read(self):
-        while len(self.in_buffer) < self.buffer_threshold:
-            try:
-                data = self.socket.recv(self.chunk_size)
-            except socket.error, err:
-                if err.args[0] == errno.EAGAIN:
-                    # OS recv queue is empty.
-                    break
-                else:
-                    log.debug("Closing socket due to read error %s", str(err))
-                    raise ConnectionClosed
-
-            if not data:
-                if self.in_buffer:
-                    # The connection is closed, but we still have to process
-                    # the data we received.
-                    self._do_recv()
+        try:
+            data = self.socket.recv(self.chunk_size)
+        except socket.error, err:
+            if err.args[0] == errno.EAGAIN:
+                # OS recv queue is empty.
+                return
+            else:
+                log.debug("Closing socket due to read error %s", str(err))
                 raise ConnectionClosed
 
+        if True or self.state != STATE_CLOSING:
             self.in_buffer += data
-        self._do_recv()
+            self._do_recv()
+
+        if not data:
+            raise ConnectionClosed
 
     def _do_recv(self):
         """
         Try to process the contents of the input queue.
         """
+        last = len(self.in_buffer)
         while self.in_buffer:
             if self.state == STATE_HEADER:
                 end = self.in_buffer.find('\r\n\r\n')
@@ -187,15 +192,17 @@ class ProxyDispatcher(asyncore.dispatcher):
                     header, self.in_buffer = (self.in_buffer[:end],
                             self.in_buffer[end:])
                     self.handle_header(header)
-                    continue
                 elif len(self.in_buffer) > self.buffer_threshold:
                     log.warning("Dropping connection due to excessively large "
                             "header.")
                     raise ConnectionClosed
-                else:
-                    break
             else:
                 self.handle_copy()
+
+            # Keep processing until the input buffer stops shrinking.
+            if len(self.in_buffer) == last:
+                break
+            last = len(self.in_buffer)
 
     def readable(self):
         # Read data if we're processing headers (not copying), or we're copying
@@ -218,7 +225,14 @@ class ProxyDispatcher(asyncore.dispatcher):
 
     def start_copy(self, headers):
         assert self.state == STATE_HEADER
-        if 'content-length' in headers:
+        if 'transfer-encoding' in headers:
+            if headers['transfer-encoding'] != 'chunked':
+                log.error("Don't know how to copy transfer encoding %r",
+                        headers['transfer-encoding'])
+                raise ConnectionClosed
+            self.copy_remaining = 0L
+            self.state = STATE_COPY_CHUNKED
+        elif 'content-length' in headers:
             self.copy_remaining = long(headers['content-length'])
             self.state = STATE_COPY_SIZE
         else:
@@ -231,20 +245,69 @@ class ProxyDispatcher(asyncore.dispatcher):
 
         if self.state == STATE_COPY_ALL:
             copyBytes = len(self.in_buffer)
+
         elif self.state == STATE_COPY_SIZE:
             copyBytes = min(len(self.in_buffer), self.copy_remaining)
+            if not copyBytes:
+                # Done copying fixed-length entity; back to reading headers.
+                state = STATE_HEADER
+                return
+
+        elif self.state == STATE_COPY_CHUNKED:
+            if not self.copy_remaining:
+                # Read the size of the next chunk.
+                end = self.in_buffer.find('\r\n')
+                if end < 0:
+                    if len(self.in_buffer) > self.buffer_threshold:
+                        log.warning("Very large chunk header; "
+                                "closing connection.")
+                        raise ConnectionClosed
+                    # No chunk header yet.
+                    return
+
+                header = self.in_buffer[:end].split(';')[0]
+                try:
+                    next_size = int(header, 16)
+                except ValueError:
+                    log.error("Bad chunk header; closing connection.")
+                    raise ConnectionClosed
+
+                self.copy_remaining = end + 2 + next_size
+                if next_size:
+                    # Copy the CRLF after the chunk data.
+                    self.copy_remaining += 2
+                else:
+                    # Last chunk. Switch to trailer mode.
+                    self.state = STATE_COPY_TRAILER
+
+            copyBytes = min(len(self.in_buffer), self.copy_remaining)
+
+        elif self.state == STATE_COPY_TRAILER:
+            if len(self.in_buffer) < 2:
+                # Not enough bytes to determine whether there is a trailer.
+                return
+            elif self.in_buffer[:2] == '\r\n':
+                # No trailer.
+                copyBytes = 2
+            else:
+                end = self.in_buffer.find('\r\n\r\n')
+                if end < 0:
+                    return
+
+                # Trailer found.
+                copyBytes = end + 4
+
+            self.state = STATE_HEADER
+
         else:
             assert False
 
-        buffer, self.in_buffer = (
-                self.in_buffer[:copyBytes], self.in_buffer[copyBytes:])
+        buffer = self.in_buffer[:copyBytes]
+        self.in_buffer = self.in_buffer[copyBytes:]
         self.pair.send(buffer)
 
-        if self.state == STATE_COPY_SIZE:
+        if self.state in (STATE_COPY_SIZE, STATE_COPY_CHUNKED):
             self.copy_remaining -= copyBytes
-            if not self.copy_remaining:
-                # Done sending the entity; back to waiting for headers.
-                self.state == STATE_HEADER
 
     # Cleanup machinery
     def handle_close(self):
@@ -257,15 +320,25 @@ class ProxyDispatcher(asyncore.dispatcher):
         else:
             raise #XXX
 
+    def close(self):
+        asyncore.dispatcher.close(self)
+        pair, self._pair = self.pair, None
+        if pair:
+            pair.pair_closed()
+
+    def pair_closed(self):
+        pass
+
 
 class ProxyClient(ProxyDispatcher):
     upstream = None
 
-    def close(self):
-        ProxyDispatcher.close(self)
-        if self.upstream:
-            self.upstream.close()
-            self.upstream = None
+    def pair_closed(self):
+        if self.out_buffer:
+            # Don't close the connection until the send queue is empty.
+            self.state = STATE_CLOSING
+        else:
+            self.close()
 
     def handle_header(self, request):
         """
@@ -308,27 +381,39 @@ class ProxyClient(ProxyDispatcher):
         if self.pair:
             self.pair.send(request)
         else:
-            self.upstream = ProxyUpstream(None, self._map, self._server())
-            self.upstream._pair = weakref.ref(self)
-            self.upstream.send(request)
-            self.upstream.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.upstream.connect(('172.16.160.151', 80))
-            self._pair = weakref.ref(self.upstream)
+            upstream = ProxyUpstream(None, self._map, self._server(), self)
+            upstream._pair = weakref.ref(self)
+            upstream.send(request)
+            upstream.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+            upstream.connect(('172.16.160.151', 80))
+            self._pair = weakref.ref(upstream)
 
         self.start_copy(headers)
 
 
 class ProxyUpstream(ProxyDispatcher):
+    def pair_closed(self):
+        self.close()
+
     def handle_connect(self):
         if not self.pair:
             raise ConnectionClosed
         self._do_send()
 
-    def handle_header(self, response):
+    def handle_read(self):
         if not self.pair:
             raise ConnectionClosed
+        ProxyDispatcher.handle_read(self)
+
+    def handle_header(self, response):
         responseline, headers = self._parse_header(response)
-        self.start_copy(headers)
+        version, code, message = responseline.split(' ', 2)
+        code = int(code)
+        if 100 <= code < 200:
+            # 1xx codes don't have an entity.
+            pass
+        else:
+            self.start_copy(headers)
         self.pair.send(response)
 
 
