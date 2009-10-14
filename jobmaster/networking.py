@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 # Copyright (c) 2009 rPath, Inc.
 #
@@ -5,13 +6,19 @@
 #
 
 import random
-import struct
-import sys
 
 
 class AddressGenerator(object):
     def __init__(self, subnet=None):
-        self.subnet = subnet or self.generateSubnet()
+        if isinstance(subnet, basestring):
+            self.subnet = Address.parse(subnet)
+        elif isinstance(subnet, Address):
+            self.subnet = subnet
+        elif subnet is not None:
+            raise TypeError("subnet must be a string or Address object")
+        else:
+            self.subnet = subnet or self.generateSubnet()
+        assert self.subnet.mask <= 48
 
     @staticmethod
     def generateSubnet():
@@ -38,6 +45,12 @@ class Address(object):
     def __init__(self, address, mask):
         self.address = address
         self.mask = mask
+
+    def __repr__(self):
+        return 'Address(%s, %s)' % (self.address, self.mask)
+
+    def __str__(self):
+        return self.format(True)
 
     @classmethod
     def parse(cls, val):
@@ -127,3 +140,28 @@ class Address(object):
         if useMask:
             out += '/%d' % self.mask
         return out
+
+
+def test():
+    import sys
+    args = sys.argv[1:]
+    if args:
+        subnet = args.pop(0)
+        if subnet == '-':
+            print AddressGenerator.generateSubnet()
+            return
+        subnet = Address.parse(subnet)
+    else:
+        subnet = None
+
+    gen = AddressGenerator(subnet)
+    if args:
+        count = int(args.pop(0))
+    else:
+        count = 1
+    for n in range(count):
+        print gen.generateHostPair()[0]
+
+
+if __name__ == '__main__':
+    test()

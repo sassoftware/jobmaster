@@ -15,6 +15,7 @@ from conary import conarycfg
 from conary import conaryclient
 from jobmaster import cgroup, linuxns
 from jobmaster.config import MasterConfig
+from jobmaster.networking import AddressGenerator
 from jobmaster.resource import Resource, ResourceStack
 from jobmaster.resources.block import ScratchDisk
 from jobmaster.resources.chroot import BoundContentsRoot
@@ -32,11 +33,11 @@ class ContainerWrapper(ResourceStack):
     This resource stack creates and tears down all resources that live outside
     of the container process, specifically the scratch disk and contents root.
     """
-    def __init__(self, troves, cfg, conaryCfg, loopManager=None):
+    def __init__(self, name, troves, cfg, conaryCfg, loopManager, network):
         ResourceStack.__init__(self)
 
+        self.name = name
         self.cfg = cfg
-        self.name = os.urandom(6).encode('hex')
 
         self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
@@ -49,7 +50,7 @@ class ContainerWrapper(ResourceStack):
         self.devFS = DevFS(loopManager)
         self.append(self.devFS)
 
-        self.network = NetworkPairResource(self.name)
+        self.network = network
         self.append(self.network)
 
         self.container = Container(self.name, cfg)
@@ -206,8 +207,11 @@ class Container(TempDir, Subprocess):
 
 
 def main(args):
+    import simplejson
+    import threading
     from conary.conaryclient import cmdline
     from conary.lib import util
+    from jobmaster.proxy import ProxyServer
     from jobmaster.resources.devfs import LoopManager
 
     if len(args) < 2:
@@ -221,6 +225,11 @@ def main(args):
     mcfg = MasterConfig()
     mcfg.read(cfgPath)
 
+    proxy = ProxyServer(port=mcfg.masterProxyPort)
+    proxyThread = threading.Thread(target=proxy.serve_forever)
+    proxyThread.setDaemon(True)
+    proxyThread.start()
+
     ccfg = conarycfg.ConaryConfiguration(True)
     ccfg.initializeFlavors()
     if mcfg.conaryProxy != 'self':
@@ -232,11 +241,18 @@ def main(args):
     specTups = [cmdline.parseTroveSpec(x) for x in troveSpecs]
     troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
 
+    jobData = open('data').read()
+    jobDataDict = simplejson.loads(jobData)
+
     loopDir = tempfile.mkdtemp()
     try:
         loopManager = LoopManager(loopDir)
-        container = ContainerWrapper(troveTups, mcfg,
-                conaryCfg=ccfg, loopManager=loopManager)
+        name = os.urandom(6).encode('hex')
+        generator = AddressGenerator(mcfg.pairSubnet)
+        network = NetworkPairResource(generator, name)
+        proxy.addTarget(network.slaveAddr, jobDataDict['rbuilderUrl'])
+        container = ContainerWrapper(name, troveTups, mcfg,
+                ccfg, loopManager, network)
         container.start(open('data').read())
         container.wait()
 

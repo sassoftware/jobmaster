@@ -20,6 +20,7 @@ from rmake.lib import procutil
 from jobmaster import config
 from jobmaster import jobhandler
 from jobmaster import util
+from jobmaster.networking import AddressGenerator
 from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
 
@@ -45,7 +46,9 @@ class JobMaster(bus_node.BusNode):
 
         self.loopManager = LoopManager(
                 os.path.join(self.cfg.basePath, 'locks/loop'))
-        self.proxyServer = ProxyServer(('', self.cfg.masterProxyPort))
+        self.addressGenerator = AddressGenerator(cfg.pairSubnet)
+        self._map = self.bus.session._map
+        self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map)
 
         log.info("Jobmaster %s started with pid %d.", self.bus.getSessionId(),
                 os.getpid())
@@ -62,11 +65,9 @@ class JobMaster(bus_node.BusNode):
         return self._configCache[rbuilderUrl]
 
     def run(self):
-        self.proxyServer.start()
         try:
             self.serve_forever()
         finally:
-            self.proxyServer.kill()
             self.killHandlers()
 
     def killHandlers(self):
@@ -97,6 +98,7 @@ class JobMaster(bus_node.BusNode):
         """
         job = msg.payload.job
         handler = self.handlers[job.uuid] = jobhandler.JobHandler(self, job)
+        self.proxyServer.addTarget(handler.network.slaveAddr, job.rbuilderUrl)
         handler.start()
 
     def doStopCommand(self, msg):
@@ -118,6 +120,7 @@ class JobMaster(bus_node.BusNode):
         msg = messages.JobCompleteMessage()
         msg.set(uuid)
         self.bus.sendMessage('/image_event', msg)
+        self.proxyServer.removeTarget(handler.network.slaveAddr)
 
         del self.handlers[uuid]
 

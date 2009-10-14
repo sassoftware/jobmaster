@@ -15,11 +15,11 @@ class NetworkPairResource(Resource):
     Resource that sets up and tears down a veth network pair.
     """
 
-    def __init__(self, name):
+    def __init__(self, generator, name):
         Resource.__init__(self)
         self.masterName = 'jm.' + name
         self.slaveName = 'js.' + name
-        self.masterAddr, self.slaveAddr = AddressGenerator().generateHostPair()
+        self.masterAddr, self.slaveAddr = generator.generateHostPair()
 
     def start(self):
         logCall(['/sbin/ip', 'link', 'add', 'name', self.masterName, 'type',
@@ -27,9 +27,8 @@ class NetworkPairResource(Resource):
 
         # Configure the master end immediately. The slave end can only be
         # configured inside the cgroup.
-        logCall(['/sbin/ip', 'addr', 'add', self.masterAddr.format(True),
-            'dev', self.masterName])
-        logCall(['/sbin/ip', 'link', 'set', self.masterName, 'up'])
+        self._add(self.masterName, self.masterAddr)
+        self._setUp(self.masterName)
 
     def _close(self):
         # When a cgroup is freed, all of the network devices that exist only in
@@ -56,11 +55,22 @@ class NetworkPairResource(Resource):
         the slave cgroup.
         """
         # Loopback
-        logCall(['/sbin/ip', 'addr', 'add', '127.0.0.1/8', 'dev', 'lo'])
-        logCall(['/sbin/ip', 'addr', 'add', '::1/128', 'dev', 'lo'])
-        logCall(['/sbin/ip', 'link', 'set', 'lo', 'up'])
+        self._add('lo', '127.0.0.1/8')
+        self._add('lo', '::1/128')
+        self._setUp('lo')
+        #logCall(['/sbin/ip', '-6', 'route']);logCall(['/sbin/ip', '-6', 'addr'])
 
         # js.*
-        logCall(['/sbin/ip', 'addr', 'add', self.slaveAddr.format(True),
-            'dev', self.slaveName])
-        logCall(['/sbin/ip', 'link', 'set', self.slaveName, 'up'])
+        self._add(self.slaveName, self.slaveAddr)
+        self._setUp(self.slaveName)
+
+        #logCall(['/sbin/ip', '-6', 'route']);logCall(['/sbin/ip', '-6', 'addr'])
+
+    @staticmethod
+    def _add(device, address):
+        logCall(['/sbin/ip', 'addr', 'add', str(address), 'dev', device,
+            'valid_lft', 'forever', 'preferred_lft', 'forever', 'nodad'])
+
+    @staticmethod
+    def _setUp(device):
+        logCall(['/sbin/ip', 'link', 'set', device, 'up'])

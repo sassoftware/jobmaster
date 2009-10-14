@@ -10,6 +10,7 @@ import random
 import signal
 from conary.conaryclient import cmdline
 from jobmaster.resources.container import ContainerWrapper
+from jobmaster.resources.network import NetworkPairResource
 from jobmaster.subprocutil import Subprocess
 
 log = logging.getLogger(__name__)
@@ -25,7 +26,9 @@ class JobHandler(Subprocess):
 
         self.conaryCfg = master.getConaryConfig(job.rbuilder_url)
         self.loopManager = master.loopManager
-        self.proxyServer = master.proxyServer
+
+        self.name = os.urandom(6).encode('hex')
+        self.network = NetworkPairResource(master.addressGenerator, self.name)
 
         self.pid = None
 
@@ -40,13 +43,8 @@ class JobHandler(Subprocess):
         troveTup = sorted(source.findTrove(troveSpec))[0]
 
         # Allocate early resources.
-        jobslave = ContainerWrapper([troveTup], self.cfg, self.conaryCfg,
-                self.loopManager)
-
-        # Instruct the proxy to forward this slave's requests to the
-        # originating rBuilder.
-        address = jobslave.network.slaveAddr.format(False)
-        self.proxyServer.addTarget(address, self.job.rbuilder_url)
+        jobslave = ContainerWrapper(self.name, [troveTup], self.cfg,
+                self.conaryCfg, self.loopManager, self.network)
 
         # Start up the container process and wait for it to finish.
         jobslave.start(self.job.job_data)
@@ -54,7 +52,6 @@ class JobHandler(Subprocess):
         signal.signal(signal.SIGQUIT, self._onSignal)
         jobslave.wait()
 
-        self.proxyServer.removeTarget(address)
         log.info("Job %s exited", self.job.uuid)
 
     def _onSignal(self, signum, sigtb):

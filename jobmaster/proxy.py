@@ -17,19 +17,14 @@ rBuilder.
 """
 
 import asyncore
-import BaseHTTPServer
 import errno
-import httplib
 import logging
 import re
 import socket
-import SocketServer
 import sys
 import threading
 import urllib
 import weakref
-from conary.lib import util
-from jobmaster.subprocutil import Subprocess
 from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
@@ -51,17 +46,20 @@ class ConnectionClosed(Exception):
     pass
 
 
-class AsyncProxyServer(asyncore.dispatcher):
-    def __init__(self, port=0, map=None):
-        asyncore.dispatcher.__init__(self, None, map)
+class ProxyServer(asyncore.dispatcher):
+    def __init__(self, port=0, _map=None):
+        asyncore.dispatcher.__init__(self, None, _map)
         self.create_socket(socket.AF_INET6, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.bind(('::', port))
         self.port = self.socket.getsockname()[1]
         self.listen(5)
 
-        self.targetMap = {}
         self.lock = threading.Lock()
+        self.targetMap = {}
+
+    def serve_forever(self):
+        asyncore.loop(use_poll=True, map=self._map)
 
     def handle_accept(self):
         while True:
@@ -74,15 +72,30 @@ class AsyncProxyServer(asyncore.dispatcher):
             else:
                 ProxyClient(sock, self._map, self)
 
-    def addTarget(self, address, target):
+    def addTarget(self, address, targetUrl):
+        if not isinstance(address, basestring):
+            address = address.format(useMask=False)
         self.lock.acquire()
         try:
-            self.targetMap[address] = target
+            self.targetMap[address] = targetUrl
+        finally:
+            self.lock.release()
+
+    def removeTarget(self, address):
+        if not isinstance(address, basestring):
+            address = address.format(useMask=False)
+        self.lock.acquire()
+        try:
+            del self.targetMap[address]
         finally:
             self.lock.release()
 
     def findTarget(self, address):
-        return 'http://rbatest01.eng.rpath.com/'
+        self.lock.acquire()
+        try:
+            return self.targetMap.get(address)
+        finally:
+            self.lock.release()
 
 
 (STATE_HEADER, STATE_COPY_ALL, STATE_COPY_SIZE, STATE_COPY_CHUNKED,
@@ -93,8 +106,8 @@ class ProxyDispatcher(asyncore.dispatcher):
     chunk_size = 8192
     buffer_threshold = chunk_size * 8
 
-    def __init__(self, sock, map, server, pair=None):
-        asyncore.dispatcher.__init__(self, sock, map)
+    def __init__(self, sock, _map, server, pair=None):
+        asyncore.dispatcher.__init__(self, sock, _map)
         self._server = weakref.ref(server)
         self.in_buffer = self.out_buffer = ''
         self.state = STATE_HEADER
@@ -103,6 +116,10 @@ class ProxyDispatcher(asyncore.dispatcher):
             self._pair = weakref.ref(pair)
         else:
             self._pair = None
+
+    @property
+    def server(self):
+        return self._server()
 
     @property
     def pair(self):
@@ -183,8 +200,13 @@ class ProxyDispatcher(asyncore.dispatcher):
         """
         Try to process the contents of the input queue.
         """
-        last = len(self.in_buffer)
+        last = None
         while self.in_buffer:
+            # Keep processing until the input buffer stops shrinking.
+            if (self.state, len(self.in_buffer)) == last:
+                break
+            last = self.state, len(self.in_buffer)
+
             if self.state == STATE_HEADER:
                 end = self.in_buffer.find('\r\n\r\n')
                 if end > -1:
@@ -198,11 +220,6 @@ class ProxyDispatcher(asyncore.dispatcher):
                     raise ConnectionClosed
             else:
                 self.handle_copy()
-
-            # Keep processing until the input buffer stops shrinking.
-            if len(self.in_buffer) == last:
-                break
-            last = len(self.in_buffer)
 
     def readable(self):
         # Read data if we're processing headers (not copying), or we're copying
@@ -250,7 +267,7 @@ class ProxyDispatcher(asyncore.dispatcher):
             copyBytes = min(len(self.in_buffer), self.copy_remaining)
             if not copyBytes:
                 # Done copying fixed-length entity; back to reading headers.
-                state = STATE_HEADER
+                self.state = STATE_HEADER
                 return
 
         elif self.state == STATE_COPY_CHUNKED:
@@ -302,9 +319,9 @@ class ProxyDispatcher(asyncore.dispatcher):
         else:
             assert False
 
-        buffer = self.in_buffer[:copyBytes]
+        buf = self.in_buffer[:copyBytes]
         self.in_buffer = self.in_buffer[copyBytes:]
-        self.pair.send(buffer)
+        self.pair.send(buf)
 
         if self.state in (STATE_COPY_SIZE, STATE_COPY_CHUNKED):
             self.copy_remaining -= copyBytes
@@ -314,11 +331,11 @@ class ProxyDispatcher(asyncore.dispatcher):
         raise ConnectionClosed
 
     def handle_error(self):
-        e_class, e_value, e_tb = sys.exc_info()
-        if e_class is ConnectionClosed:
-            self.close()
-        else:
-            raise #XXX
+        e_class = sys.exc_info()[0]
+        if e_class is not ConnectionClosed:
+            log.exception("Unhandled exception in proxy handler; "
+                    "closing connection:")
+        self.close()
 
     def close(self):
         asyncore.dispatcher.close(self)
@@ -352,13 +369,13 @@ class ProxyClient(ProxyDispatcher):
                     requestline)
             raise ConnectionClosed
 
-        self.method, self.path, version = words
+        method, path, version = words
         if version != 'HTTP/1.1':
             log.error("Dropping client with unsupported HTTP version %s",
                     version)
             raise ConnectionClosed
 
-        return self.do_proxy(request, headers)
+        return self.do_proxy(request, method, path, headers)
 
 
     def send_response(self, response, headers, body=''):
@@ -366,30 +383,64 @@ class ProxyClient(ProxyDispatcher):
         self.send('HTTP/1.1 %s\r\n%s\r\n\r\n%s' % (response,
             '\r\n'.join(headers), body))
 
-    def do_proxy(self, request, headers):
-        ok = False
-        paths = ALLOWED_PATHS.get(self.method)
+    def send_text(self, response, body):
+        self.send_response(response, ['Content-Type: text/plain'], body)
+
+    def do_proxy(self, request, method, path, headers):
+        proxyOK = False
+        paths = ALLOWED_PATHS.get(method)
         if paths:
             for pattern in paths:
-                if pattern.match(self.path):
-                    ok = True
+                if pattern.match(path):
+                    proxyOK = True
                     break
-        if not ok:
-            return self.send_response('403 Forbidden',
-                    ['Content-Type: text/plain'], 'Proxying not permitted\r\n')
+        if not proxyOK:
+            return self.send_text('403 Forbidden',
+                    'Proxying not permitted\r\n')
 
         if self.pair:
             self.pair.send(request)
         else:
+            # Note that we don't need to keep a strong reference to the paired
+            # connection because one is kept in the asyncore poll map.
             upstream = ProxyUpstream(None, self._map, self._server(), self)
             upstream._pair = weakref.ref(self)
             upstream.send(request)
-            upstream.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-            upstream.connect(('172.16.160.151', 80))
-            self._pair = weakref.ref(upstream)
+            self._connect(upstream)
 
         self.start_copy(headers)
 
+    def _connect(self, upstream):
+        # Figure out who we're proxying to.
+        peer = self.socket.getpeername()[0]
+        url = self.server.findTarget(peer)
+        if not url:
+            return self.send_text('403 Forbidden', 'Peer not recognized\r\n')
+
+        # Split the URL to get the hostname.
+        scheme, url = urllib.splittype(url)
+        if scheme != 'http':
+            return self.send_text('504 Gateway Timeout',
+                    'Invalid target URL\r\n')
+        host, port = _split_hostport(urllib.splithost(url)[0])
+
+        # Resolve the hostname to an address.
+        try:
+            addresses = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        except socket.gaierror, err:
+            log.error("Error resolving target URL: %s", err)
+            addresses = []
+        if not addresses:
+            return self.send_text('504 Gateway Timeout',
+                    'Unknown target URL\r\n')
+
+        # Create the right socket type and initiate the connection (which may
+        # not complete immediately).
+        family, socktype, _, _, address = addresses[0]
+        upstream.create_socket(family, socktype)
+        upstream.connect(address)
+
+        self._pair = weakref.ref(upstream)
 
 class ProxyUpstream(ProxyDispatcher):
     def pair_closed(self):
@@ -407,7 +458,7 @@ class ProxyUpstream(ProxyDispatcher):
 
     def handle_header(self, response):
         responseline, headers = self._parse_header(response)
-        version, code, message = responseline.split(' ', 2)
+        code = responseline.split(' ', 2)[1]
         code = int(code)
         if 100 <= code < 200:
             # 1xx codes don't have an entity.
@@ -417,15 +468,28 @@ class ProxyUpstream(ProxyDispatcher):
         self.pair.send(response)
 
 
+def _split_hostport(host):
+    i = host.rfind(':')
+    j = host.rfind(']')
+    if i > j:
+        port = int(host[i+1:])
+        host = host[:i]
+    else:
+        port = 80
+    if host and host[0] == '[' and host[-1] == ']':
+        host = host[1:-1]
+    return host, port
+
+
 def test():
     import epdb, signal, os
     print os.getpid()
-    def hdlr(signum, tb):
+    def hdlr(signum, sigtb):
         epdb.serve()
     signal.signal(signal.SIGUSR1, hdlr)
 
     setupLogging(logging.DEBUG)
-    s = AsyncProxyServer(1138)
+    s = ProxyServer(7770)
     try:
         asyncore.loop(use_poll=True)
     except KeyboardInterrupt:
