@@ -98,7 +98,7 @@ class JobMaster(bus_node.BusNode):
         """
         job = msg.payload.job
         handler = self.handlers[job.uuid] = jobhandler.JobHandler(self, job)
-        self.proxyServer.addTarget(handler.network.slaveAddr, job.rbuilderUrl)
+        self.proxyServer.addTarget(handler.network.slaveAddr, job.rbuilder_url)
         handler.start()
 
     def doStopCommand(self, msg):
