@@ -4,16 +4,28 @@
 # All rights reserved.
 #
 
+import math
 import logging
 import os
 import random
 import signal
-from conary.conaryclient import cmdline
+import simplejson
+import sys
+from conary.conaryclient import cmdline, ConaryClient
+from conary.deps.deps import ThawFlavor
+from conary.repository import errors as conary_errors
+from conary.versions import ThawVersion
+from mcp import jobstatus
 from jobmaster.resources.container import ContainerWrapper
 from jobmaster.resources.network import NetworkPairResource
+from jobmaster.response import ResponseProxy
 from jobmaster.subprocutil import Subprocess
+from jobmaster.util import prettySize
 
 log = logging.getLogger(__name__)
+
+MEBI = 1048576 # 1 MiB
+GIBI = 1073741824 # 1 GiB
 
 
 class JobHandler(Subprocess):
@@ -23,6 +35,9 @@ class JobHandler(Subprocess):
     def __init__(self, master, job):
         self.cfg = master.cfg
         self.job = job
+        self.job_data = simplejson.loads(job.job_data)
+        self.uuid = job.uuid
+        self.response = ResponseProxy(self.job.rbuilder_url, self.job_data)
 
         self.conaryCfg = master.getConaryConfig(job.rbuilder_url)
         self.loopManager = master.loopManager
@@ -33,26 +48,94 @@ class JobHandler(Subprocess):
         self.pid = None
 
     def run(self):
-        log.info("Running job %s in pid %d", self.job.uuid, os.getpid())
+        log.info("Running job %s in pid %d", self.uuid, os.getpid())
+        self.response.sendStatus(jobstatus.RUNNING,
+                "Preparing build environment")
         random.seed()
 
-        from conary import conaryclient
-        ccli = conaryclient.ConaryClient(self.conaryCfg)
-        source = ccli.getSearchSource()
+        ccli = ConaryClient(self.conaryCfg)
+        repos = ccli.getRepos()
         troveSpec = cmdline.parseTroveSpec(self.cfg.troveSpec)
-        troveTup = sorted(source.findTrove(troveSpec))[0]
+        try:
+            troveTup = sorted(repos.findTrove(None, troveSpec))[-1]
+        except:
+            log.exception("Failed to locate jobslave trove:")
+            self.failJob("Could not locate the required build environment.")
+
+        # Calculate how much scratch space will be required for this build.
+        scratchSize = self.getScratchSize()
 
         # Allocate early resources.
         jobslave = ContainerWrapper(self.name, [troveTup], self.cfg,
-                self.conaryCfg, self.loopManager, self.network)
+                self.conaryCfg, self.loopManager, self.network, scratchSize)
+        try:
+            # Start up the container process and wait for it to finish.
+            jobslave.start(self.job.job_data)
+            signal.signal(signal.SIGTERM, self._onSignal)
+            signal.signal(signal.SIGQUIT, self._onSignal)
+            ret = jobslave.wait()
+        finally:
+            jobslave.close()
 
-        # Start up the container process and wait for it to finish.
-        jobslave.start(self.job.job_data)
-        signal.signal(signal.SIGTERM, self._onSignal)
-        signal.signal(signal.SIGQUIT, self._onSignal)
-        jobslave.wait()
-
-        log.info("Job %s exited", self.job.uuid)
+        if ret != 0:
+            log.info("Job %s exited with status %d", self.uuid, ret)
+            self.failJob("Job terminated unexpectedly")
+        return 0
 
     def _onSignal(self, signum, sigtb):
+        log.info("Terminating jobslave due to signal %d", signum)
         self.kill()
+
+    def failJob(self, reason):
+        self.response.sendStatus(jobstatus.FAILED, reason)
+        # Exit normally to indicate that we have handled the error.
+        sys.exit(0)
+
+    def getTroveSize(self):
+        """
+        Return the size, in bytes, of the image group.
+        """
+        for line in self.job_data['project']['conaryCfg'].splitlines():
+            self.conaryCfg.configLine(line)
+
+        name = self.job_data['troveName'].encode('utf8')
+        version = ThawVersion(self.job_data['troveVersion'].encode('utf8'))
+        flavor = ThawFlavor(self.job_data['troveFlavor'].encode('utf8'))
+
+        cli = ConaryClient(self.conaryCfg)
+        repos = cli.getRepos()
+        try:
+            trove = repos.getTrove(name, version, flavor, withFiles=False)
+        except:
+            log.exception("Failed to retrieve image group:")
+            self.failJob("Failed to retrieve image group")
+        troveSize = trove.troveInfo.size()
+        if not troveSize:
+            troveSize = GIBI
+            log.warning("Trove has no size; using %s", prettySize(troveSize))
+        return troveSize
+
+    def getScratchSize(self):
+        """
+        Return the total bytes of scratch space to be requested.
+        """
+        troveSize = self.getTroveSize()
+
+        data = self.job_data.get('data', {})
+        freeSpace = int(data.get('freespace', 0)) * MEBI
+        swapSpace = int(data.get('swapSize', 0)) * MEBI
+        mountSpace = sum([x[0] + x[1] for x in data.get('mountDict', {})]
+                ) * 1048576
+
+        totalSize = troveSize + freeSpace + swapSpace + mountSpace
+        # Pad 15% for filesystem overhead (inodes, etc.)
+        totalSize = int(math.ceil((totalSize + 20 * MEBI) * 1.15))
+        # Multiply by 4. A minimum of 2 should suffice, but this has not been
+        # tested thoroughly.
+        totalSize *= 4
+        # Never allocate less than the configured minimum.
+        totalSize = max(totalSize, self.cfg.minSlaveSize * MEBI)
+
+        log.info("Allocating %s of scratch space for job %s",
+                prettySize(totalSize), self.uuid)
+        return totalSize

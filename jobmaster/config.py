@@ -18,6 +18,7 @@ class MasterConfig(config.MCPConfig):
     basePath = '/srv/rbuilder/jobmaster'
     pidFile = '/var/run/jobmaster.pid'
     templateCache = 'anaconda-templates'
+    logPath = '/var/log/rbuilder/jobmaster.log'
 
     # Runtime settings
     slaveLimit = (cfgtypes.CfgInt, 5)

@@ -86,3 +86,16 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
 
     logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents_required),
         '-n', lv_name, vg_name], stdout=devNull())
+
+
+def get_scratch_lvs(vg_name):
+    """
+    Return a list of all scratch LVs.
+    """
+
+    ret = call(['/usr/sbin/lvm', 'lvs', '-o', 'name', vg_name])[1]
+    ret = ret.splitlines()[1:]
+    if not ret:
+        raise RuntimeError("Volume group %s could not be read" % (vg_name,))
+
+    return [x.strip() for x in ret if x.strip().startswith('scratch_')]

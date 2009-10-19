@@ -37,9 +37,20 @@ class Pipe(object):
 
 
 class Subprocess(object):
-    pid = None
     procName = "subprocess"
     setsid = False
+
+    exitStatus = -1
+    pid = None
+
+    @property
+    def exitCode(self):
+        if self.exitStatus < 0:
+            return self.exitStatus
+        elif os.WIFEXITED(self.exitStatus):
+            return os.WEXITSTATUS(self.exitStatus)
+        else:
+            return -2
 
     def start(self):
         self.pid = os.fork()
@@ -53,6 +64,8 @@ class Subprocess(object):
                     if not isinstance(ret, (int, long)):
                         ret = bool(ret)
                     os._exit(ret)
+                except SystemExit, err:
+                    os._exit(err.code)
                 except:
                     log.exception("Unhandled exception in %s:", self.procName)
             finally:
@@ -62,40 +75,47 @@ class Subprocess(object):
     def run(self):
         raise NotImplementedError
 
-    def check(self):
-        """
-        Return C{True} if the subprocess is running.
-        """
-        if not self.pid:
-            return False
-        if os.waitpid(self.pid, os.WNOHANG)[0]:
-            self.pid = None
-            return False
-        return True
-
-    def wait(self):
-        """
-        Wait for the process to exit, then return. Returns C{True} if the
-        process was actually waited on, or C{False} if it didn't exist.
-        """
+    def _subproc_wait(self, flags):
         if not self.pid:
             return False
         while True:
             try:
-                os.waitpid(self.pid, 0)
+                pid, status = os.waitpid(self.pid, flags)
             except OSError, err:
                 if err.errno == errno.EINTR:
-                    # Interrupted -- keep waiting.
+                    # Interrupted by signal so wait again.
                     continue
                 elif err.errno == errno.ECHILD:
                     # Process doesn't exist.
+                    self.pid = None
+                    self.exitStatus = -1
                     return False
                 else:
                     raise
             else:
-                # Process found and waited on.
-                self.pid = None
-                return True
+                if pid:
+                    # Process exists and is no longer running.
+                    self.pid = None
+                    self.exitStatus = status
+                    return False
+                else:
+                    # Process exists and is still running.
+                    return True
+
+    def check(self):
+        """
+        Return C{True} if the subprocess is running.
+        """
+        return self._subproc_wait(os.WNOHANG)
+
+    def wait(self):
+        """
+        Wait for the process to exit, then return. Returns the exit code if the
+        process exited normally, -2 if the process exited abnormally, or -1 if
+        the process does not exist.
+        """
+        self._subproc_wait(0)
+        return self.exitCode
 
     def kill(self):
         """

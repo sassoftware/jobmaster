@@ -8,10 +8,12 @@
 import logging
 import optparse
 import os
+import simplejson
 import sys
 from conary import conarycfg
 from conary import conaryclient
 from mcp import image_job
+from mcp import jobstatus
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
 from mcp.messagebus import nodetypes
@@ -23,6 +25,8 @@ from jobmaster import util
 from jobmaster.networking import AddressGenerator
 from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
+from jobmaster.resources.block import get_scratch_lvs
+from jobmaster.response import ResponseProxy
 
 log = logging.getLogger(__name__)
 
@@ -50,9 +54,6 @@ class JobMaster(bus_node.BusNode):
         self._map = self.bus.session._map
         self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map)
 
-        log.info("Jobmaster %s started with pid %d.", self.bus.getSessionId(),
-                os.getpid())
-
     def getConaryConfig(self, rbuilderUrl):
         if not rbuilderUrl.endswith('/'):
             rbuilderUrl += '/'
@@ -65,6 +66,7 @@ class JobMaster(bus_node.BusNode):
         return self._configCache[rbuilderUrl]
 
     def run(self):
+        log.info("Started with pid %d.", os.getpid())
         try:
             self.serve_forever()
         finally:
@@ -97,9 +99,14 @@ class JobMaster(bus_node.BusNode):
         Run a new image job.
         """
         job = msg.payload.job
-        handler = self.handlers[job.uuid] = jobhandler.JobHandler(self, job)
-        self.proxyServer.addTarget(handler.network.slaveAddr, job.rbuilder_url)
-        handler.start()
+        try:
+            handler = jobhandler.JobHandler(self, job)
+            self.proxyServer.addTarget(handler.network.slaveAddr, job.rbuilder_url)
+            handler.start()
+            self.handlers[job.uuid] = handler
+        except:
+            log.exception("Unhandled exception while starting job handler")
+            self.removeJob(job, failed=True)
 
     def doStopCommand(self, msg):
         # TODO
@@ -115,29 +122,86 @@ class JobMaster(bus_node.BusNode):
         """
         Clean up after a handler has exited.
         """
-        # Notify the dispatcher that the job is done.
         uuid = handler.job.uuid
-        msg = messages.JobCompleteMessage()
-        msg.set(uuid)
-        self.bus.sendMessage('/image_event', msg)
-        self.proxyServer.removeTarget(handler.network.slaveAddr)
 
+        # If the handler did not exit cleanly, notify the rBuilder that the job
+        # has failed.
+        if handler.exitCode:
+            log.error("Handler for job %s terminated unexpectedly", uuid)
+            self.removeJob(handler.job, failed=True)
+        else:
+            self.removeJob(handler.job, failed=False)
+
+        self.proxyServer.removeTarget(handler.network.slaveAddr)
         del self.handlers[uuid]
+
+    def removeJob(self, job, failed=False):
+        if failed:
+            try:
+                response = ResponseProxy(job.rbuilder_url,
+                        simplejson.loads(job.job_data))
+                response.sendStatus(jobstatus.FAILED,
+                        "Error creating build environment")
+            except:
+                log.exception("Unable to report failure for job %s", job.uuid)
+
+        msg = messages.JobCompleteMessage()
+        msg.set(job.uuid)
+        self.bus.sendMessage('/image_event', msg)
+
+    # Utility methods
+    def clean_mounts(self):
+        last = None
+        while True:
+            mounts = open('/proc/mounts').read().splitlines()
+            tried = set()
+            for mount in mounts:
+                mount = mount.split()[1]
+                for prefix in ('devfs', 'rootfs'):
+                    if mount.startswith('/tmp/%s-' % prefix):
+                        try:
+                            util.call('umount ' + mount)
+                            log.info("Unmounted %s", mount)
+                            os.rmdir(mount)
+                        except:
+                            pass
+                        tried.add(mount)
+                        break
+
+            if not tried:
+                break
+
+            if tried == last:
+                log.warning("Failed to unmount these points: %s",
+                        ' '.join(tried))
+                break
+            last = tried
+
+        for lv_name in get_scratch_lvs(self.cfg.lvmVolumeName):
+            log.info("Deleting LV %s/%s", self.cfg.lvmVolumeName, lv_name)
+            util.call('lvremove -f %s/%s' % (self.cfg.lvmVolumeName, lv_name))
 
 
 def main(args):
     parser = optparse.OptionParser()
     parser.add_option('-c', '--config-file', default=config.CONFIG_PATH)
     parser.add_option('-n', '--no-daemon', action='store_true')
+    parser.add_option('--clean-mounts', action='store_true',
+            help='Clean up stray mount points and logical volumes')
     options, args = parser.parse_args(args)
 
     cfg = config.MasterConfig()
     cfg.read(options.config_file)
 
-    util.setupLogging(cfg.logLevel, toStderr=options.no_daemon)
+    if options.clean_mounts:
+        options.no_daemon = True
+
+    util.setupLogging(cfg.logLevel, toFile=cfg.logPath, toStderr=options.no_daemon)
     master = JobMaster(cfg)
 
-    if options.no_daemon:
+    if options.clean_mounts:
+        return master.clean_mounts()
+    elif options.no_daemon:
         master.run()
         return 0
     else:

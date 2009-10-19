@@ -300,3 +300,11 @@ class AtomicFile(object):
             os.unlink(self.name)
             self.fObj.close()
     __del__ = close
+
+
+def prettySize(num):
+    for power, suffix in ((3, 'GiB'), (2, 'MiB'), (1, 'KiB')):
+        if num >= 1024 ** power:
+            return '%.01f %s' % (float(num) / (1024 ** power), suffix)
+    else:
+        return '%d B' % num

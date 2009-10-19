@@ -33,7 +33,8 @@ class ContainerWrapper(ResourceStack):
     This resource stack creates and tears down all resources that live outside
     of the container process, specifically the scratch disk and contents root.
     """
-    def __init__(self, name, troves, cfg, conaryCfg, loopManager, network):
+    def __init__(self, name, troves, cfg, conaryCfg, loopManager, network,
+            scratchSize):
         ResourceStack.__init__(self)
 
         self.name = name
@@ -42,9 +43,8 @@ class ContainerWrapper(ResourceStack):
         self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
         self.append(self.contents)
 
-        scratchSize = self.cfg.minSlaveSize
         self.scratch = ScratchDisk(cfg.lvmVolumeName, 'scratch_' + self.name,
-                scratchSize * 1048576)
+                scratchSize)
         self.append(self.scratch)
 
         self.devFS = DevFS(loopManager)
@@ -135,8 +135,8 @@ class Container(TempDir, Subprocess):
     def _run_wrapper(self):
         try:
             try:
-                self._run()
-                os._exit(0)
+                rv = self._run()
+                os._exit(rv)
             except:
                 traceback.print_exc()
         finally:
@@ -171,9 +171,9 @@ class Container(TempDir, Subprocess):
 
         #return logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)
         null = (not self.cfg.debugMode) and devNull() or None
-        logCall(["/usr/bin/jobslave", "/tmp/etc/jobslave.conf"],
+        return logCall(["/usr/bin/jobslave", "/tmp/etc/jobslave.conf"],
                 ignoreErrors=True, logCmd=True, captureOutput=False,
-                stdin=null, stdout=null, stderr=null)
+                stdin=null, stdout=null, stderr=null)[0]
 
     def doMounts(self):
         """
