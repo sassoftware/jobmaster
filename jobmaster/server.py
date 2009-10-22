@@ -46,7 +46,6 @@ class JobMaster(bus_node.BusNode):
                 nodeInfo=node, logger=log)
         self.cfg = cfg
         self.handlers = {}
-        self._configCache = {}
 
         self.loopManager = LoopManager(
                 os.path.join(self.cfg.basePath, 'locks/loop'))
@@ -57,13 +56,11 @@ class JobMaster(bus_node.BusNode):
     def getConaryConfig(self, rbuilderUrl):
         if not rbuilderUrl.endswith('/'):
             rbuilderUrl += '/'
-        if rbuilderUrl not in self._configCache:
-            ccfg = conarycfg.ConaryConfiguration(True)
-            ccfg.initializeFlavors()
-            ccfg.configLine('conaryProxy http %sconary/' % rbuilderUrl)
-            ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
-            self._configCache[rbuilderUrl] = ccfg
-        return self._configCache[rbuilderUrl]
+        ccfg = conarycfg.ConaryConfiguration(True)
+        ccfg.initializeFlavors()
+        ccfg.configLine('conaryProxy http %sconary/' % rbuilderUrl)
+        ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
+        return ccfg
 
     def run(self):
         log.info("Started with pid %d.", os.getpid())
