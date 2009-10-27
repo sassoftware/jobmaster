@@ -48,7 +48,7 @@ def bindMount(device, mount, **kwargs):
 
 
 def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
-        captureOutput=True, **kw):
+        captureOutput=True, wait=True, **kw):
     """
     Run command C{cmd}, optionally logging the invocation and output.
 
@@ -118,10 +118,12 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
             if logCmd:
                 for x in stdout_.splitlines():
                     logger.log(logLevel, "++ (stdout) %s", x)
-    else:
+    elif wait:
         tryInterruptable(p.wait)
 
-    if p.returncode and not ignoreErrors:
+    if not wait:
+        return p
+    elif p.returncode and not ignoreErrors:
         raise CommandError(cmd, p.returncode, stdout, stderr)
     else:
         return p.returncode, stdout, stderr
@@ -274,7 +276,7 @@ class AtomicFile(object):
     def __getattr__(self, name):
         return getattr(self.fObj, name)
 
-    def commit(self):
+    def commit(self, returnHandle=False):
         """
         C{flush()}, C{chmod()}, and C{rename()} to the target path.
         C{close()} afterwards.
@@ -293,7 +295,11 @@ class AtomicFile(object):
         os.rename(self.name, self.finalPath)
 
         # Now close the file.
-        self.fObj.close()
+        if returnHandle:
+            fObj, self.fObj = self.fObj, None
+            return fObj
+        else:
+            self.fObj.close()
 
     def close(self):
         if self.fObj and not self.fObj.closed:

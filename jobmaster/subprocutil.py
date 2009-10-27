@@ -5,12 +5,100 @@
 #
 
 import errno
+import fcntl
 import logging
 import os
+import random
 import signal
 import time
 
 log = logging.getLogger(__name__)
+
+
+class LockError(RuntimeError):
+    pass
+
+
+class LockTimeoutError(LockError):
+    pass
+
+
+class Lockable(object):
+    _lockFile = None
+    _lockLevel = fcntl.LOCK_UN
+    _lockPath = None
+
+    @staticmethod
+    def _sleep():
+        time.sleep(random.uniform(0.1, 0.5))
+
+    def _lock(self, mode=fcntl.LOCK_SH):
+        assert self._lockPath
+
+        # Short-circuit if we already have the lock
+        if mode == self._lockLevel:
+            return True
+
+        if self._lockFile:
+            lockFile = self._lockFile
+        else:
+            lockFile = self._lockFile = open(self._lockPath, 'w')
+
+        try:
+            try:
+                fcntl.flock(self._lockFile.fileno(), mode | fcntl.LOCK_NB)
+            except IOError, err:
+                if err.errno in (errno.EACCES, errno.EAGAIN):
+                    # Already locked, retry later.
+                    raise LockError('Could not acquire lock')
+                raise
+            else:
+                self._lockFile = lockFile
+                self._lockLevel = mode
+
+        finally:
+            if mode == fcntl.LOCK_UN:
+                # If we don't have any lock at the moment then close the file
+                # so that if another process deletes the lockfile we don't end
+                # up locking the now-nameless file. The other process *must*
+                # hold an exclusive lock to delete the lockfile, so this
+                # assures lock safety.
+                self._lockFile.close()
+                self._lockFile = None
+
+        return True
+
+    def _lockWait(self, mode=fcntl.LOCK_SH, timeout=600.0, breakIf=None):
+        logged = False
+        runUntil = time.time() + timeout
+        while True:
+            # First, try to lock.
+            try:
+                return self._lock(mode)
+            except LockError:
+                pass
+
+            if breakIf and breakIf():
+                return False
+
+            if time.time() > runUntil:
+                raise LockTimeoutError('Timed out waiting for lock')
+
+            if not logged:
+                logged = True
+                log.debug("Waiting for lock")
+
+            self._sleep()
+
+    def _deleteLock(self):
+        self._lock(fcntl.LOCK_EX)
+        os.unlink(self._lockPath)
+        self._lock(fcntl.LOCK_UN)
+
+    def _close(self):
+        if self._lockFile:
+            self._lockFile.close()
+            self._lockFile = None
 
 
 class Pipe(object):

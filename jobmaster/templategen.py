@@ -1,332 +1,185 @@
 #
-# Copyright (c) 2005-2007, 2009 rPath, Inc.
+# Copyright (c) 2009 rPath, Inc.
 #
 # All rights reserved.
 #
 
+import copy
 import cPickle
 import errno
+import fcntl
 import logging
-import optparse
 import os
-import signal
 import subprocess
 import sys
 import tempfile
-import time
-
-from conary import callbacks
-from conary import conarycfg
-from conary import conaryclient
-from conary.conaryclient.cmdline import parseTroveSpec
-from conary.deps import deps
-from conary.errors import TroveNotFound
+from conary.conaryclient import ConaryClient
 from conary.lib import digestlib
-from conary.lib import sha1helper
 from conary.lib import util
-
-from jobmaster.util import logCall
+from jobmaster.subprocutil import Lockable, LockError
+from jobmaster.util import AtomicFile, call, logCall, setupLogging, specHash
 
 log = logging.getLogger(__name__)
 
 
-MSG_INTERVAL = 1 # second (for Update Callbacks posted to logs)
+class TemplateGenerator(Lockable):
+    def __init__(self, troveTup, conaryCfg, workDir):
+        self._troveTup = troveTup
+        self._cfg = copy.deepcopy(conaryCfg)
 
+        self._hash = specHash([troveTup])
+        self._basePath = os.path.join(os.path.abspath(workDir), self._hash)
+        self._outputPath = self._basePath + '.tar'
+        self._lockPath = self._basePath + '.lock'
 
-class AnacondaTemplate(object):
-    def __init__(self, name, version, flavor, cacheDir, tmpDir='/var/tmp',
-            conaryProxy=None):
-        flavor = deps.parseFlavor(flavor)
-        self.troveSpec = (name, version, flavor)
-        self.conaryProxy = conaryProxy
-        self.cacheDir = cacheDir
-        self.tmpDir = tmpDir
-        self.tmpRoot = tempfile.mkdtemp(dir=self.tmpDir)
+        self._workDir = self._contentsDir = self._outputDir = None
 
-        self._client = self._getConaryClient()
-        self.troveTup = self._findTrove()
-        self.hash = self._getHash()
-
-        basePath = os.path.join(self.cacheDir, self.hash)
-        dotPath = os.path.join(self.cacheDir, '.' + self.hash)
-
-        self.templatePath = basePath + '.tar'
-        self.metadataPath = basePath + '.metadata'
-        self.statusPath = dotPath + '.status'
-        self.lockPath = dotPath + '.lock'
-
-        self.logger = logging.getLogger('template-' + self.hash[:12])
+        self._log = logging.getLogger(__name__ + '.' + self._hash[:4])
 
     def __del__(self):
-        if self._conaryClient:
-            self._conaryClient.close()
-            self._conaryClient = None
-        if self.tmpRoot:
-            util.rmtree(self.tmpRoot, ignore_errors=True)
+        self._close()
 
-    def _lock(self):
-        def _writeLockfile(lockPath):
-            lfd = 0
-            locked = False
-            try:
-                try:
-                    lfd = os.open(lockPath,
-                            os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                    os.write(lfd, str(os.getpid()))
-                    locked = True
-                except OSError, e:
-                    if e.errno != errno.EEXIST:
-                        raise
-            finally:
-                if lfd:
-                    os.close(lfd)
-            return locked
+    def _exists(self):
+        return os.path.exists(self._outputPath)
 
-        locked = False
-        lfd = 0
-
-        if _writeLockfile(self.lockPath):
-            return True
-        else:
-            oldpidfile = open(self.lockPath)
-            stalepid = oldpidfile.read().strip()
-            oldpidfile.close()
-            if stalepid not in os.listdir('/proc'):
-                if self._unlock():
-                    return _writeLockfile(self.lockPath)
-        return False
-
-    def _unlock(self):
-        if (os.path.exists(self.lockPath)):
-            os.unlink(self.lockPath)
-            return True
-        return False
-
-    def _getConaryClient(self):
-        cfg = conarycfg.ConaryConfiguration()
-        cfg.root = self.tmpRoot
-        cfg.tmpDir = self.tmpDir
-        if self.conaryProxy:
-            cfg.conaryProxy['http']  = self.conaryProxy
-            cfg.conaryProxy['https'] = self.conaryProxy
-        return conaryclient.ConaryClient(cfg)
-
-    def _getUpdateJob(self):
-        trvName, trvVersion, trvFlavor = parseTroveSpec(self.troveSpec)
-        log("Finding update job for %s" % self.troveSpec)
-        itemList = [ (trvName, (None, None),
-                               (trvVersion, trvFlavor), True) ]
-        self._callback = TemplateUpdateCallback(self.logPath,
-                self.statusPath)
-        self._callback.setChangeSet(trvName)
-        self._client.setUpdateCallback(self._callback)
-        return self._client.updateChangeSet(itemList, resolveDeps=False)[0]
-
-    def _findTrove(self):
-        """
-        Find the requested templates trove and return the trove tuple.
-        """
-        matches = self._client.getSearchSource().findTrove(self.troveSpec)
-        return sorted(matches)[0]
-
-    def _getHash(self):
-        """
-        Hash the trove tuple to get the name where the templates will be
-        cached.
-        """
-        return digestlib.md5('%s=%s[%s]' % self.troveTup).hexdigest()
-
-    def exists(self):
-        """
-        Return C{True} if a cached copy of the template exists already.
-        """
-        return (os.path.exists(self.templatePath) and
-                os.path.exists(self.metadataPath))
-
-    def status(self):
+    def get(self):
         try:
-            fObj = open(self.statusPath, 'r')
+            return open(self._outputPath, 'rb')
         except IOError, err:
-            if err.errno == errno.ENOENT:
-                return False, ''
-            raise
-        else:
-            return True, fObj.read()
-
-    def getMetadata(self):
-        try:
-            fObj = open(self.metadataPath, 'rb')
-        except IOError, err:
-            if err.errno == errno.ENOENT:
-                self.logger.warning("Metadata file does not exist.")
-                return {}
-            raise
-        else:
-            return cPickle.load(fObj)
-
-    def _cleanup(self):
-        if self.templateWorkDir:
-            self.logger.info("Cleaning up template working directory")
-            util.rmtree(self.templateWorkDir, ignore_errors=True)
-        if self.statusPath:
-            os.unlink(self.statusPath)
-        self._unlock()
-
-    def _signaled(self, sig, frame):
-        self.logger.info("Caught signal %d, cleaning up", sig)
-        self._cleanup()
-
-    def generate(self):
-
-        signal.signal(signal.SIGINT, self._signaled)
-        signal.signal(signal.SIGTERM, self._signaled)
-
-        rc = 0
-        templateData = {}
-        if self.exists():
-            self.logger.info("Serving cached template")
-            return 2
-
-        util.mkdirChain(self.cacheDir)
-
-        if not self._lock():
-            self.logger.info("Another process is already building "
-                    " this template")
-            return 3
-
-        # Create our logfile and status file
-        self.logger.info("Caching anaconda-templates based upon %s=%s[%s]",
-                self.troveTup)
-        self.templateWorkDir = self.templatePath + ".tmpdir"
-
-        # Create a new callback to use the logfile and status file
-        # (The previous one was created too early in the process.)
-        oldcallback = None
-        if self._callback:
-            oldcallback = self._callback
-        self._callback = TemplateUpdateCallback(self.logPath,
-                    self.statusPath)
-        self._callback.setChangeSet('anaconda-templates')
-        self._client.setUpdateCallback(self._callback)
-        if oldcallback:
-            del oldcallback
-
-        try:
-            try:
-                # Remove the stale and/or broken template to start
-                # fresh, ignoring errors
-                for f in (self.templatePath, self.logPath, self.metadataPath):
-                    try:
-                        os.unlink(f)
-                    except OSError, e:
-                        # Let "file not found" exceptions pass
-                        if e.errno != errno.ENOENT:
-                            raise
-
-                # Create the working dir
-                util.mkdirChain(self.templateWorkDir)
-
-                # Download the changeset and install it in the temproot
-                log("Applying changeset %s" % self.getFullTroveSpec(),
-                        self.logPath, self.statusPath)
-                self._client.applyUpdate(self._getUpdateJob())
-                util.copytree(os.path.join(self.tmpRoot, 'unified'),
-                    self.templateWorkDir + os.path.sep)
-
-                # Get the maximum netclient protocol version supported by this
-                # Anaconda Template and stash it away for later.
-
-                # XXX Right now, we are going to hardcode this to an older
-                #     version of Netclient Protocol to hint to the
-                #     Conary installed on the jobslave to generate old
-                #     filecontainers that are compatible with all versions of
-                #     Conary. (See RBL-1552.)
-                templateData['netclient_protocol_version'] = '38'
-                templateData['trovespec'] = self.getFullTroveSpec()
-
-                # Process the Anaconda template using the instructions in the
-                # MANIFEST file.
-                #
-                # XXX We need to process shell lines and make sure that they 
-                #     are reasonably safe (i.e. look for joins, like ';' or '||'
-                #     '&&' and error out of they are found). This is to guard
-                #     against a user attacking via any commands run through
-                #     os.system().
-                manifest = open(os.path.join(self.tmpRoot, "MANIFEST"), 'r')
-                for line in manifest.xreadlines():
-                    args = [ x.strip() for x in line.split(',') ]
-                    cmd = args.pop(0)
-                    try:
-                        func = self.__getattribute__("_DO_" + cmd)
-                    except AttributeError:
-                        raise RuntimeError, "Invalid command in MANIFEST: %s" % (cmd)
-                    ret = func(*args)
-                manifest.close()
-
-                # Tar up the resultant templates
-                log("Tarring up anaconda-templates", self.logPath,
-                        self.statusPath)
-                tarCmd = ['tar', '-c', '-O', '.']
-                teeCmd = ['tee', self.templatePath]
-                sha1Cmd = ['sha1sum']
-                p1 = subprocess.Popen(tarCmd, cwd=self.templateWorkDir,
-                        stdout=subprocess.PIPE)
-                p2 = subprocess.Popen(teeCmd, stdin=p1.stdout,
-                        stdout=subprocess.PIPE)
-                p3 = subprocess.Popen(sha1Cmd, stdin=p2.stdout,
-                        stdout=subprocess.PIPE)
-                sha1sum = p3.communicate()[0][0:40]
-                templateData['sha1sum'] = sha1sum
-
-                log("Writing metadata", self.logPath,
-                        self.statusPath)
-                f = open(self.metadataPath, 'w')
-                f.write(cPickle.dumps(templateData))
-                f.close()
-
-                log("Template created", self.logPath, self.statusPath)
-            except Exception, e:
-                rc = 1
-                log("Fatal error %s occurred while creating template %s" % \
-                        (str(e), self.getFullTroveSpec()),
-                        self.logPath, self.statusPath)
+            if err.errno != errno.ENOENT:
                 raise
-        finally:
-            self._cleanup()
 
-        return rc
-
-
-    def _DO_image(self, cmd, *args):
-        args = list(args)
+        # Acquire an exclusive lock to prevent others from wasting effort.
+        self._log.debug("Acquiring exclusive lock on %s", self._outputPath)
         try:
-            func = self.__getattribute__("_RUN_" + cmd)
-        except AttributeError:
-            raise RuntimeError, \
-                    "Invalid manifest image command: %s" % cmd
+            self._lock(fcntl.LOCK_EX)
+        except LockError:
+            return None
+
+        try:
+            self._workDir = tempfile.mkdtemp(prefix='tempdir-',
+                    dir=os.path.dirname(self._outputPath))
+            self._contentsDir = self._workDir + '/root'
+            self._outputDir = self._workDir + '/output'
+            fObj = self._generate()
+        finally:
+            self._lock(fcntl.LOCK_UN)
+            util.rmtree(self._workDir)
+            self._workDir = self._contentsDir = self._outputDir = None
+
+        self._deleteLock()
+        return fObj
+
+    def _installContents(self):
+        self._cfg.root = self._contentsDir
+        self._cfg.autoResolve = False
+        self._cfg.updateThreshold = 0
+
+        cli = ConaryClient(self._cfg)
+        try:
+            self._log.debug("Preparing template update job")
+            job = cli.newUpdateJob()
+            troveName, troveVersion, troveFlavor = self._troveTup
+            cli.prepareUpdateJob(job, [(troveName,
+                (None, None), (troveVersion, troveFlavor), True)],
+                resolveDeps=False)
+
+            self._log.debug("Applying template update job")
+            cli.applyUpdateJob(job)
+
+        finally:
+            job = None
+            cli.close()
+
+    def _generate(self):
+        self._log.info("Generating template %s from trove %s=%s[%s]",
+                self._hash, *self._troveTup)
+
+        self._installContents()
+
+        # Copy "unified" directly into the output.
+        os.mkdir(self._outputDir)
+        util.copytree(self._contentsDir + '/unified', self._outputDir + '/')
+
+        # Process the MANIFEST file.
+        for line in open(self._contentsDir + '/MANIFEST'):
+            args = line.rstrip().split(',')
+            command = args.pop(0)
+            commandFunc = getattr(self, '_DO_' + command, None)
+            if not commandFunc:
+                raise RuntimeError("Unknown command %r in MANIFEST"
+                        % (command,))
+            commandFunc(args)
+
+        # Archive the results.
+        self._log.info("Creating archive for template %s", self._hash)
+        digest = digestlib.sha1()
+        outFile = AtomicFile(self._outputPath)
+
+        proc = call(['/bin/tar', '-cC', self._outputDir, '.'],
+                stdout=subprocess.PIPE, captureOutput=False, wait=False)
+        util.copyfileobj(proc.stdout, outFile, digest=digest)
+        proc.wait()
+
+        # Write metadata.
+        metaFile = AtomicFile(self._outputPath + '.metadata')
+        cPickle.dump({
+            'sha1sum': digest.hexdigest(),
+            'trovespec': '%s=%s[%s]' % self._troveTup,
+            # Right now, we are going to hardcode this to an older version
+            # of Netclient Protocol to hint to the Conary installed on the
+            # jobslave to generate old filecontainers that are compatible
+            # with all versions of Conary. (See RBL-1552.)
+            'netclient_protocol_version': '38',
+            }, metaFile)
+
+        outFile.commit()
+        metaFile.commit()
+
+        self._log.info("Template %s created", self._hash)
+
+    def _DO_image(self, args):
+        command = args.pop(0)
+        commandFunc = getattr(self, '_RUN_' + command, None)
+        if not commandFunc:
+            raise RuntimeError("Unknown image command %r in MANIFEST"
+                    % (command,))
 
         if len(args) == 3:
-            mode = int(args.pop(-1), 8)
-        else:
+            inputName, outputName, mode = args
+            mode = int(mode, 8)
+        elif len(args) == 2:
+            inputName, outputName = args
             mode = 0644
+        else:
+            raise RuntimeError("Can't handle image command %r" % (args,))
 
-        input = os.path.join(self.tmpRoot, args[0])
-        output = os.path.join(self.templateWorkDir, args[1])
+        inputPath = os.path.abspath(
+                os.path.join(self._contentsDir, inputName))
+        outputPath = os.path.abspath(
+                os.path.join(self._contentsDir, outputName))
+        finalPath = os.path.abspath(
+                os.path.join(self._outputDir, outputName))
+        assert inputPath.startswith(self._contentsDir + '/')
+        assert outputPath.startswith(self._contentsDir + '/')
+        assert finalPath.startswith(self._outputDir + '/')
 
-        util.mkdirChain(os.path.dirname(output))
-        retcode = func(input, output)
-        os.chmod(output, mode)
+        if not os.path.exists(inputPath):
+            raise RuntimeError("Input file %r for image command %r is missing"
+                    % (inputName, command))
 
-        # copy the resulting file back to the source area in
-        # case it is used elsewhere in the manifest
-        util.copyfile(output, os.path.join(self.tmpRoot, args[1]))
-        return retcode
+        util.mkdirChain(os.path.dirname(outputPath))
+        util.mkdirChain(os.path.dirname(finalPath))
+        commandFunc(inputPath, outputPath)
+
+        os.chmod(outputPath, mode)
+        os.link(outputPath, finalPath)
 
     def _RUN_cpiogz(self, inputDir, output):
         oldCwd = os.getcwd()
         os.chdir(inputDir)
         try:
-            os.system("find . | cpio --quiet -c -o | gzip -9 > %s" % output)
+            logCall("find . | cpio --quiet -c -o | gzip -9 > %s" % output)
         finally:
             try:
                 os.chdir(oldCwd)
@@ -334,7 +187,9 @@ class AnacondaTemplate(object):
                 pass
 
     def _RUN_mkisofs(self, inputDir, output):
-        cmd = ['mkisofs', '-quiet', '-o', output,
+        logCall(['/usr/bin/mkisofs',
+            '-quiet',
+            '-o', output,
             '-b', 'isolinux/isolinux.bin',
             '-c', 'isolinux/boot.cat',
             '-no-emul-boot',
@@ -342,104 +197,47 @@ class AnacondaTemplate(object):
             '-boot-info-table',
             '-R', '-J', '-T',
             '-V', 'rPath Linux',
-            inputDir]
-        self._call(cmd)
+            inputDir])
 
     def _RUN_mkcramfs(self, inputDir, output):
-        cmd = ['mkcramfs', inputDir, output]
-        self._call(cmd)
+        logCall(['/bin/mkcramfs', inputDir, output])
 
     def _RUN_mkdosfs(self, inputDir, output):
-        self._call(['dd', 'if=/dev/zero', 'of=%s' % output, 'bs=1M', 'count=8'])
-        self._call(['/sbin/mkdosfs', output])
+        out = call(['du', '-ms', inputDir])[1]
+        diskSize = int(out.split()[0]) + 4
+        logCall(['/bin/dd', 'if=/dev/zero', 'of=' + output,
+            'bs=1M', 'count=%d' % diskSize])
+        logCall(['/sbin/mkdosfs', output])
 
         files = [os.path.join(inputDir, x) for x in os.listdir(inputDir)]
-        cmds = ['mcopy', '-i', output] + files + ['::']
-        self._call(cmds)
-        self._call(['syslinux', output])
+        logCall(['/usr/bin/mcopy', '-i', output] + files + ['::'])
+        logCall(['/usr/bin/syslinux', output])
 
 
-class TemplateUpdateCallback(callbacks.UpdateCallback):
-    def requestingChangeSet(self):
-        self._update('Requesting %s from repository')
+def main(args):
+    from conary import conarycfg
+    from conary.conaryclient.cmdline import parseTroveSpec
 
-    def downloadingChangeSet(self, got, need):
-        if need != 0:
-            self._update('Downloading %%s from repository (%d%%%% of %dk)'
-                         %((got * 100) / need, need / 1024))
+    setupLogging(logLevel=logging.DEBUG)
 
-    def downloadingFileContents(self, got, need):
-        if need != 0:
-            self._update('Downloading files for %%s from repository '
-                         '(%d%%%% of %dk)' %((got * 100) / need, need / 1024))
+    if len(args) == 1:
+        troveSpec, workDir = args[0], '.'
+    elif len(args) == 2:
+        troveSpec, workDir = args
+    else:
+        sys.exit("Usage: %s <troveSpec> [<workDir>]" % sys.argv[0])
 
-    def restoreFiles(self, size, totalSize):
-        if totalSize != 0:
-            self.restored += size
-            self._update("Writing %%s %dk of %dk (%d%%%%)"
-                        % (self.restored / 1024 , totalSize / 1024,
-                           (self.restored * 100) / totalSize))
+    cfg = conarycfg.ConaryConfiguration(True)
+    cli = ConaryClient(cfg)
+    repos = cli.getRepos()
 
-    def _update(self, msg):
-        curTime = time.time()
-        if self.msg != msg and (curTime - self.timeStamp) > MSG_INTERVAL:
-            self.msg = msg
-            log(self.prefix + msg % self.changeset,
-                    self.logPath, self.statusPath)
-            self.timeStamp = curTime
+    troveSpec = parseTroveSpec(troveSpec)
+    matches = repos.findTrove(None, troveSpec)
+    troveTup = sorted(matches)[-1]
 
-    def setChangeSet(self, name):
-        self.changeset = name
+    generator = TemplateGenerator(troveTup, cfg, workDir)
+    print generator.get()
 
-    def setPrefix(self, prefix):
-        self.prefix = prefix
-
-    def __init__(self, logPath, statusPath):
-        self.exceptions = []
-        self.abortEvent = None
-        self.restored = 0
-        self.msg = ''
-        self.changeset = ''
-        self.prefix = ''
-        self.timeStamp = 0
-        self.logPath = logPath
-        self.statusPath = statusPath
-
-        callbacks.UpdateCallback.__init__(self)
-
-class AnacondaTemplateGenerator(object):
-    _at = None
-    _args = None
-    _options = None
-
-    def handle_args(self, args):
-        usage = "%prog [options] output_dir"
-        op = optparse.OptionParser(usage=usage)
-        op.add_option("-V", "--version",
-                dest = "version", default = "conary.rpath.com@rpl:1",
-                help = "which version of anaconda templates to generate")
-        op.add_option("-F", "--flavor",
-                dest = "flavor", default = "is: x86",
-                help = "which flavor of anaconda templates to generate")
-        (self._options, self._args) = op.parse_args(args)
-        if len(self._args) < 1:
-            op.error("missing output directory")
-            return False
-        self._outdir = self._args.pop()
-        return True
-
-    def run(self):
-        try:
-            self._at = AnacondaTemplate(self._options.version,
-                    self._options.flavor, self._outdir)
-            return(self._at.generate())
-        except TroveNotFound:
-            print >> sys.stderr, "anaconda-templates not found with version %s, flavor %s; exiting" % (self._options.version, self._options.flavor)
-            return 1
-
-    def __init__(self, args = sys.argv[1:]):
-        self.handle_args(args)
 
 if __name__ == '__main__':
-    atg = AnacondaTemplateGenerator()
-    sys.exit(atg.run())
+    sys.exit(main(sys.argv[1:]))

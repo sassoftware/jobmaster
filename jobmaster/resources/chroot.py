@@ -21,20 +21,13 @@ from jobmaster.resource import Resource, ResourceStack
 from jobmaster.resources.block import ScratchDisk
 from jobmaster.resources.devfs import DevFS
 from jobmaster.resources.mount import BindMountResource
+from jobmaster.subprocutil import Lockable
 from jobmaster.util import setupLogging, specHash
 
 log = logging.getLogger(__name__)
 
 
-class LockError(RuntimeError):
-    pass
-
-
-class LockTimeoutError(LockError):
-    pass
-
-
-class _ContentsRoot(Resource):
+class _ContentsRoot(Resource, Lockable):
     def __init__(self, troves, cfg, conaryCfg):
         Resource.__init__(self)
 
@@ -47,76 +40,10 @@ class _ContentsRoot(Resource):
 
         self._hash = specHash(troves)
         self._archivePath = os.path.join(archivePath, self._hash) + '.tar.xz'
-        self._lockFile = None
-        self._lockLevel = fcntl.LOCK_UN
 
         # To be set by subclasses
         self._basePath = None
         self._lockPath = None
-
-    @staticmethod
-    def _sleep():
-        time.sleep(random.uniform(0.1, 0.5))
-
-    def _lock(self, mode=fcntl.LOCK_SH):
-        # Short-circuit if we already have the lock
-        if mode == self._lockLevel:
-            return True
-
-        if not self._lockFile:
-            self._lockFile = open(self._lockPath, 'w')
-
-        oldLevel = self._lockLevel
-
-        try:
-            try:
-                fcntl.flock(self._lockFile.fileno(), mode | fcntl.LOCK_NB)
-            except IOError, err:
-                if err.errno in (errno.EACCES, errno.EAGAIN):
-                    # Already locked, retry later.
-                    raise LockError()
-                raise
-            else:
-                self._lockLevel = mode
-
-        finally:
-            if mode == fcntl.LOCK_UN:
-                # If we don't have any lock at the moment then close the file
-                # so that if another process deletes the lockfile we don't end
-                # up locking the now-nameless file. The other process *must*
-                # hold an exclusive lock to delete the lockfile, so this
-                # assures lock safety.
-                self._lockFile.close()
-                self._lockFile = None
-
-        return True
-
-    def _lockWait(self, mode=fcntl.LOCK_SH, timeout=600.0, breakIf=None):
-        logged = False
-        runUntil = time.time() + timeout
-        while True:
-            # First, try to lock.
-            try:
-                return self._lock(mode)
-            except LockError:
-                pass
-
-            if breakIf and breakIf():
-                return False
-
-            if time.time() > runUntil:
-                raise LockTimeoutError()
-
-            if not logged:
-                logged = True
-                log.debug("Waiting for lock")
-
-            self._sleep()
-
-    def _close(self):
-        if self._lockFile:
-            self._lockFile.close()
-            self._lockFile = None
 
     def unpackRoot(self, fObj=None):
         if not fObj:

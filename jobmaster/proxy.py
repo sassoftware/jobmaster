@@ -24,7 +24,11 @@ import socket
 import sys
 import threading
 import urllib
+import urlparse
 import weakref
+from conary.conaryclient.cmdline import parseTroveSpec
+from conary.deps.deps import ThawFlavor
+from conary.versions import ThawVersion
 from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
@@ -375,8 +379,10 @@ class ProxyClient(ProxyDispatcher):
                     version)
             raise ConnectionClosed
 
-        return self.do_proxy(request, method, path, headers)
-
+        if path.startswith('/templates/'):
+            return self.do_templates(method, path, headers)
+        else:
+            return self.do_proxy(request, method, path, headers)
 
     def send_response(self, response, headers, body=''):
         headers.append('Content-Length: %s' % len(body))
@@ -441,6 +447,49 @@ class ProxyClient(ProxyDispatcher):
         upstream.connect(address)
 
         self._pair = weakref.ref(upstream)
+
+    def do_templates(self, method, path, headers):
+        clength = headers.get('content-length', 0)
+        if clength != 0:
+            # Implementing this would add a lot of complexity for something we
+            # can handle entirely in URI parameters.
+            return self.send_text('400 Bad Request',
+                    'Request body not allowed here.\r\n')
+
+        # Figure out who we're proxying to.
+        #peer = self.socket.getpeername()[0]
+        #url = self.server.findTarget(peer)
+        #if not url:
+        #    return self.send_text('403 Forbidden', 'Peer not recognized\r\n')
+        # XXX
+        url = 'http://rbatest03.eng.rpath.com/'
+
+        # Figure out what they want.
+        path, _, query = urlparse.urlparse(path)[2:5]
+        assert path.startswith('/templates/')
+        path = path[11:]
+        query = urlparse.parse_qs(query)
+
+        if path == 'getTemplate':
+            try:
+                name, = query['n']
+                version, = query['v']
+                flavor, = query['f']
+
+                version = ThawVersion(version)
+                flavor = ThawFlavor(flavor)
+            except:
+                log.warning("Bad getTemplate request:", exc_info=True)
+                return self.send_text('400 Bad Request',
+                        'Bad arguments for getTemplate\r\n')
+
+            log.info("would build templates for %s=%s[%s]",
+                    name, version, flavor)
+            return self.send_text('200 OK', 'weee\r\n')
+
+        else:
+            return self.send_text('404 Not Found', 'Unknown function\r\n')
+
 
 class ProxyUpstream(ProxyDispatcher):
     def pair_closed(self):
