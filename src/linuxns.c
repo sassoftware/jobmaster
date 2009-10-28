@@ -134,31 +134,11 @@ pyunshare(PyObject *self, PyObject *args, PyObject *kwargs) {
 }
 
 
-static PyObject *
-pysethostname(PyObject *self, PyObject *args) {
-    char *hostname;
-    int len;
-
-    if (!PyArg_ParseTuple(args, "s#", &hostname, &len)) {
-        return NULL;
-    }
-
-    if(sethostname(hostname, len)) {
-        PyErr_SetFromErrno(PyExc_OSError);
-        return NULL;
-    }
-
-    Py_RETURN_NONE;
-}
-
-
 static PyMethodDef NSMethods[] = {
     { "clone", (PyCFunction)pyclone, METH_VARARGS | METH_KEYWORDS,
         "invoke the given callback in a new process and namespace" },
     { "unshare", (PyCFunction)pyunshare, METH_VARARGS | METH_KEYWORDS,
         "create new namespaces in the current process" },
-    { "sethostname", pysethostname, METH_VARARGS,
-        "Set the system hostname" },
     { NULL }
 };
 

@@ -16,13 +16,13 @@ import tempfile
 from conary.conaryclient import ConaryClient
 from conary.lib import digestlib
 from conary.lib import util
-from jobmaster.subprocutil import Lockable, LockError
+from jobmaster.subprocutil import Lockable, LockError, Subprocess
 from jobmaster.util import AtomicFile, call, logCall, setupLogging, specHash
 
 log = logging.getLogger(__name__)
 
 
-class TemplateGenerator(Lockable):
+class TemplateGenerator(Lockable, Subprocess):
     def __init__(self, troveTup, conaryCfg, workDir):
         self._troveTup = troveTup
         self._cfg = copy.deepcopy(conaryCfg)
@@ -43,32 +43,45 @@ class TemplateGenerator(Lockable):
         return os.path.exists(self._outputPath)
 
     def get(self):
+        # First try to open the file and return it.
         try:
             return open(self._outputPath, 'rb')
         except IOError, err:
             if err.errno != errno.ENOENT:
                 raise
 
-        # Acquire an exclusive lock to prevent others from wasting effort.
-        self._log.debug("Acquiring exclusive lock on %s", self._outputPath)
+        # Now we know the template doesn't exist. Get an exclusive lock to
+        # prevent others from starting a build, then fork a child process to do
+        # the build.
         try:
             self._lock(fcntl.LOCK_EX)
         except LockError:
+            # Looks like a build is already underway.
             return None
 
+        self.start()
+
+        # Release the lockfile now that the subprocess is running.
+        self._close()
+        return None
+
+    def _run(self):
+        pass
+
+    def generate(self):
+        assert self._lockLevel == fcntl.LOCK_EX
+        self._lock(fcntl.LOCK_EX)
         try:
             self._workDir = tempfile.mkdtemp(prefix='tempdir-',
                     dir=os.path.dirname(self._outputPath))
             self._contentsDir = self._workDir + '/root'
             self._outputDir = self._workDir + '/output'
-            fObj = self._generate()
+            self._generate()
+            self._deleteLock()
         finally:
             self._lock(fcntl.LOCK_UN)
             util.rmtree(self._workDir)
             self._workDir = self._contentsDir = self._outputDir = None
-
-        self._deleteLock()
-        return fObj
 
     def _installContents(self):
         self._cfg.root = self._contentsDir

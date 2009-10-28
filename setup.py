@@ -4,5 +4,6 @@ setup(name="jobmaster", version="5.2",
             exclude=('jobmaster_test', 'jobmaster_test.*')),
         ext_modules=[
             extension.Extension('jobmaster.linuxns', ['src/linuxns.c']),
+            extension.Extension('jobmaster.osutil', ['src/osutil.c']),
             ],
         )

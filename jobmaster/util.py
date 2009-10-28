@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from conary.lib import digestlib
+from jobmaster.osutil import _close_fds
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +128,13 @@ def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
         raise CommandError(cmd, p.returncode, stdout, stderr)
     else:
         return p.returncode, stdout, stderr
+
+
+def close_fds(exceptions=(0, 1, 2)):
+    """
+    Close all file descriptors, except for the ones listed in C{exceptions}.
+    """
+    _close_fds(sorted(exceptions))
 
 
 def rewriteFile(template, target, data):

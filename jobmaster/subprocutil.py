@@ -11,6 +11,7 @@ import os
 import random
 import signal
 import time
+from jobmaster.util import close_fds
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ class Pipe(object):
 class Subprocess(object):
     procName = "subprocess"
     setsid = False
+    closefds = False
 
     exitStatus = -1
     pid = None
@@ -148,6 +150,8 @@ class Subprocess(object):
                 try:
                     if self.setsid:
                         os.setsid()
+                    if self.closefds:
+                        self._close_fds()
                     ret = self.run()
                     if not isinstance(ret, (int, long)):
                         ret = bool(ret)
@@ -189,6 +193,23 @@ class Subprocess(object):
                 else:
                     # Process exists and is still running.
                     return True
+
+    def _close_fds(self, keep=()):
+        # Collect a list of file descriptors we want to keep.
+        keep_fds = set([0, 1, 2])
+        for file in keep:
+            if hasattr(file, 'fileno'):
+                file = file.fileno()
+            if isinstance(file, (int, long)):
+                keep_fds.add(int(file))
+            else:
+                raise TypeError("Must pass a sequence of integers or of "
+                        "objects with a fileno() method.")
+        for handler in logging.getLogger().handlers:
+            stream = getattr(handler, 'stream', None)
+            if stream:
+                keep_fds.add(stream.fileno())
+        close_fds(keep_fds)
 
     def check(self):
         """

@@ -13,7 +13,9 @@ import time
 import traceback
 from conary import conarycfg
 from conary import conaryclient
-from jobmaster import cgroup, linuxns
+from jobmaster import cgroup
+from jobmaster import linuxns
+from jobmaster import osutil
 from jobmaster.config import MasterConfig
 from jobmaster.networking import AddressGenerator
 from jobmaster.resource import Resource, ResourceStack
@@ -145,8 +147,9 @@ class Container(TempDir, Subprocess):
     def _run(self):
         self.c2p_pipe.closeReader()
         self.p2c_pipe.closeWriter()
+        self._close_fds((self.c2p_pipe.writer, self.p2c_pipe.reader))
 
-        linuxns.sethostname("localhost.localdomain")
+        osutil.sethostname("localhost.localdomain")
 
         self.doMounts()
         self.writeConfigs()
@@ -169,7 +172,7 @@ class Container(TempDir, Subprocess):
         os.chroot(self.path)
         os.chdir('/')
 
-        #return logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)
+        #return logCall(["/bin/bash"], ignoreErrors=True, captureOutput=False, stdin=None)[0]
         null = (not self.cfg.debugMode) and devNull() or None
         return logCall(["/usr/bin/jobslave", "/tmp/etc/jobslave.conf"],
                 ignoreErrors=True, logCmd=True, captureOutput=False,
