@@ -22,6 +22,7 @@ from jobmaster.resource import Resource, ResourceStack
 from jobmaster.resources.block import ScratchDisk
 from jobmaster.resources.chroot import BoundContentsRoot
 from jobmaster.resources.devfs import DevFS
+from jobmaster.resources.mount import MountableDirectory
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.resources.tempdir import TempDir
 from jobmaster.subprocutil import Pipe, Subprocess
@@ -64,12 +65,18 @@ class ContainerWrapper(ResourceStack):
         self.devFS.start()
         self.network.start()
 
+        templateDir = self.cfg.getTemplateCache()
+        if not os.path.isdir(templateDir):
+            os.makedirs(templateDir)
+
         pid = self.container.start(self.network, jobData,
                 mounts=[
                     (self.contents, '', True),
                     (self.devFS, 'dev', True),
                     (self.scratch, 'tmp', False),
                     (self.scratch, 'var/tmp', False),
+                    (MountableDirectory(templateDir),
+                        'mnt/template-cache', True),
                     ])
 
         # Set up device capabilities and networking for the now-running cgroup

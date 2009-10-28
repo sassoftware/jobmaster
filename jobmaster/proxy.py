@@ -103,7 +103,7 @@ class ProxyServer(asyncore.dispatcher):
 
 
 (STATE_HEADER, STATE_COPY_ALL, STATE_COPY_SIZE, STATE_COPY_CHUNKED,
-        STATE_COPY_TRAILER, STATE_COPY_FILE, STATE_CLOSING) = range(7)
+        STATE_COPY_TRAILER, STATE_CLOSING) = range(6)
 
 
 class ProxyDispatcher(asyncore.dispatcher):

@@ -105,3 +105,13 @@ class BindMountResource(AutoMountResource):
             raise
 
 
+class MountableDirectory(object):
+    """
+    Dummy object for container's doMounts() method to use to mount an existing
+    directory.
+    """
+    def __init__(self, path):
+        self.path = path
+
+    def mount(self, target, readOnly=True):
+        return BindMountResource(self.path, target, readOnly=readOnly)

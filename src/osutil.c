@@ -51,7 +51,6 @@ py_close_fds(PyObject *self, PyObject *args) {
         /* close */
         if (close(i) == 0) {
             closed++;
-            fprintf(stderr, "closed %d\n", i);
         }
     }
 

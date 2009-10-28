@@ -5,6 +5,7 @@
 # All rights reserved
 #
 
+import os
 from conary.lib import cfgtypes
 from mcp import config
 
@@ -36,3 +37,6 @@ class MasterConfig(config.MCPConfig):
     # DEPRECATED
     conaryProxy = None
     maxSlaveLimit = None
+
+    def getTemplateCache(self):
+        return os.path.join(self.basePath, self.templateCache)
