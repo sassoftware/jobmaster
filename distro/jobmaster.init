@@ -24,6 +24,8 @@ JOBMASTER_OPTS=
 
 [ -f /etc/sysconfig/jobmaster ] && source /etc/sysconfig/jobmaster
 
+export PYTHONPATH
+
 
 start() {
     echo -n "Starting $LONGNAME:"
@@ -63,7 +65,7 @@ case "$1" in
         start
         ;;
   stop)
-        stop --wait
+        stop
         ;;
   restart)
         stop --wait

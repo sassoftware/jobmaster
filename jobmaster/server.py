@@ -17,6 +17,7 @@ from mcp import jobstatus
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
 from mcp.messagebus import nodetypes
+from mcp.messagebus.logger import MessageBusLogger
 from rmake.lib import procutil
 
 from jobmaster import config
@@ -42,9 +43,9 @@ class JobMaster(bus_node.BusNode):
     def __init__(self, cfg):
         node = nodetypes.MasterNodeType(cfg.slaveLimit,
                 procutil.MachineInformation())
-        log.close = lambda: None
+        buslogger = MessageBusLogger.new(__name__ + '.messagebus')
         bus_node.BusNode.__init__(self, (cfg.queueHost, cfg.queuePort),
-                nodeInfo=node, logger=log)
+                nodeInfo=node, logger=buslogger)
         self.cfg = cfg
         self.handlers = {}
         self.subprocesses = []
