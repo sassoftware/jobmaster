@@ -17,8 +17,10 @@ rBuilder.
 """
 
 import asyncore
+import cgi
 import errno
 import logging
+import os
 import re
 import socket
 import sys
@@ -29,6 +31,7 @@ import weakref
 from conary.conaryclient.cmdline import parseTroveSpec
 from conary.deps.deps import ThawFlavor
 from conary.versions import ThawVersion
+from jobmaster.templategen import TemplateGenerator
 from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
@@ -51,8 +54,10 @@ class ConnectionClosed(Exception):
 
 
 class ProxyServer(asyncore.dispatcher):
-    def __init__(self, port=0, _map=None):
+    def __init__(self, port=0, _map=None, jobmaster=None):
         asyncore.dispatcher.__init__(self, None, _map)
+        self.jobmaster = jobmaster and weakref.ref(jobmaster)
+
         self.create_socket(socket.AF_INET6, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.bind(('::', port))
@@ -468,9 +473,9 @@ class ProxyClient(ProxyDispatcher):
         path, _, query = urlparse.urlparse(path)[2:5]
         assert path.startswith('/templates/')
         path = path[11:]
-        query = urlparse.parse_qs(query)
+        query = cgi.parse_qs(query)
 
-        if path == 'getTemplate':
+        if method == 'GET' and path == 'getTemplate':
             try:
                 name, = query['n']
                 version, = query['v']
@@ -483,9 +488,22 @@ class ProxyClient(ProxyDispatcher):
                 return self.send_text('400 Bad Request',
                         'Bad arguments for getTemplate\r\n')
 
-            log.info("would build templates for %s=%s[%s]",
-                    name, version, flavor)
-            return self.send_text('200 OK', 'weee\r\n')
+            start = not query.get('nostart', 0)
+            jobmaster = self.server.jobmaster()
+            assert jobmaster
+            conaryCfg = jobmaster.getConaryConfig(url)
+            workDir = jobmaster.cfg.getTemplateCache()
+            generator = TemplateGenerator((name, version, flavor),
+                    conaryCfg, workDir)
+
+            status, path = generator.getTemplate(start)
+            path = os.path.basename(path)
+            if generator.pid:
+                # Make sure the main event loop will reap the generator when it
+                # quits.
+                jobmaster.subprocesses.append(generator)
+            return self.send_text('200 OK', '%s\r\n%s\r\n' % (
+                generator.Status.values[status], path))
 
         else:
             return self.send_text('404 Not Found', 'Unknown function\r\n')
@@ -531,7 +549,7 @@ def _split_hostport(host):
 
 
 def test():
-    import epdb, signal, os
+    import epdb, signal
     print os.getpid()
     def hdlr(signum, sigtb):
         epdb.serve()

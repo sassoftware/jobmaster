@@ -17,15 +17,23 @@ from conary.conaryclient import ConaryClient
 from conary.lib import digestlib
 from conary.lib import util
 from jobmaster.subprocutil import Lockable, LockError, Subprocess
-from jobmaster.util import AtomicFile, call, logCall, setupLogging, specHash
+from jobmaster.util import (AtomicFile, call, logCall, makeConstants,
+        setupLogging, specHash)
 
 log = logging.getLogger(__name__)
 
 
+TemplateStatus = makeConstants('TemplateStatus', 'IN_PROGRESS NOT_FOUND DONE')
+
+
 class TemplateGenerator(Lockable, Subprocess):
+    procName = 'template generator'
+
+    Status = TemplateStatus
+
     def __init__(self, troveTup, conaryCfg, workDir):
         self._troveTup = troveTup
-        self._cfg = copy.deepcopy(conaryCfg)
+        self._cfg = conaryCfg
 
         self._hash = specHash([troveTup])
         self._basePath = os.path.join(os.path.abspath(workDir), self._hash)
@@ -42,13 +50,17 @@ class TemplateGenerator(Lockable, Subprocess):
     def _exists(self):
         return os.path.exists(self._outputPath)
 
-    def get(self):
-        # First try to open the file and return it.
+    def getTemplate(self, start=True):
+        # First try to open the file and return it. Opening ensures that the
+        # atime is touched, thus preventing tmpwatch from deleting the file
+        # between now and when the jobslave retrieves it.
         try:
-            return open(self._outputPath, 'rb')
+            open(self._outputPath, 'rb')
         except IOError, err:
             if err.errno != errno.ENOENT:
                 raise
+        else:
+            return self.Status.DONE, self._outputPath
 
         # Now we know the template doesn't exist. Get an exclusive lock to
         # prevent others from starting a build, then fork a child process to do
@@ -57,16 +69,20 @@ class TemplateGenerator(Lockable, Subprocess):
             self._lock(fcntl.LOCK_EX)
         except LockError:
             # Looks like a build is already underway.
-            return None
+            return self.Status.IN_PROGRESS, self._outputPath
 
-        self.start()
+        # If requested, start the build.
+        if start:
+            self.start()
+            ret = self.Status.IN_PROGRESS
+        else:
+            ret = self.Status.NOT_FOUND
 
-        # Release the lockfile now that the subprocess is running.
+        # Release the lockfile now that the subprocess is running. Use close()
+        # instead of flock() because the latter will also affect the
+        # subprocess -- it inherited the same file description.
         self._close()
-        return None
-
-    def _run(self):
-        pass
+        return ret, self._outputPath
 
     def generate(self):
         assert self._lockLevel == fcntl.LOCK_EX
@@ -82,13 +98,15 @@ class TemplateGenerator(Lockable, Subprocess):
             self._lock(fcntl.LOCK_UN)
             util.rmtree(self._workDir)
             self._workDir = self._contentsDir = self._outputDir = None
+    run = generate
 
     def _installContents(self):
-        self._cfg.root = self._contentsDir
-        self._cfg.autoResolve = False
-        self._cfg.updateThreshold = 0
+        cfg = copy.deepcopy(self._cfg)
+        cfg.root = self._contentsDir
+        cfg.autoResolve = False
+        cfg.updateThreshold = 0
 
-        cli = ConaryClient(self._cfg)
+        cli = ConaryClient(cfg)
         try:
             self._log.debug("Preparing template update job")
             job = cli.newUpdateJob()
@@ -125,7 +143,6 @@ class TemplateGenerator(Lockable, Subprocess):
             commandFunc(args)
 
         # Archive the results.
-        self._log.info("Creating archive for template %s", self._hash)
         digest = digestlib.sha1()
         outFile = AtomicFile(self._outputPath)
 
@@ -213,7 +230,10 @@ class TemplateGenerator(Lockable, Subprocess):
             inputDir])
 
     def _RUN_mkcramfs(self, inputDir, output):
-        logCall(['/bin/mkcramfs', inputDir, output])
+        if os.path.exists('/bin/mkcramfs'):
+            logCall(['/bin/mkcramfs', inputDir, output])
+        else:
+            logCall(['/usr/bin/mkcramfs', inputDir, output])
 
     def _RUN_mkdosfs(self, inputDir, output):
         out = call(['du', '-ms', inputDir])[1]
@@ -228,6 +248,7 @@ class TemplateGenerator(Lockable, Subprocess):
 
 
 def main(args):
+    import time
     from conary import conarycfg
     from conary.conaryclient.cmdline import parseTroveSpec
 
@@ -249,7 +270,20 @@ def main(args):
     troveTup = sorted(matches)[-1]
 
     generator = TemplateGenerator(troveTup, cfg, workDir)
-    print generator.get()
+    generator.getTemplate(start=True)
+    while True:
+        status, path = generator.getTemplate(start=False)
+        if status == generator.Status.NOT_FOUND:
+            print 'Failed!'
+            break
+        elif status == generator.Status.DONE:
+            print 'Done:', path
+            break
+        elif status == generator.Status.IN_PROGRESS:
+            print 'working'
+        time.sleep(1)
+
+    generator.wait()
 
 
 if __name__ == '__main__':

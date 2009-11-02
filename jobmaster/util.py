@@ -137,6 +137,23 @@ def close_fds(exceptions=(0, 1, 2)):
     _close_fds(sorted(exceptions))
 
 
+def makeConstants(name, definition):
+    """
+    Given a string of space-separated names, create a class with those names as
+    attributes assigned sequential integer values. The class also has C{names}
+    and C{values} dictionaries to map from name to value and from value to name.
+    """
+    nameList = definition.split()
+    valueList = range(len(nameList))
+    typedict = {
+            '__slots__': (),
+            'names': dict(zip(nameList, valueList)),
+            'values': dict(zip(valueList, nameList)),
+            }
+    typedict.update(typedict['names'])
+    return type(name, (object,), typedict)
+
+
 def rewriteFile(template, target, data):
     if not os.path.exists(template):
         return

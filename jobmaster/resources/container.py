@@ -76,7 +76,7 @@ class ContainerWrapper(ResourceStack):
                     (self.scratch, 'tmp', False),
                     (self.scratch, 'var/tmp', False),
                     (MountableDirectory(templateDir),
-                        'mnt/template-cache', True),
+                        'mnt/anaconda-templates', True),
                     ])
 
         # Set up device capabilities and networking for the now-running cgroup
@@ -99,6 +99,8 @@ class ContainerWrapper(ResourceStack):
 
 
 class Container(TempDir, Subprocess):
+    procName = 'container'
+
     def __init__(self, name, cfg): 
         TempDir.__init__(self, prefix='root-')
         self.name = name
@@ -212,6 +214,7 @@ class Container(TempDir, Subprocess):
                 'masterUrl %s\n'
                 'conaryProxy %s\n'
                 'jobDataPath /tmp/etc/jobslave.data\n'
+                'templateCache /mnt/anaconda-templates\n'
                 % (self.cfg.debugMode, masterURL, proxyURL))
         createFile(self.path, 'tmp/etc/jobslave.data', self.jobData)
 

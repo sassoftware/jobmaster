@@ -27,6 +27,7 @@ from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
 from jobmaster.resources.block import get_scratch_lvs
 from jobmaster.response import ResponseProxy
+from jobmaster.subprocutil import setDebugHook
 
 log = logging.getLogger(__name__)
 
@@ -46,24 +47,30 @@ class JobMaster(bus_node.BusNode):
                 nodeInfo=node, logger=log)
         self.cfg = cfg
         self.handlers = {}
+        self.subprocesses = []
+        self._cfgCache = {}
 
         self.loopManager = LoopManager(
                 os.path.join(self.cfg.basePath, 'locks/loop'))
         self.addressGenerator = AddressGenerator(cfg.pairSubnet)
         self._map = self.bus.session._map
-        self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map)
+        self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map,
+                self)
 
     def getConaryConfig(self, rbuilderUrl):
-        if not rbuilderUrl.endswith('/'):
-            rbuilderUrl += '/'
-        ccfg = conarycfg.ConaryConfiguration(True)
-        ccfg.initializeFlavors()
-        ccfg.configLine('conaryProxy http %sconary/' % rbuilderUrl)
-        ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
-        return ccfg
+        if rbuilderUrl not in self._cfgCache:
+            if not rbuilderUrl.endswith('/'):
+                rbuilderUrl += '/'
+            ccfg = conarycfg.ConaryConfiguration(True)
+            ccfg.initializeFlavors()
+            ccfg.configLine('conaryProxy http %sconary/' % rbuilderUrl)
+            ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
+            self._cfgCache[rbuilderUrl] = ccfg
+        return self._cfgCache[rbuilderUrl]
 
     def run(self):
         log.info("Started with pid %d.", os.getpid())
+        setDebugHook()
         try:
             self.serve_forever()
         finally:
@@ -111,9 +118,14 @@ class JobMaster(bus_node.BusNode):
 
     def handleRequestIfReady(self, sleepTime):
         bus_node.BusNode.handleRequestIfReady(self, sleepTime)
+        # Check on all our subprocesses to make sure they are alive and reap
+        # them if they are not.
         for handler in self.handlers.values():
             if not handler.check():
                 self.handlerStopped(handler)
+        for proc in self.subprocesses[:]:
+            if not proc.check():
+                self.subprocesses.remove(proc)
 
     def handlerStopped(self, handler):
         """

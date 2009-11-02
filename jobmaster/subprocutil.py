@@ -4,6 +4,7 @@
 # All rights reserved.
 #
 
+import epdb
 import errno
 import fcntl
 import logging
@@ -99,7 +100,8 @@ class Lockable(object):
     def _close(self):
         if self._lockFile:
             self._lockFile.close()
-            self._lockFile = None
+        self._lockFile = None
+        self._lockLevel = fcntl.LOCK_UN
 
 
 class Pipe(object):
@@ -131,6 +133,7 @@ class Subprocess(object):
     closefds = False
 
     exitStatus = -1
+    exitPid = None
     pid = None
 
     @property
@@ -179,7 +182,9 @@ class Subprocess(object):
                     continue
                 elif err.errno == errno.ECHILD:
                     # Process doesn't exist.
-                    self.pid = None
+                    log.debug("Lost track of subprocess %d (%s)", self.pid,
+                            self.procName)
+                    self.exitPid, self.pid = self.pid, None
                     self.exitStatus = -1
                     return False
                 else:
@@ -187,7 +192,9 @@ class Subprocess(object):
             else:
                 if pid:
                     # Process exists and is no longer running.
-                    self.pid = None
+                    log.debug("Reaped subprocess %d (%s), exit code is %d",
+                            self.pid, self.procName, status)
+                    self.exitPid, self.pid = self.pid, None
                     self.exitStatus = status
                     return False
                 else:
@@ -248,3 +255,21 @@ class Subprocess(object):
             # If it's still going, use SIGKILL and wait indefinitely.
             os.kill(self.pid, signal.SIGKILL)
             self.wait()
+
+
+def debugHook(signum, sigtb):
+    port = 8080
+    try:
+        log.error("Starting epdb session on port %d", port)
+        debugger = epdb.Epdb()
+        debugger._server = epdb.telnetserver.InvertedTelnetServer(('', port))
+        debugger._server.handle_request()
+        debugger._port = port
+    except:
+        log.exception("epdb session failed to start")
+    else:
+        debugger.set_trace(skip=1)
+
+
+def setDebugHook():
+    signal.signal(signal.SIGUSR1, debugHook)
