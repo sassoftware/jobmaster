@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# jobmaster:  Starts the rBuilder Job Master.
+#
+# chkconfig: 2345 99 01
+# description: Controls rBuilder Slave Appliances.
+# processname: jobmaster
+# config: /usr/bin
+
+#
+# Copyright (c) 2007, 2009 rPath, Inc.
+#
+# All rights reserved
+#
+
+# Source function library
+. /etc/init.d/functions
+
+LONGNAME="rBuilder Job Master"
+PIDFILE='/var/run/jobmaster.pid'
+DAEMON='/usr/bin/jobmaster'
+JOBMASTER_CONFIG='/srv/rbuilder/jobmaster/config'
+JOBMASTER_OPTS=
+
+[ -f /etc/sysconfig/jobmaster ] && source /etc/sysconfig/jobmaster
+
+
+start() {
+    echo -n "Starting $LONGNAME:"
+
+    pid=$(pidofproc $(basename $DAEMON))
+    if checkpid $pid; then
+        failure
+    else
+        # clean up any dead mounts, LVM, etc.
+        $DAEMON -n -c "$JOBMASTER_CONFIG" --clean-mounts
+
+        daemon $DAEMON -c "$JOBMASTER_CONFIG"
+    fi
+    echo ""
+}
+
+stop() {
+    echo -n "Stopping $LONGNAME:"
+    killproc $DAEMON
+    echo ""
+    if [ "$1" = "--wait" ]; then
+        echo -n "Waiting for $LONGNAME server to terminate..."
+        # wait for the proxy port to be free
+        n=10
+        while [ $n -gt 0 ] && [ "`netstat -an | awk '{print $4};' | grep ":7770"`" != "" ]
+        do
+            sleep 1
+            n=$(( $n - 1 ))
+        done
+        [ $n -gt 0 ] && success || failure
+        echo
+    fi
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop --wait
+        ;;
+  restart)
+        stop --wait
+        start
+        ;;
+  status)
+        status $DAEMON
+        ;;
+  *)
+    echo "Usage: `basename $0` {start|stop|restart|status}"
+    ;;
+esac

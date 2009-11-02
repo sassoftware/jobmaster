@@ -1,9 +1,4 @@
 #!/usr/bin/python
-#
-# Copyright (c) 2007-2009 rPath, Inc.
-#
-# All rights reserved
-#
-
-from jobmaster import server
-server.runDaemon()
+import sys
+from jobmaster.server import main
+sys.exit(main(sys.argv[1:]))

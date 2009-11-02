@@ -237,9 +237,11 @@ def main(args):
 
             master.run()
 
-            os.unlink(cfg.pidFile)
         finally:
-            os._exit(0)
+            try:
+                os.unlink(cfg.pidFile)
+            finally:
+                os._exit(0)
 
 
 if __name__ == '__main__':
