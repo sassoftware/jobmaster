@@ -171,7 +171,9 @@ class ProxyDispatcher(asyncore.dispatcher):
                     # OS send queue is full; save the rest for later.
                     break
                 else:
-                    log.debug("Closing socket due to write error %s", str(err))
+                    if err.args[0] not in (errno.ECONNRESET, errno.EPIPE):
+                        log.debug("Closing socket due to write error %s",
+                                str(err))
                     raise ConnectionClosed
             else:
                 self.out_buffer = self.out_buffer[sent:]
@@ -195,7 +197,8 @@ class ProxyDispatcher(asyncore.dispatcher):
                 # OS recv queue is empty.
                 return
             else:
-                log.debug("Closing socket due to read error %s", str(err))
+                if err.args[0] not in (errno.ECONNRESET, errno.EPIPE):
+                    log.debug("Closing socket due to read error %s", str(err))
                 raise ConnectionClosed
 
         if True or self.state != STATE_CLOSING:
