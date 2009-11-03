@@ -16,7 +16,7 @@ from conary import conarycfg
 from conary import updatecmd
 from conary.lib.util import copyfileobj
 from conary.conaryclient import cmdline
-from jobmaster.util import setupLogging, createFile
+from jobmaster.util import AtomicFile, setupLogging, createFile
 
 log = logging.getLogger(__name__)
 
@@ -94,3 +94,22 @@ def unpackRoot(archivePath, destRoot):
     except:
         shutil.rmtree(tmpRoot)
         raise
+
+
+def main(args):
+    if len(args) not in (1, 2):
+        sys.exit("Usage: %s <root> [target.tar.gz]" % sys.argv[0])
+    root = args.pop(0)
+    if args:
+        target, = args
+    else:
+        target = os.path.basename(root) + '.tar.gz'
+
+    if os.path.exists(target):
+        sys.exit("error: target exists: %s" % target)
+
+    archiveRoot(root, target)
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
