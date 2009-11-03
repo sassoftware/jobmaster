@@ -16,6 +16,7 @@ from conary.deps.deps import ThawFlavor
 from conary.repository import errors as conary_errors
 from conary.versions import ThawVersion
 from mcp import jobstatus
+from jobmaster.resources.block import OutOfSpaceError
 from jobmaster.resources.container import ContainerWrapper
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.response import ResponseProxy
@@ -68,14 +69,25 @@ class JobHandler(Subprocess):
         # Allocate early resources.
         jobslave = ContainerWrapper(self.name, [troveTup], self.cfg,
                 self.conaryCfg, self.loopManager, self.network, scratchSize)
+        ret = -1
         try:
-            # Start up the container process and wait for it to finish.
-            jobslave.start(self.job.job_data)
-            signal.signal(signal.SIGTERM, self._onSignal)
-            signal.signal(signal.SIGQUIT, self._onSignal)
-            ret = jobslave.wait()
-        finally:
-            jobslave.close()
+            try:
+                # Start up the container process and wait for it to finish.
+                jobslave.start(self.job.job_data)
+                signal.signal(signal.SIGTERM, self._onSignal)
+                signal.signal(signal.SIGQUIT, self._onSignal)
+                ret = jobslave.wait()
+            finally:
+                jobslave.close()
+        except OutOfSpaceError, err:
+            log.error(str(err))
+            self.failJob(str(err))
+            ret = 0  # error handled
+        except:
+            log.exception("Error starting jobslave for %s:", self.uuid)
+            self.failJob("Error starting build environment. "
+                    "Please check the jobmaster log for details.")
+            ret = 0  # error handled
 
         if ret != 0:
             log.info("Job %s exited with status %d", self.uuid, ret)

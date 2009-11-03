@@ -51,7 +51,8 @@ class ScratchDisk(Resource):
         """
         Call C{lvremove} on close.
         """
-        logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
+        if os.path.exists(self.devicePath):
+            logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
     def mount(self, path, readOnly=False):
         if self.firstMount:
@@ -93,9 +94,10 @@ def get_scratch_lvs(vg_name):
     Return a list of all scratch LVs.
     """
 
-    ret = call(['/usr/sbin/lvm', 'lvs', '-o', 'name', vg_name])[1]
-    ret = ret.splitlines()[1:]
-    if not ret:
+    ret, stdout, _ = call(
+            ['/usr/sbin/lvm', 'lvs', '-o', 'name', vg_name], ignoreErrors=True)
+    if ret:
         raise RuntimeError("Volume group %s could not be read" % (vg_name,))
 
-    return [x.strip() for x in ret if x.strip().startswith('scratch_')]
+    return [x.strip() for x in stdout.splitlines()
+            if x.strip().startswith('scratch_')]

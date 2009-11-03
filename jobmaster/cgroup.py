@@ -4,13 +4,27 @@
 # All rights reserved.
 #
 
+import errno
 import os
 
 CGROUP_PATH = '/cgroup'
 
 
 def _write(pid, path, contents):
-    fObj = open(os.path.join(CGROUP_PATH, str(pid), path), 'w')
+    try:
+        fObj = open(os.path.join(CGROUP_PATH, str(pid), path), 'w')
+    except IOError, err:
+        if err.errno == errno.ENOENT:
+            try:
+                os.stat(os.path.join(CGROUP_PATH, 'devices.list'))
+            except OSError, err:
+                if err.errno == errno.ENOENT:
+                    raise RuntimeError("%s is not mounted or is not a cgroupfs"
+                            % (CGROUP_PATH,))
+                raise
+            else:
+                raise RuntimeError("%s is not a cgroup" % (pid,))
+        raise
     fObj.write(contents)
     fObj.close()
 

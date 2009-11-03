@@ -140,8 +140,8 @@ class Container(TempDir, Subprocess):
         self.p2c_pipe.close()
 
     def _close(self):
-        TempDir._close(self)
         self.kill()
+        TempDir._close(self)
 
     def _run_wrapper(self):
         try:

@@ -25,7 +25,7 @@ class MasterConfig(config.MCPConfig):
     slaveLimit = (cfgtypes.CfgInt, 5)
 
     # Misc settings
-    conaryProxyPort = (cfgtypes.CfgInt, 7778)
+    conaryProxyPort = (cfgtypes.CfgInt, 80)
     debugMode       = (cfgtypes.CfgBool, False)
     lvmVolumeName   = 'vg00'
     masterProxyPort = (cfgtypes.CfgInt, 7770)

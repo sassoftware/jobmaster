@@ -465,12 +465,10 @@ class ProxyClient(ProxyDispatcher):
                     'Request body not allowed here.\r\n')
 
         # Figure out who we're proxying to.
-        #peer = self.socket.getpeername()[0]
-        #url = self.server.findTarget(peer)
-        #if not url:
-        #    return self.send_text('403 Forbidden', 'Peer not recognized\r\n')
-        # XXX
-        url = 'http://rbatest03.eng.rpath.com/'
+        peer = self.socket.getpeername()[0]
+        url = self.server.findTarget(peer)
+        if not url:
+            return self.send_text('403 Forbidden', 'Peer not recognized\r\n')
 
         # Figure out what they want.
         path, _, query = urlparse.urlparse(path)[2:5]

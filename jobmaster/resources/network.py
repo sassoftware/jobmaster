@@ -22,8 +22,14 @@ class NetworkPairResource(Resource):
         self.masterAddr, self.slaveAddr = generator.generateHostPair()
 
     def start(self):
-        logCall(['/sbin/ip', 'link', 'add', 'name', self.masterName, 'type',
-            'veth', 'peer', 'name', self.slaveName])
+        try:
+            logCall(['/sbin/ip', 'link', 'add', 'name', self.masterName,
+                'type', 'veth', 'peer', 'name', self.slaveName])
+        except CommandError, err:
+            if err.stderr == 'Command "add" is unknown, try "ip link help".\n':
+                raise RuntimeError("Your iproute package is too old. "
+                        "Please update it.")
+            raise
 
         # Configure the master end immediately. The slave end can only be
         # configured inside the cgroup.
