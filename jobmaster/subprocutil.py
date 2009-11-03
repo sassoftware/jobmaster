@@ -128,17 +128,20 @@ class Pipe(object):
 
 
 class Subprocess(object):
+    # Class settings
     procName = "subprocess"
     setsid = False
     closefds = False
 
-    exitStatus = -1
-    exitPid = None
+    # Runtime variables
     pid = None
+    exitStatus = exitPid = None
 
     @property
     def exitCode(self):
-        if self.exitStatus < 0:
+        if self.exitStatus is None:
+            return -2
+        elif self.exitStatus < 0:
             return self.exitStatus
         elif os.WIFEXITED(self.exitStatus):
             return os.WEXITSTATUS(self.exitStatus)
@@ -146,6 +149,7 @@ class Subprocess(object):
             return -2
 
     def start(self):
+        self.exitStatus = self.exitPid = None
         self.pid = os.fork()
         if not self.pid:
             #pylint: disable-msg=W0702,W0212
@@ -192,7 +196,7 @@ class Subprocess(object):
             else:
                 if pid:
                     # Process exists and is no longer running.
-                    log.debug("Reaped subprocess %d (%s), exit code is %d",
+                    log.debug("Reaped subprocess %d (%s) with status %s",
                             self.pid, self.procName, status)
                     self.exitPid, self.pid = self.pid, None
                     self.exitStatus = status
