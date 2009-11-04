@@ -30,7 +30,7 @@ def archiveRoot(fsRoot, destPath):
                 #"--exclude var/lib/conarydb "
                 "--exclude var/lib/conarydb/rollbacks "
                 "--exclude var/log/conary "
-                "| /usr/bin/xz -2c" % (fsRoot,),
+                "| /usr/bin/xz -9c" % (fsRoot,),
                 shell=True, stdout=subprocess.PIPE)
 
         try:
@@ -98,12 +98,12 @@ def unpackRoot(archivePath, destRoot):
 
 def main(args):
     if len(args) not in (1, 2):
-        sys.exit("Usage: %s <root> [target.tar.gz]" % sys.argv[0])
+        sys.exit("Usage: %s <root> [target.tar.xz]" % sys.argv[0])
     root = args.pop(0)
     if args:
         target, = args
     else:
-        target = os.path.basename(root) + '.tar.gz'
+        target = os.path.basename(root) + '.tar.xz'
 
     if os.path.exists(target):
         sys.exit("error: target exists: %s" % target)
