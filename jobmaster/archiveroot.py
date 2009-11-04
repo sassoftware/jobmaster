@@ -28,7 +28,7 @@ def archiveRoot(fsRoot, destPath):
     try:
         proc = subprocess.Popen("/bin/tar -cC '%s' . "
                 #"--exclude var/lib/conarydb "
-                "--exclude var/lib/conarydb/rollbacks "
+                "--exclude var/lib/conarydb/rollbacks/\\* "
                 "--exclude var/log/conary "
                 "| /usr/bin/xz -9c" % (fsRoot,),
                 shell=True, stdout=subprocess.PIPE)
