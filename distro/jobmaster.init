@@ -30,6 +30,8 @@ export PYTHONPATH
 start() {
     echo -n "Starting $LONGNAME:"
 
+    [ -f /dev/vg00/slave_dummy ] && lvremove -f vg00/slave_dummy
+
     pid=$(pidofproc $(basename $DAEMON))
     if checkpid $pid; then
         failure
