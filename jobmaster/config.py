@@ -24,6 +24,10 @@ class MasterConfig(config.MCPConfig):
     # Runtime settings
     slaveLimit = (cfgtypes.CfgInt, 5)
 
+    # Trove source settings
+    troveName       = (cfgtypes.CfgString, 'group-jobslave')
+    troveVersion    = (cfgtypes.CfgString, None)
+
     # Misc settings
     conaryProxyPort = (cfgtypes.CfgInt, 80)
     debugMode       = (cfgtypes.CfgBool, False)
@@ -31,7 +35,6 @@ class MasterConfig(config.MCPConfig):
     masterProxyPort = (cfgtypes.CfgInt, 7770)
     minSlaveSize    = (cfgtypes.CfgInt, 1024) # scratch space in MB
     pairSubnet      = 'fdf0:dbe6:3760::/48'
-    troveSpec       = (cfgtypes.CfgString, None)
 
     # DEPRECATED
     conaryProxy = None
