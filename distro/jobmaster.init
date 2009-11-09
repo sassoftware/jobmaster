@@ -16,6 +16,7 @@
 # Source function library
 . /etc/init.d/functions
 
+prog=jobmaster
 LONGNAME="rBuilder Job Master"
 PIDFILE='/var/run/jobmaster.pid'
 DAEMON='/usr/bin/jobmaster'
@@ -32,7 +33,7 @@ start() {
 
     [ -f /dev/vg00/slave_dummy ] && lvremove -f vg00/slave_dummy
 
-    pid=$(pidofproc $(basename $DAEMON))
+    pid=$(pidofproc $prog)
     if checkpid $pid; then
         failure
     else
@@ -42,14 +43,14 @@ start() {
         # /cgroup must be mounted to run image builds
         grep -q ' /cgroup ' /proc/mounts || mount -t cgroup cgroup /cgroup
 
-        daemon $DAEMON -c "$JOBMASTER_CONFIG"
+        daemon $DAEMON -c "$JOBMASTER_CONFIG" && touch /var/lock/subsys/$prog
     fi
     echo ""
 }
 
 stop() {
     echo -n "Stopping $LONGNAME:"
-    killproc $DAEMON
+    killproc $DAEMON && rm -f /var/lock/subsys/$prog
     echo ""
     if [ "$1" = "--wait" ]; then
         echo -n "Waiting for $LONGNAME server to terminate..."
@@ -65,6 +66,19 @@ stop() {
     fi
 }
 
+restart(){
+    stop
+    start
+}
+
+condrestart(){
+    [ -e /var/lock/subsys/$prog ] && restart
+}
+
+condstop(){
+    [ -e /var/lock/subsys/$prog ] && stop
+}
+
 case "$1" in
   start)
         start
@@ -73,13 +87,18 @@ case "$1" in
         stop
         ;;
   restart)
-        stop --wait
-        start
+        restart
+        ;;
+  condrestart)
+        condrestart
+        ;;
+  condstop)
+        condstop
         ;;
   status)
         status $DAEMON
         ;;
   *)
-    echo "Usage: `basename $0` {start|stop|restart|status}"
+    echo "Usage: `basename $0` {start|stop|restart|condstop|condrestart|status}"
     ;;
 esac
