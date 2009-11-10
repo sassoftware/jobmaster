@@ -36,14 +36,14 @@ class ContainerWrapper(ResourceStack):
     This resource stack creates and tears down all resources that live outside
     of the container process, specifically the scratch disk and contents root.
     """
-    def __init__(self, name, troves, cfg, conaryCfg, loopManager, network,
+    def __init__(self, name, troves, cfg, conaryClient, loopManager, network,
             scratchSize):
         ResourceStack.__init__(self)
 
         self.name = name
         self.cfg = cfg
 
-        self.contents = BoundContentsRoot(troves, cfg, conaryCfg)
+        self.contents = BoundContentsRoot(troves, cfg, conaryClient)
         self.append(self.contents)
 
         self.scratch = ScratchDisk(cfg.lvmVolumeName, 'scratch_' + self.name,

@@ -210,14 +210,26 @@ def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
         rootLogger.addHandler(fileHandler)
 
 
-def specHash(troveTups):
+def specHash(troveTups, buildTimes=None):
     """
     Create a unique identifier for the troves C{troveTups}.
     """
-    ctx = digestlib.sha1()
-    for tup in sorted(troveTups):
-        ctx.update('%s\0%s\0%s\0' % tup)
-    return ctx.hexdigest()
+    if buildTimes:
+        assert len(troveTups) == len(buildTimes)
+        troveTups = zip(troveTups, buildTimes)
+    else:
+        troveTups = [(x, None) for x in troveTups]
+
+    items = []
+    for (name, version, flavor), buildTime in sorted(troveTups):
+        items.append(name)
+        if buildTime:
+            items.append(version.trailingRevision().version)
+            items.append(long(buildTime))
+        else:
+            items.append(version.freeze())
+    items.append('')
+    return digestlib.sha1('\0'.join(str(x) for x in items)).hexdigest()
 
 
 def tryInterruptable(func, *args, **kwargs):

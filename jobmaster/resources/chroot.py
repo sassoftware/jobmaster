@@ -4,6 +4,7 @@
 # All rights reserved.
 #
 
+import conary.trove
 import errno
 import fcntl
 import logging
@@ -28,22 +29,28 @@ log = logging.getLogger(__name__)
 
 
 class _ContentsRoot(Resource, Lockable):
-    def __init__(self, troves, cfg, conaryCfg):
+    def __init__(self, troves, cfg, conaryClient):
         Resource.__init__(self)
 
         self.troves = troves
         self.cfg = cfg
-        self.conaryCfg = conaryCfg
+        self.conaryClient = conaryClient
 
         archivePath = os.path.realpath(os.path.join(cfg.basePath, 'archive'))
         mkdirChain(archivePath)
 
-        self._hash = specHash(troves)
+        self._hash = self._getHash()
         self._archivePath = os.path.join(archivePath, self._hash) + '.tar.xz'
 
         # To be set by subclasses
         self._basePath = None
         self._lockPath = None
+
+    def _getHash(self):
+        repos = self.conaryClient.getRepos()
+        buildTimes = [x() for x in repos.getTroveInfo(
+            conary.trove._TROVEINFO_TAG_BUILDTIME, self.troves)]
+        return specHash(self.troves, buildTimes)
 
     def unpackRoot(self, fObj=None):
         if not fObj:
@@ -56,7 +63,7 @@ class _ContentsRoot(Resource, Lockable):
 
     def buildRoot(self):
         self._lock(fcntl.LOCK_EX)
-        buildroot.buildRoot(self.conaryCfg, self.troves, self._basePath)
+        buildroot.buildRoot(self.conaryClient.cfg, self.troves, self._basePath)
 
     def start(self):
         raise NotImplementedError
@@ -70,8 +77,8 @@ class BoundContentsRoot(_ContentsRoot):
     This strategy maintains a single contents root which is to be bind-mounted
     read-only by users.
     """
-    def __init__(self, troves, cfg, conaryCfg):
-        _ContentsRoot.__init__(self, troves, cfg, conaryCfg)
+    def __init__(self, troves, cfg, conaryClient):
+        _ContentsRoot.__init__(self, troves, cfg, conaryClient)
 
         rootPath = os.path.realpath(os.path.join(cfg.basePath, 'roots'))
         mkdirChain(rootPath)
@@ -119,8 +126,8 @@ class ArchiveContentsRoot(_ContentsRoot):
     This strategy maintains an archive and unpacks it once for each user, so
     the resulting roots can be modified.
     """
-    def __init__(self, troves, cfg, conaryCfg):
-        _ContentsRoot.__init__(self, troves, cfg, conaryCfg)
+    def __init__(self, troves, cfg, conaryClient):
+        _ContentsRoot.__init__(self, troves, cfg, conaryClient)
 
         self._lockPath = self._archivePath + '.lock'
         self._basePath = tempfile.mkdtemp(prefix='contents-')

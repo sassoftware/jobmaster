@@ -64,7 +64,7 @@ class JobHandler(Subprocess):
 
         # Allocate early resources.
         jobslave = ContainerWrapper(self.name, [troveTup], self.cfg,
-                self.conaryCfg, self.loopManager, self.network, scratchSize)
+                self.conaryClient, self.loopManager, self.network, scratchSize)
         ret = -1
         try:
             try:
@@ -110,6 +110,7 @@ class JobHandler(Subprocess):
             except TroveNotFound:
                 log.error("Can't locate jobslave trove: no troveLabel "
                         "configured and no rbuilder-mcp installed")
+                raise RuntimeError("Configuration error")
             version = '%s/%s' % (label, self.cfg.troveVersion)
 
         troveSpec = ('group-jobslave', version, None)
