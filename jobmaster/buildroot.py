@@ -92,8 +92,8 @@ def runTagScripts(fsRoot):
 
             null = devNull()
             os.chroot(fsRoot)
-            call('bash /root/conary-tag-script',
-                    stdin=null, stdout=null, stderr=null, ignoreErrors=True)
+            call('bash /root/conary-tag-script', ignoreErrors=True,
+                    captureOutput=False, stdin=null, stdout=null, stderr=null)
             os._exit(0)
         except:
             log.exception("Failed to execute tag scripts:")
