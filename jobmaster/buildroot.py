@@ -14,13 +14,14 @@ import os
 import subprocess
 import sys
 import tempfile
+import traceback
 from conary import callbacks
 from conary import conarycfg
 from conary import conaryclient
 from conary import updatecmd
 from conary.conaryclient import cmdline
 from conary.lib import util
-from jobmaster.util import setupLogging, createFile
+from jobmaster.util import call, devNull, setupLogging, createFile
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def buildRoot(ccfg, troveTups, destRoot):
     rootCfg = copy.deepcopy(ccfg)
     rootCfg.root = fsRoot
     rootCfg.autoResolve = False
-    rootCfg.updateThreshold = 0
+    #rootCfg.updateThreshold = 0
 
     rootClient = conaryclient.ConaryClient(rootCfg)
     try:
@@ -43,17 +44,16 @@ def buildRoot(ccfg, troveTups, destRoot):
             log.info("Preparing update job")
             rootClient.setUpdateCallback(UpdateCallback())
             job = rootClient.newUpdateJob()
-            jobTups = [(n, (None, None), (v, f), True) for (n, v, f) in troveTups]
-            rootClient.prepareUpdateJob(job, jobTups)
+            jobTups = [(n, (None, None), (v, f), True)
+                    for (n, v, f) in troveTups]
+            rootClient.prepareUpdateJob(job, jobTups, resolveDeps=False)
 
             rootClient.applyUpdateJob(job,
                     tagScript=os.path.join(fsRoot, 'root/conary-tag-script'))
 
             log.info("Running tag scripts")
             preTagScripts(fsRoot)
-            util.execute("/usr/sbin/chroot '%s' bash -c '"
-                    "sh -x /root/conary-tag-script "
-                    ">/root/conary-tag-script.output 2>&1'" % (fsRoot,))
+            runTagScripts(fsRoot)
             postTagScripts(fsRoot)
 
         finally:
@@ -75,6 +75,30 @@ def preTagScripts(fsRoot):
     # Fix up rootdir permissions as tar actually restores them when
     # extracting.
     os.chmod(fsRoot, 0755)
+
+
+def runTagScripts(fsRoot):
+    pid = os.fork()
+    if pid:
+        _, status = os.waitpid(pid, 0)
+        if status:
+            raise RuntimeError("Failed to execute tag scripts")
+        return
+
+    try:
+        try:
+            # subprocess needs this to unpickle exceptions
+            import encodings.string_escape
+
+            null = devNull()
+            os.chroot(fsRoot)
+            call('bash /root/conary-tag-script',
+                    stdin=null, stdout=null, stderr=null, ignoreErrors=True)
+            os._exit(0)
+        except:
+            log.exception("Failed to execute tag scripts:")
+    finally:
+        os._exit(70)
 
 
 def postTagScripts(fsRoot):

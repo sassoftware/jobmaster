@@ -7,6 +7,7 @@
 import copy
 import logging
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -40,7 +41,7 @@ def archiveRoot(fsRoot, destPath):
             copyfileobj(proc.stdout, outObj)
             outObj.close()
         except:
-            proc.terminate()
+            os.kill(proc.pid, signal.SIGTERM)
             proc.wait()
             raise
 
@@ -81,7 +82,7 @@ def unpackRoot(archivePath, destRoot):
             copyfileobj(inObj, proc.stdin)
             proc.stdin.close()
         except:
-            proc.terminate()
+            os.kill(proc.pid, signal.SIGTERM)
             proc.wait()
             raise
 
