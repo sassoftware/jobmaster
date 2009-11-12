@@ -31,7 +31,7 @@ export PYTHONPATH
 start() {
     echo -n "Starting $LONGNAME:"
 
-    [ -f /dev/vg00/slave_dummy ] && lvremove -f vg00/slave_dummy
+    [ -e /dev/vg00/slave_dummy ] && lvremove -f vg00/slave_dummy >/dev/null
 
     pid=$(pidofproc $prog)
     if checkpid $pid; then
