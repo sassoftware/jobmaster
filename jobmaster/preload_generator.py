@@ -26,54 +26,68 @@ log = logging.getLogger(__name__)
 
 
 def main(args):
+    setupLogging(logLevel=logging.DEBUG)
+
     if len(args) != 2:
         sys.exit("usage: %s <basename> <trovespec>" % sys.argv[0])
     baseName, troveSpec = args
-    troveSpec = parseTroveSpec(troveSpec)
 
-    setupLogging(logLevel=logging.DEBUG)
+    jsRootDir = None
+    if os.path.isdir(troveSpec):
+        sysRootDir = troveSpec
+        targets = ['srv/rbuilder/repos']
+    else:
+        troveSpec = parseTroveSpec(troveSpec)
 
-    cfg = conarycfg.ConaryConfiguration(True)
-    cli = conaryclient.ConaryClient(cfg)
-    repos = cli.getRepos()
+        cfg = conarycfg.ConaryConfiguration(True)
+        cli = conaryclient.ConaryClient(cfg)
+        repos = cli.getRepos()
 
-    matches = repos.findTrove(None, troveSpec)
-    troveTups = [ sorted(matches)[-1] ]
+        matches = repos.findTrove(None, troveSpec)
+        troveTups = [ sorted(matches)[-1] ]
 
-    buildTimes = [x() for x in repos.getTroveInfo(
-        trove._TROVEINFO_TAG_BUILDTIME, troveTups)]
-    hash = specHash(troveTups, buildTimes)
+        buildTimes = [x() for x in repos.getTroveInfo(
+            trove._TROVEINFO_TAG_BUILDTIME, troveTups)]
+        hash = specHash(troveTups, buildTimes)
 
-    jsRootDir = tempfile.mkdtemp()
-    sysRootDir = tempfile.mkdtemp()
+        jsRootDir = tempfile.mkdtemp()
+        sysRootDir = tempfile.mkdtemp()
+        try:
+            buildroot.buildRoot(cfg, troveTups, jsRootDir)
+
+            log.info("Creating root archive")
+            relArchivePath = 'srv/rbuilder/jobmaster/archive/%s.tar.xz' % hash
+            fullArchivePath = os.path.join(sysRootDir, relArchivePath)
+            os.makedirs(os.path.dirname(fullArchivePath))
+            archiveroot.archiveRoot(jsRootDir, fullArchivePath)
+
+            targets = [relArchivePath]
+
+        except:
+            if jsRootDir:
+                rmtree(sysRootDir)
+                rmtree(jsRootDir)
+            raise
 
     try:
-        buildroot.buildRoot(cfg, troveTups, jsRootDir)
-
-        log.info("Creating root archive")
-        relArchivePath = 'srv/rbuilder/jobmaster/archive/%s.tar.xz' % hash
-        fullArchivePath = os.path.join(sysRootDir, relArchivePath)
-        os.makedirs(os.path.dirname(fullArchivePath))
-        archiveroot.archiveRoot(jsRootDir, fullArchivePath)
-
         log.info("Creating preload tarball")
-        proc = subprocess.Popen("/bin/tar -cC '%s' '%s' "
+        proc = subprocess.Popen("/bin/tar -cC '%s' %s "
                 "--exclude var/lib/conarydb/rollbacks/\\* "
                 "--exclude var/log/conary "
-                "| /bin/gzip -9c" % (sysRootDir, relArchivePath),
+                "| /bin/gzip -9c" % (sysRootDir, ' '.join(targets)),
                 shell=True, stdout=subprocess.PIPE)
         manifest = open(baseName, 'w')
         try:
             copyChunks(proc.stdout, baseName, manifest)
         except:
             os.kill(proc.pid, signal.SIGTERM)
-            proc.terminate()
             proc.wait()
             raise
         proc.wait()
     finally:
-        rmtree(jsRootDir)
-        rmtree(sysRootDir)
+        if jsRootDir:
+            rmtree(jsRootDir)
+            rmtree(sysRootDir)
 
 
 def copyChunks(fromObj, base, manifest, sizeLimit=10485760):
