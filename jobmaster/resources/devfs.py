@@ -38,6 +38,7 @@ class DevFS(ResourceStack):
 
         self.mknod('null',      'c', 1, 3)
         self.mknod('zero',      'c', 1, 5)
+        self.mknod('full',      'c', 1, 7)
         self.mknod('random',    'c', 1, 8)
         self.mknod('urandom',   'c', 1, 9)
 
