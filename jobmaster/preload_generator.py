@@ -28,14 +28,15 @@ log = logging.getLogger(__name__)
 def main(args):
     setupLogging(logLevel=logging.DEBUG)
 
-    if len(args) != 2:
-        sys.exit("usage: %s <basename> <trovespec>" % sys.argv[0])
-    baseName, troveSpec = args
+    if len(args) < 2:
+        sys.exit("usage: %s <basename> <trovespec> | [<directory> <paths>+]"
+                % sys.argv[0])
+    baseName, troveSpec = args[:2]
 
     jsRootDir = None
     if os.path.isdir(troveSpec):
         sysRootDir = troveSpec
-        targets = ['srv/rbuilder/repos']
+        targets = args[2:]
     else:
         troveSpec = parseTroveSpec(troveSpec)
 
