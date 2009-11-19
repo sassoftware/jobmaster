@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 from conary import conarycfg
 from conary import conaryclient
@@ -36,7 +37,19 @@ def main(args):
     jsRootDir = None
     if os.path.isdir(troveSpec):
         sysRootDir = troveSpec
-        targets = args[2:]
+
+        manifest = open(baseName, 'w')
+        splitter = Splitter(baseName, manifest)
+        tar = tarfile.open(fileobj=splitter, mode='w|gz')
+        for relpath in args[2:]:
+            abspath = os.path.join(sysRootDir, relpath)
+            info = tar.gettarinfo(abspath, relpath)
+            info.uid = info.gid = 48
+            info.uname = info.gname = 'apache'
+            tar.addfile(info, open(abspath, 'rb'))
+        tar.close()
+        splitter.close()
+        manifest.close()
     else:
         troveSpec = parseTroveSpec(troveSpec)
 
@@ -64,31 +77,70 @@ def main(args):
 
             targets = [relArchivePath]
 
-        except:
-            if jsRootDir:
-                rmtree(sysRootDir)
-                rmtree(jsRootDir)
-            raise
-
-    try:
-        log.info("Creating preload tarball")
-        proc = subprocess.Popen("/bin/tar -cC '%s' %s "
-                "--exclude var/lib/conarydb/rollbacks/\\* "
-                "--exclude var/log/conary "
-                "| /bin/gzip -9c" % (sysRootDir, ' '.join(targets)),
-                shell=True, stdout=subprocess.PIPE)
-        manifest = open(baseName, 'w')
-        try:
-            copyChunks(proc.stdout, baseName, manifest)
-        except:
-            os.kill(proc.pid, signal.SIGTERM)
+            log.info("Creating preload tarball")
+            manifest = open(baseName, 'w')
+            splitter = Splitter(baseName, manifest)
+            proc = subprocess.Popen("/bin/tar -cC '%s' %s "
+                    "--exclude var/lib/conarydb/rollbacks/\\* "
+                    "--exclude var/log/conary "
+                    "| /bin/gzip -9c" % (sysRootDir, ' '.join(targets)),
+                    shell=True, stdout=subprocess.PIPE)
+            try:
+                copyfileobj(proc.stdout, splitter)
+            except:
+                os.kill(proc.pid, signal.SIGTERM)
+                proc.wait()
+                raise
             proc.wait()
-            raise
-        proc.wait()
-    finally:
-        if jsRootDir:
+            splitter.close()
+            manifest.close()
+        finally:
             rmtree(jsRootDir)
             rmtree(sysRootDir)
+
+
+class Splitter(object):
+    def __init__(self, base, manifest, sizeLimit=10485760):
+        self.base = base
+        self.manifest = manifest
+        self.sizeLimit = sizeLimit
+        self.index = self.lastChunk = 0
+        self.lastFile = self.lastName = self.lastDigest = None
+        self.lastDigest = None
+
+    def write(self, data):
+        while data:
+            self._startFile()
+
+            toWrite = min(len(data), self.sizeLimit - self.lastChunk)
+            self.lastFile.write(data[:toWrite])
+            self.lastDigest.update(data[:toWrite])
+            data = data[toWrite:]
+            self.lastChunk += toWrite
+
+            self._finishFile()
+
+    def close(self):
+        self._finishFile(True)
+
+    def _startFile(self):
+        if self.lastFile:
+            return
+
+        self.lastName = self.base + '.%02d' % self.index
+        self.lastFile = open(self.lastName, 'wb')
+        self.lastDigest = digestlib.sha1()
+        self.lastChunk = 0
+        self.index += 1
+
+    def _finishFile(self, force=False):
+        if not force and self.lastChunk < self.sizeLimit:
+            return
+
+        self.lastFile.close()
+        self.lastFile = None
+        digest = self.lastDigest.hexdigest()
+        print >> self.manifest, self.lastName, self.lastChunk, 1, digest
 
 
 def copyChunks(fromObj, base, manifest, sizeLimit=10485760):
