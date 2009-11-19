@@ -26,7 +26,7 @@ from jobmaster.resources.mount import MountableDirectory
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.resources.tempdir import TempDir
 from jobmaster.subprocutil import Pipe, Subprocess
-from jobmaster.util import createFile, devNull, logCall, mount, setupLogging
+from jobmaster.util import createDirectory, createFile, devNull, logCall, mount, setupLogging
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +75,7 @@ class ContainerWrapper(ResourceStack):
                     (self.devFS, 'dev', True),
                     (self.scratch, 'tmp', False),
                     (self.scratch, 'var/tmp', False),
+                    (self.scratch, 'var/lock', False),
                     (MountableDirectory(templateDir),
                         'mnt/anaconda-templates', True),
                     ])
@@ -217,6 +218,7 @@ class Container(TempDir, Subprocess):
                 'templateCache /mnt/anaconda-templates\n'
                 % (self.cfg.debugMode, masterURL, proxyURL))
         createFile(self.path, 'tmp/etc/jobslave.data', self.jobData)
+        createDirectory(self.path, 'var/lock/rpm')
 
 
 def main(args):
