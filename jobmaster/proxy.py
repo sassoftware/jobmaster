@@ -112,6 +112,7 @@ class ProxyServer(asyncore.dispatcher):
 
 
 class ProxyDispatcher(asyncore.dispatcher):
+    """asyncore handler for the jobmaster proxy server"""
     chunk_size = 8192
     buffer_threshold = chunk_size * 8
 
@@ -244,15 +245,15 @@ class ProxyDispatcher(asyncore.dispatcher):
 
     # Copying machinery
     def copyable(self):
-        """
-        Return C{True} if the output buffer can accept more bytes.
-        """
+        """Return True if the output buffer can accept more bytes."""
         return len(self.out_buffer) < self.buffer_threshold
 
     def pair_copyable(self):
+        """Return True if there is a pair socket and it is copyable."""
         return self.pair and self.pair.copyable()
 
     def start_copy(self, headers):
+        """Set copy mode based on the info in the given headers."""
         assert self.state == STATE_HEADER
         if 'transfer-encoding' in headers:
             if headers['transfer-encoding'] != 'chunked':
@@ -268,6 +269,7 @@ class ProxyDispatcher(asyncore.dispatcher):
             self.state = STATE_COPY_ALL
 
     def handle_copy(self):
+        """Handle input while in copy mode."""
         if not self.pair:
             # Copy to whom?
             raise ConnectionClosed
@@ -340,9 +342,13 @@ class ProxyDispatcher(asyncore.dispatcher):
 
     # Cleanup machinery
     def handle_close(self):
+        """Handle an asyncore close event."""
+        # Throw to make sure further events don't get called, and so there is
+        # only one place that close events get handled.
         raise ConnectionClosed
 
     def handle_error(self):
+        """Handle an asyncore error event."""
         e_class = sys.exc_info()[0]
         if e_class is not ConnectionClosed:
             log.exception("Unhandled exception in proxy handler; "
@@ -350,19 +356,21 @@ class ProxyDispatcher(asyncore.dispatcher):
         self.close()
 
     def close(self):
+        """Close the dispatcher object and its socket."""
         asyncore.dispatcher.close(self)
         pair, self._pair = self.pair, None
         if pair:
             pair.pair_closed()
 
     def pair_closed(self):
-        pass
+        """Handle the paired socket having closed."""
 
 
 class ProxyClient(ProxyDispatcher):
     upstream = None
 
     def pair_closed(self):
+        """Handle the upstream socket closing by changing to CLOSED state."""
         if self.out_buffer:
             # Don't close the connection until the send queue is empty.
             self.state = STATE_CLOSING
@@ -393,14 +401,17 @@ class ProxyClient(ProxyDispatcher):
             return self.do_proxy(request, method, path, headers)
 
     def send_response(self, response, headers, body=''):
+        """Send a simple HTTP response."""
         headers.append('Content-Length: %s' % len(body))
         self.send('HTTP/1.1 %s\r\n%s\r\n\r\n%s' % (response,
             '\r\n'.join(headers), body))
 
     def send_text(self, response, body):
+        """Send a simple HTTP response with text/plain content."""
         self.send_response(response, ['Content-Type: text/plain'], body)
 
     def do_proxy(self, request, method, path, headers):
+        """Attempt to proxy a request upstream."""
         proxyOK = False
         paths = ALLOWED_PATHS.get(method)
         if paths:
@@ -457,6 +468,7 @@ class ProxyClient(ProxyDispatcher):
         self._pair = weakref.ref(upstream)
 
     def do_templates(self, method, path, headers):
+        """Handle a request to get anaconda templates."""
         clength = headers.get('content-length', 0)
         if clength != 0:
             # Implementing this would add a lot of complexity for something we
