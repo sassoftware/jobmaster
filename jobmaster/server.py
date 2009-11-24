@@ -114,8 +114,13 @@ class JobMaster(bus_node.BusNode):
             self.removeJob(job, failed=True)
 
     def doStopCommand(self, msg):
-        # TODO
-        pass
+        """Stop one running job."""
+        uuid = msg.getUUID()
+        if uuid in self.handlers:
+            log.info("Stopping job %s", uuid)
+            self.handlers[uuid].stop()
+        else:
+            log.info("Ignoring request to stop unknown job %s", uuid)
 
     def handleRequestIfReady(self, sleepTime):
         bus_node.BusNode.handleRequestIfReady(self, sleepTime)
