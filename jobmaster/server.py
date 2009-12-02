@@ -122,6 +122,20 @@ class JobMaster(bus_node.BusNode):
         else:
             log.info("Ignoring request to stop unknown job %s", uuid)
 
+    def doSetSlotsCommand(self, msg):
+        """Set the number of slots."""
+        self.nodeInfo.slots = self.cfg.slaveLimit = int(msg.getSlots())
+        log.info("Setting slot limit to %d.", self.cfg.slaveLimit)
+
+        # Write the new value to file so it is preserved across restarts.
+        cfgDir = os.path.join(self.cfg.basePath, 'config.d')
+        if os.access(cfgDir, os.W_OK):
+            fObj = open(cfgDir + '/99_runtime.conf', 'w')
+            self.cfg.storeKey('slaveLimit', fObj)
+            fObj.close()
+        else:
+            log.warning("Could not write new config in %s.", cfgDir)
+
     def handleRequestIfReady(self, sleepTime):
         bus_node.BusNode.handleRequestIfReady(self, sleepTime)
         # Check on all our subprocesses to make sure they are alive and reap
