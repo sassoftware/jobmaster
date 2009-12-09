@@ -237,28 +237,32 @@ class Subprocess(object):
         self._subproc_wait(0)
         return self.exitCode
 
-    def kill(self):
+    def kill(self, signum=signal.SIGTERM, timeout=5):
         """
         Kill the subprocess and wait for it to exit.
         """
         if not self.pid:
             return
-        # Try SIGTERM first, but don't wait for longer than 1 second.
+
         try:
-            os.kill(self.pid, signal.SIGTERM)
+            os.kill(self.pid, signum)
         except OSError, err:
             if err.errno != errno.ESRCH:
                 raise
             # Process doesn't exist (or is a zombie)
-        start = time.time()
-        while time.time() - start < 1.0:
-            if not self.check():
-                break
-            time.sleep(0.1)
-        else:
-            # If it's still going, use SIGKILL and wait indefinitely.
-            os.kill(self.pid, signal.SIGKILL)
-            self.wait()
+
+        if timeout:
+            # If a timeout is given, wait that long for the process to
+            # terminate, then send a SIGKILL.
+            start = time.time()
+            while time.time() - start < timeout:
+                if not self.check():
+                    break
+                time.sleep(0.1)
+            else:
+                # If it's still going, use SIGKILL and wait indefinitely.
+                os.kill(self.pid, signal.SIGKILL)
+                self.wait()
 
 
 def debugHook(signum, sigtb):

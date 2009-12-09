@@ -46,7 +46,10 @@ def main(args):
             info = tar.gettarinfo(abspath, relpath)
             info.uid = info.gid = 48
             info.uname = info.gname = 'apache'
-            tar.addfile(info, open(abspath, 'rb'))
+            fObj = None
+            if info.isfile():
+                fObj = open(abspath, 'rb')
+            tar.addfile(info, fObj)
         tar.close()
         splitter.close()
         manifest.close()
@@ -141,24 +144,6 @@ class Splitter(object):
         self.lastFile = None
         digest = self.lastDigest.hexdigest()
         print >> self.manifest, self.lastName, self.lastChunk, 1, digest
-
-
-def copyChunks(fromObj, base, manifest, sizeLimit=10485760):
-    index = 0
-    while True:
-        name = '%s.%d' % (base, index)
-        index += 1
-
-        digest = digestlib.sha1()
-        fObj = open(name + '.tmp', 'wb')
-        size = copyfileobj(fromObj, fObj, digest=digest, sizeLimit=sizeLimit)
-        fObj.close()
-        if size:
-            os.rename(name + '.tmp', name)
-        else:
-            os.unlink(name + '.tmp')
-            break
-        print >> manifest, name, size, 1, digest.hexdigest()
 
 
 if __name__ == '__main__':

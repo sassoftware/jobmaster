@@ -70,6 +70,7 @@ class JobHandler(Subprocess):
             try:
                 # Start up the container process and wait for it to finish.
                 jobslave.start(self.job.job_data)
+                signal.signal(signal.SIGINT, self._onSignal)
                 signal.signal(signal.SIGTERM, self._onSignal)
                 signal.signal(signal.SIGQUIT, self._onSignal)
                 ret = jobslave.wait()
@@ -79,6 +80,10 @@ class JobHandler(Subprocess):
             log.error(str(err))
             self.failJob(str(err))
             ret = 0  # error handled
+        except StopJob:
+            log.info("Stopping job due to user request.")
+            self.failJob("Job stopped by user")
+            ret = 0 # error handled
         except:
             log.exception("Error starting jobslave for %s:", self.uuid)
             self.failJob("Error starting build environment. "
@@ -90,9 +95,18 @@ class JobHandler(Subprocess):
             self.failJob("Job terminated unexpectedly")
         return 0
 
+    def stop(self):
+        """Terminate a running job handler."""
+        self.kill(signal.SIGQUIT)
+
     def _onSignal(self, signum, sigtb):
-        log.info("Terminating jobslave due to signal %d", signum)
-        self.kill()
+        if signum == signal.SIGQUIT:
+            # Stop requested by user.
+            raise StopJob()
+        else:
+            # Abnormal signal.
+            raise RuntimeError("Job handler terminated by signal %d"
+                    % (signum,))
 
     def failJob(self, reason):
         self.response.sendStatus(jobstatus.FAILED, reason)
@@ -165,3 +179,7 @@ class JobHandler(Subprocess):
         log.info("Allocating %s of scratch space for job %s",
                 prettySize(totalSize), self.uuid)
         return totalSize
+
+
+class StopJob(Exception):
+    """Thrown by signal handler when the user requests the job to stop."""
