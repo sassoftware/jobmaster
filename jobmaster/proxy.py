@@ -121,10 +121,8 @@ class ProxyDispatcher(asyncore.dispatcher):
         self.in_buffer = self.out_buffer = ''
         self.state = STATE_HEADER
         self.copy_remaining = 0L
-        if pair:
-            self._pair = weakref.ref(pair)
-        else:
-            self._pair = None
+        self._remote = None
+        self._pair = pair and weakref.ref(pair) or None
 
     @property
     def server(self):
@@ -133,6 +131,19 @@ class ProxyDispatcher(asyncore.dispatcher):
     @property
     def pair(self):
         return self._pair and self._pair()
+
+    @property
+    def name(self):
+        if not self.socket:
+            return ''
+        if self._remote is None:
+            try:
+                peer = self.socket.getpeername()
+            except:
+                self._remote = ''
+            else:
+                self._remote = '[%s]:%s' % peer[:2]
+        return self._remote
 
     @staticmethod
     def _parse_header(header):
@@ -387,6 +398,8 @@ class ProxyClient(ProxyDispatcher):
                     version)
             raise ConnectionClosed
 
+        log.debug('%s "%s"', self.name, requestline)
+
         if path.startswith('/templates/'):
             return self.do_templates(method, path, headers)
         else:
@@ -490,6 +503,9 @@ class ProxyClient(ProxyDispatcher):
                         'Bad arguments for getTemplate\r\n')
 
             start = not query.get('nostart', 0)
+            if start:
+                log.debug("Client requested template %s=%s[%s]",
+                        name, version, flavor)
             jobmaster = self.server.jobmaster()
             assert jobmaster
             conaryCfg = jobmaster.getConaryConfig(url)
