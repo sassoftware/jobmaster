@@ -163,8 +163,8 @@ class TemplateGenerator(Lockable, Subprocess):
             'netclient_protocol_version': '38',
             }, metaFile)
 
-        outFile.commit()
         metaFile.commit()
+        outFile.commit()
 
         self._log.info("Template %s created", self._hash)
 
