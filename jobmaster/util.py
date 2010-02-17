@@ -11,11 +11,20 @@ import select
 import subprocess
 import sys
 import tempfile
-
-from conary import conarycfg, conaryclient
-
+from conary.lib import digestlib
+from jobmaster.osutil import _close_fds
 
 log = logging.getLogger(__name__)
+
+
+def _getLogger(levels=2):
+    """
+    Get a logger for the function two stack frames up, e.g. the caller of the
+    function calling this one.
+    """
+    caller = sys._getframe(levels)
+    name = caller.f_globals['__name__']
+    return logging.getLogger(name)
 
 
 class CommandError(RuntimeError):
@@ -31,15 +40,118 @@ class CommandError(RuntimeError):
                 self.cmd, self.rv)
 
 
-class OutOfSpaceError(RuntimeError):
-    def __init__(self, required, free):
-        self.required = required
-        self.free = free
-        self.args = (required, free)
+def devNull():
+    return open('/dev/null', 'w+')
 
-    def __str__(self):
-        return ("Not enough scratch space for build: %d extents required "
-                "but only %d free" % (self.required, self.free))
+
+def bindMount(device, mount, **kwargs):
+    return logCall(['/bin/mount', '-n', '--bind', device, mount], **kwargs) 
+
+
+def call(cmd, ignoreErrors=False, logCmd=False, logLevel=logging.DEBUG,
+        captureOutput=True, wait=True, **kw):
+    """
+    Run command C{cmd}, optionally logging the invocation and output.
+
+    If C{cmd} is a string, it will be interpreted as a shell command.
+    Otherwise, it should be a list where the first item is the program name and
+    subsequent items are arguments to the program.
+
+    @param cmd: Program or shell command to run.
+    @type  cmd: C{basestring or list}
+    @param ignoreErrors: If C{False}, a L{CommandError} will be raised if the
+            program exits with a non-zero return code.
+    @type  ignoreErrors: C{bool}
+    @param logCmd: If C{True}, log the invocation and its output.
+    @type  logCmd: C{bool}
+    @param captureOutput: If C{True}, standard output and standard error are
+            captured as strings and returned.
+    @type  captureOutput: C{bool}
+    @param kw: All other keyword arguments are passed to L{subprocess.Popen}
+    @type  kw: C{dict}
+    """
+    logger = _getLogger(kw.pop('_levels', 2))
+
+    if logCmd:
+        if isinstance(cmd, basestring):
+            niceString = cmd
+        else:
+            niceString = ' '.join(repr(x) for x in cmd)
+        env = kw.get('env', {})
+        env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
+        logger.log(logLevel, "+ %s%s", env, niceString)
+
+    kw.setdefault('close_fds', True)
+    kw.setdefault('shell', isinstance(cmd, basestring))
+    if 'stdin' not in kw:
+        kw['stdin'] = devNull()
+
+    pipe = captureOutput and subprocess.PIPE or None
+    kw.setdefault('stdout', pipe)
+    kw.setdefault('stderr', pipe)
+    p = subprocess.Popen(cmd, **kw)
+
+    stdout = stderr = ''
+    if captureOutput:
+        while p.poll() is None:
+            rList = [x for x in (p.stdout, p.stderr) if x]
+            rList, _, _ = tryInterruptable(select.select, rList, [], [])
+            for rdPipe in rList:
+                line = rdPipe.readline()
+                if rdPipe is p.stdout:
+                    which = 'stdout'
+                    stdout += line
+                else:
+                    which = 'stderr'
+                    stderr += line
+                if logCmd and line.strip():
+                    logger.log(logLevel, "++ (%s) %s", which, line.rstrip())
+
+        # pylint: disable-msg=E1103
+        stdout_, stderr_ = p.communicate()
+        if stderr_ is not None:
+            stderr += stderr_
+            if logCmd:
+                for x in stderr_.splitlines():
+                    logger.log(logLevel, "++ (stderr) %s", x)
+        if stdout_ is not None:
+            stdout += stdout_
+            if logCmd:
+                for x in stdout_.splitlines():
+                    logger.log(logLevel, "++ (stdout) %s", x)
+    elif wait:
+        tryInterruptable(p.wait)
+
+    if not wait:
+        return p
+    elif p.returncode and not ignoreErrors:
+        raise CommandError(cmd, p.returncode, stdout, stderr)
+    else:
+        return p.returncode, stdout, stderr
+
+
+def close_fds(exceptions=(0, 1, 2)):
+    """
+    Close all file descriptors, except for the ones listed in C{exceptions}.
+    """
+    _close_fds(sorted(exceptions))
+
+
+def makeConstants(name, definition):
+    """
+    Given a string of space-separated names, create a class with those names as
+    attributes assigned sequential integer values. The class also has C{names}
+    and C{values} dictionaries to map from name to value and from value to name.
+    """
+    nameList = definition.split()
+    valueList = range(len(nameList))
+    typedict = {
+            '__slots__': (),
+            'names': dict(zip(nameList, valueList)),
+            'values': dict(zip(valueList, nameList)),
+            }
+    typedict.update(typedict['names'])
+    return type(name, (object,), typedict)
 
 
 def rewriteFile(template, target, data):
@@ -54,173 +166,133 @@ def rewriteFile(template, target, data):
     os.unlink(template)
 
 
-def _getLogger(levels=2):
-    caller = sys._getframe(levels)
-    name = caller.f_globals['__name__']
-    return logging.getLogger(name)
+def logCall(cmd, **kw):
+    # This function logs by default.
+    kw.setdefault('logCmd', True)
+
+    # _getLogger() will need to go out an extra frame to get the original
+    # caller's module name.
+    kw['_levels'] = 3
+
+    return call(cmd, **kw)
 
 
-def logCall(cmd, ignoreErrors=False, logCmd=True, captureOutput=True, **kw):
+def mount(device, mount, fstype, options='', **kwargs):
+    args = ['/bin/mount', '-n', '-t', fstype, device, mount]
+    if options:
+        args.extend(('-o', options))
+    return logCall(args, **kwargs)
+
+
+def setupLogging(logLevel=logging.INFO, toStderr=True, toFile=None):
     """
-    Run command C{cmd}, logging the command run and all its output.
-
-    If C{cmd} is a string, it will be interpreted as a shell command.
-    Otherwise, it should be a list where the first item is the program name and
-    subsequent items are arguments to the program.
-
-    @param cmd: Program or shell command to run.
-    @type  cmd: C{basestring or list}
-    @param ignoreErrors: If C{True}, don't raise an exception on a 
-            non-zero return code.
-    @type  ignoreErrors: C{bool}
-    @param logCmd: If C{False}, don't log the command invoked.
-    @type  logCmd: C{bool}
-    @param kw: All other keyword arguments are passed to L{subprocess.Popen}
-    @type  kw: C{dict}
+    Set up a root logger with default options and possibly a file to
+    log to.
     """
-    logger = _getLogger()
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s %(name)s %(message)s')
 
-    if logCmd:
-        if isinstance(cmd, basestring):
-            niceString = cmd
+    if isinstance(logLevel, basestring):
+        logLevel = logging.getLevelName(logLevel.upper())
+
+    rootLogger = logging.getLogger()
+    rootLogger.setLevel(logLevel)
+    rootLogger.handlers = []
+
+    if toStderr:
+        streamHandler = logging.StreamHandler()
+        streamHandler.setFormatter(formatter)
+        rootLogger.addHandler(streamHandler)
+
+    if toFile:
+        fileHandler = logging.FileHandler(toFile)
+        fileHandler.setFormatter(formatter)
+        rootLogger.addHandler(fileHandler)
+
+
+def specHash(troveTups, buildTimes=None):
+    """
+    Create a unique identifier for the troves C{troveTups}.
+    """
+    if buildTimes:
+        assert len(troveTups) == len(buildTimes)
+        troveTups = zip(troveTups, buildTimes)
+    else:
+        troveTups = [(x, None) for x in troveTups]
+
+    items = []
+    for (name, version, flavor), buildTime in sorted(troveTups):
+        items.append(name)
+        if buildTime:
+            items.append(version.trailingRevision().version)
+            items.append(long(buildTime))
         else:
-            niceString = ' '.join(repr(x) for x in cmd)
-        env = kw.get('env', {})
-        env = ''.join(['%s="%s" ' % (k,v) for k,v in env.iteritems()])
-        logger.info("+ %s%s", env, niceString)
-
-    kw.setdefault('close_fds', True)
-    kw.setdefault('shell', isinstance(cmd, basestring))
-    if 'stdin' not in kw:
-        kw['stdin'] = open('/dev/null')
-
-    pipe = captureOutput and subprocess.PIPE or None
-    kw.setdefault('stdout', pipe)
-    kw.setdefault('stderr', pipe)
-    p = subprocess.Popen(cmd, **kw)
-
-    stdout = stderr = ''
-    if captureOutput:
-        while p.poll() is None:
-            rList = [x for x in (p.stdout, p.stderr) if x]
-            rList, _, _ = select.select(rList, [], [])
-            for rdPipe in rList:
-                line = rdPipe.readline()
-                if rdPipe is p.stdout:
-                    which = 'stdout'
-                    stdout += line
-                else:
-                    which = 'stderr'
-                    stderr += line
-                if logCmd and line.strip():
-                    logger.info("++ (%s) %s", which, line.rstrip())
-
-        # pylint: disable-msg=E1103
-        stdout_, stderr_ = p.communicate()
-        if stderr_ is not None:
-            stderr += stderr_
-            if logCmd:
-                for x in stderr_.splitlines():
-                    logger.info("++ (stderr) %s", x)
-        if stdout_ is not None:
-            stdout += stdout_
-            if logCmd:
-                for x in stdout_.splitlines():
-                    logger.info("++ (stdout) %s", x)
-    else:
-        p.wait()
-
-    if p.returncode and not ignoreErrors:
-        raise CommandError(cmd, p.returncode, stdout, stderr)
-    else:
-        return p.returncode, stdout, stderr
+            items.append(version.freeze())
+        items.append(flavor.freeze())
+    items.append('')
+    return digestlib.sha1('\0'.join(str(x) for x in items)).hexdigest()
 
 
-def getIP():
-    p = os.popen("""/sbin/ifconfig `/sbin/route | grep "^default" | sed "s/.* //"` | grep "inet addr" | awk -F: '{print $2}' | sed 's/ .*//'""")
-    data = p.read().strip()
-    p.close()
-    return data
-
-def getRunningKernel():
-    # Get the current kernel version
-    p = os.popen('uname -r')
-    kernel_name = p.read().strip()
-    p.close()
-
-    cfg = conarycfg.ConaryConfiguration(True)
-    cc = conaryclient.ConaryClient(cfg)
-
-    # Determine paths for kernel and initrd
-    kernel_path = '/boot/vmlinuz-' + kernel_name
-    initrd_path = '/boot/initrd-' + kernel_name + '.img'
-    ret = dict(uname=kernel_name, kernel=kernel_path, initrd=initrd_path)
-
-    # Check if conary owns this as a standardized file in /boot
-    if os.path.exists(kernel_path):
-        # Easy! Conary should own this.
-        troves = cc.db.iterTrovesByPath(kernel_path)
-        if troves:
-            kernel = troves[0].getNameVersionFlavor()
-            logging.debug('Selected kernel %s=%s[%s] based on running '
-                'kernel at %s', kernel[0], kernel[1], kernel[2], kernel_path)
-            ret['trove'] = kernel
-            return ret
-
-    # Get the latest "kernel:runtime" trove instead and pray
-    troveSpec = ('kernel:runtime', None, None)
-    troves = cc.db.findTroves(None, [('kernel:runtime', None, None)])[troveSpec]
-    max_version = max(x[1] for x in troves)
-    kernel = [x for x in troves if x[1] == max_version][0]
-    if kernel:
-        logging.warning('Could not determine running kernel by file. '
-            'Falling back to latest kernel: %s=%s[%s]', kernel[0],
-            kernel[1], kernel[2])
-        ret['trove'] = kernel
-        return ret
-    else:
-        raise RuntimeError('Could not determine currently running kernel')
+def tryInterruptable(func, *args, **kwargs):
+    while True:
+        try:
+            return func(*args, **kwargs)
+        except Exception, err:
+            if getattr(err, 'errno', None) == errno.EINTR:
+                continue
+            else:
+                raise
 
 
-def allocateScratch(cfg, name, disks):
-    # Determine how many free extents there are, and how big an extent is.
-    ret = logCall(['/usr/sbin/lvm', 'vgs',
-        '-o', 'extent_size,free_count', cfg.lvmVolumeName],
-        logCmd=False)[1]
-    ret = ret.splitlines()[1:]
-    if not ret:
-        raise RuntimeError("Volume group %s could not be read"
-                % (cfg.lvmVolumeName,))
-    extent_size, extents_free = ret[0].split()
-    assert extent_size.endswith('M')
-    extent_size = 1048576 * int(float(extent_size[:-1]))
-    extents_free = int(extents_free)
+def createDirectory(fsRoot, path, mode=0755):
+    """
+    Create a directory at C{fsRoot}/C{path} with mode C{mode} if it
+    doesn't exist, creating intermediate directories as needed.
+    """
+    path = os.path.join(fsRoot, path)
+    if not os.path.isdir(path):
+        os.makedirs(path)
+        os.chmod(path, mode)
 
-    to_allocate = []
-    extents_required = 0
-    for suffix, bytes, fuzzy in disks:
-        # Round up to the nearest extent
-        extents = (int(bytes) + extent_size - 1) / extent_size
 
-        extents_required += extents
-        if extents_required > extents_free and fuzzy:
-            # Shrink the disk to what's available.
-            shrink = extents_required - extents_free
-            log.warning("Shrinking disk %s-%s from %d to %d extents due to "
-                    "scratch shortage", name, suffix,
-                    extents, extents - shrink)
-            extents -= shrink
-            extents_required -= shrink
+def _writeContents(fObj, contents):
+    """
+    Write C{contents} to C{fObj}, stripping leading whitespace from
+    each line.
+    """
+    for line in contents.splitlines():
+        print >> fObj, line.lstrip()
 
-        to_allocate.append((suffix, extents))
 
-    if extents_required > extents_free:
-        raise OutOfSpaceError(extents_required, extents_free)
+def appendFile(fsRoot, path, contents):
+    """
+    Append C{contents} to the file at C{fsRoot}/C{path}.
 
-    for suffix, extents in to_allocate:
-        diskName = '%s-%s' % (name, suffix)
-        logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents),
-            '-n', diskName, cfg.lvmVolumeName], stdout=null())
+    C{contents} may contain leading whitespace on each line, which will
+    be stripped -- this is to allow the use of indented multiline
+    strings.
+    """
+    path = os.path.join(fsRoot, path)
+    fObj = open(path, 'a')
+    _writeContents(fObj, contents)
+    fObj.close()
+
+
+def createFile(fsRoot, path, contents='', mode=0644):
+    """
+    Create a file at C{fsRoot}/C{path} with contents C{contents} and
+    mode C{mode}.
+
+    C{contents} may contain leading whitespace on each line, which will
+    be stripped -- this is to allow the use of indented multiline
+    strings.
+    """
+    createDirectory(fsRoot, os.path.dirname(path))
+    path = os.path.join(fsRoot, path)
+    fObj = open(path, 'w')
+    _writeContents(fObj, contents)
+    fObj.close()
+    os.chmod(path, mode)
 
 
 class AtomicFile(object):
@@ -242,7 +314,7 @@ class AtomicFile(object):
     def __getattr__(self, name):
         return getattr(self.fObj, name)
 
-    def commit(self):
+    def commit(self, returnHandle=False):
         """
         C{flush()}, C{chmod()}, and C{rename()} to the target path.
         C{close()} afterwards.
@@ -261,7 +333,11 @@ class AtomicFile(object):
         os.rename(self.name, self.finalPath)
 
         # Now close the file.
-        self.fObj.close()
+        if returnHandle:
+            fObj, self.fObj = self.fObj, None
+            return fObj
+        else:
+            self.fObj.close()
 
     def close(self):
         if self.fObj and not self.fObj.closed:
@@ -270,5 +346,9 @@ class AtomicFile(object):
     __del__ = close
 
 
-def null():
-    return open('/dev/null', 'w')
+def prettySize(num):
+    for power, suffix in ((3, 'GiB'), (2, 'MiB'), (1, 'KiB')):
+        if num >= 1024 ** power:
+            return '%.01f %s' % (float(num) / (1024 ** power), suffix)
+    else:
+        return '%d B' % num

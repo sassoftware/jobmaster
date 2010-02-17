@@ -1,0 +1,104 @@
+#!/bin/bash
+#
+# jobmaster:  Starts the rBuilder Job Master.
+#
+# chkconfig: 2345 99 01
+# description: Controls rBuilder Slave Appliances.
+# processname: jobmaster
+# config: /usr/bin
+
+#
+# Copyright (c) 2007, 2009 rPath, Inc.
+#
+# All rights reserved
+#
+
+# Source function library
+. /etc/init.d/functions
+
+prog=jobmaster
+LONGNAME="rBuilder Job Master"
+PIDFILE='/var/run/jobmaster.pid'
+DAEMON='/usr/bin/jobmaster'
+JOBMASTER_CONFIG='/srv/rbuilder/jobmaster/config'
+JOBMASTER_OPTS=
+
+[ -f /etc/sysconfig/jobmaster ] && source /etc/sysconfig/jobmaster
+
+export PYTHONPATH
+
+
+start() {
+    echo -n "Starting $LONGNAME:"
+
+    [ -e /dev/vg00/slave_dummy ] && lvremove -f vg00/slave_dummy >/dev/null
+
+    pid=$(pidofproc $prog)
+    if checkpid $pid; then
+        failure
+    else
+        # clean up any dead mounts, LVM, etc.
+        $DAEMON -n -c "$JOBMASTER_CONFIG" --clean-mounts
+
+        # /cgroup must be mounted to run image builds
+        grep -q ' /cgroup ' /proc/mounts || mount -t cgroup cgroup /cgroup
+
+        daemon $DAEMON -c "$JOBMASTER_CONFIG" && touch /var/lock/subsys/$prog
+    fi
+    echo ""
+}
+
+stop() {
+    echo -n "Stopping $LONGNAME:"
+    killproc $DAEMON && rm -f /var/lock/subsys/$prog
+    echo ""
+    if [ "$1" = "--wait" ]; then
+        echo -n "Waiting for $LONGNAME server to terminate..."
+        # wait for the proxy port to be free
+        n=10
+        while [ $n -gt 0 ] && [ "`netstat -an | awk '{print $4};' | grep ":7770"`" != "" ]
+        do
+            sleep 1
+            n=$(( $n - 1 ))
+        done
+        [ $n -gt 0 ] && success || failure
+        echo
+    fi
+}
+
+restart(){
+    stop
+    start
+}
+
+condrestart(){
+    [ -e /var/lock/subsys/$prog ] && restart
+}
+
+condstop(){
+    [ -e /var/lock/subsys/$prog ] && stop
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart)
+        restart
+        ;;
+  condrestart)
+        condrestart
+        ;;
+  condstop)
+        condstop
+        ;;
+  status)
+        status $DAEMON
+        ;;
+  *)
+    echo "Usage: `basename $0` {start|stop|restart|condstop|condrestart|status}"
+    ;;
+esac
