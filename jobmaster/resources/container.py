@@ -58,8 +58,8 @@ class ContainerWrapper(ResourceStack):
         self.container = Container(self.name, cfg)
         self.append(self.container)
 
-    def start(self, jobData):
-        self.contents.start()
+    def start(self, jobData, prepareCB=None):
+        self.contents.start(prepareCB)
         self.scratch.start()
         self.devFS.start()
         self.network.start()
