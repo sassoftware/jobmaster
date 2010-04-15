@@ -28,7 +28,6 @@ import threading
 import urllib
 import urlparse
 import weakref
-from conary.conaryclient.cmdline import parseTroveSpec
 from conary.deps.deps import ThawFlavor
 from conary.versions import ThawVersion
 from jobmaster.templategen import TemplateGenerator

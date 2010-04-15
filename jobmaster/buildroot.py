@@ -11,17 +11,11 @@ Code for installing a jobslave into a target root.
 import copy
 import logging
 import os
-import subprocess
-import sys
 import tempfile
-import traceback
 from conary import callbacks
-from conary import conarycfg
 from conary import conaryclient
-from conary import updatecmd
-from conary.conaryclient import cmdline
 from conary.lib import util
-from jobmaster.util import call, devNull, setupLogging, createFile
+from jobmaster.util import call, devNull, createFile
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +83,7 @@ def runTagScripts(fsRoot):
         try:
             # subprocess needs this to unpickle exceptions
             import encodings.string_escape
+            encodings = encodings
 
             null = devNull()
             os.chroot(fsRoot)

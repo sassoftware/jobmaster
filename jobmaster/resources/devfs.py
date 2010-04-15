@@ -9,8 +9,6 @@ import errno
 import fcntl
 import logging
 import os
-import random
-import threading
 from jobmaster import cgroup
 from jobmaster.resource import ResourceStack
 from jobmaster.resources.mount import AutoMountResource, BindMountResource

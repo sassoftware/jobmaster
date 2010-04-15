@@ -9,21 +9,14 @@ import errno
 import fcntl
 import logging
 import os
-import random
-import sys
 import tempfile
-import time
-from conary import conarycfg
 from conary.lib.util import mkdirChain, rmtree
 from jobmaster import archiveroot
 from jobmaster import buildroot
-from jobmaster.config import MasterConfig
-from jobmaster.resource import Resource, ResourceStack
-from jobmaster.resources.block import ScratchDisk
-from jobmaster.resources.devfs import DevFS
+from jobmaster.resource import Resource
 from jobmaster.resources.mount import BindMountResource
 from jobmaster.subprocutil import Lockable
-from jobmaster.util import setupLogging, specHash
+from jobmaster.util import specHash
 
 log = logging.getLogger(__name__)
 

@@ -4,7 +4,6 @@
 # All Rights Reserved
 #
 
-import copy
 import logging
 import os
 import signal
@@ -12,12 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from conary import callbacks
-from conary import conarycfg
-from conary import updatecmd
 from conary.lib.util import copyfileobj
-from conary.conaryclient import cmdline
-from jobmaster.util import AtomicFile, setupLogging, createFile
 
 log = logging.getLogger(__name__)
 

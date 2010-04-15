@@ -9,7 +9,6 @@ import logging
 import os
 import sys
 import tempfile
-import time
 import traceback
 from conary import conarycfg
 from conary import conaryclient
@@ -18,7 +17,7 @@ from jobmaster import linuxns
 from jobmaster import osutil
 from jobmaster.config import MasterConfig
 from jobmaster.networking import AddressGenerator
-from jobmaster.resource import Resource, ResourceStack
+from jobmaster.resource import ResourceStack
 from jobmaster.resources.block import ScratchDisk
 from jobmaster.resources.chroot import BoundContentsRoot
 from jobmaster.resources.devfs import DevFS
@@ -178,6 +177,7 @@ class Container(TempDir, Subprocess):
         # subprocess after chrooting, if the chroot python is different from
         # our own.
         import encodings.string_escape
+        encodings = encodings
 
         os.chroot(self.path)
         os.chdir('/')
