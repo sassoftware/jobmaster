@@ -11,22 +11,24 @@ Code for installing a jobslave into a target root.
 import copy
 import logging
 import os
-import subprocess
-import sys
 import tempfile
-import traceback
 from conary import callbacks
-from conary import conarycfg
 from conary import conaryclient
-from conary import updatecmd
-from conary.conaryclient import cmdline
 from conary.lib import util
-from jobmaster.util import call, devNull, setupLogging, createFile
+from jobmaster.util import call, devNull, createFile
 
 log = logging.getLogger(__name__)
 
 
-def buildRoot(ccfg, troveTups, destRoot):
+def _status(callback, status, *args):
+    if args:
+        status %= args
+    log.info(status)
+    if callback:
+        callback(status)
+
+
+def buildRoot(ccfg, troveTups, destRoot, callback=None):
     destRoot = os.path.realpath(destRoot)
     fsRoot = tempfile.mkdtemp(prefix='temproot-',
             dir=os.path.dirname(destRoot))
@@ -41,8 +43,8 @@ def buildRoot(ccfg, troveTups, destRoot):
         try:
             os.mkdir(os.path.join(fsRoot, 'root'))
 
-            log.info("Preparing update job")
-            rootClient.setUpdateCallback(UpdateCallback())
+            _status(callback, "Preparing update job")
+            rootClient.setUpdateCallback(UpdateCallback(callback))
             job = rootClient.newUpdateJob()
             jobTups = [(n, (None, None), (v, f), True)
                     for (n, v, f) in troveTups]
@@ -51,7 +53,7 @@ def buildRoot(ccfg, troveTups, destRoot):
             rootClient.applyUpdateJob(job,
                     tagScript=os.path.join(fsRoot, 'root/conary-tag-script'))
 
-            log.info("Running tag scripts")
+            _status(callback, "Running tag scripts")
             preTagScripts(fsRoot)
             runTagScripts(fsRoot)
             postTagScripts(fsRoot)
@@ -89,6 +91,7 @@ def runTagScripts(fsRoot):
         try:
             # subprocess needs this to unpickle exceptions
             import encodings.string_escape
+            encodings = encodings
 
             null = devNull()
             os.chroot(fsRoot)
@@ -111,10 +114,17 @@ def postTagScripts(fsRoot):
 
 
 class UpdateCallback(callbacks.UpdateCallback):
+    def __init__(self, cbmethod):
+        callbacks.UpdateCallback.__init__(self)
+        self.cbmethod = cbmethod
+
     def eatMe(self, *P, **K):
         pass
 
     tagHandlerOutput = troveScriptOutput = troveScriptFailure = eatMe
 
     def setUpdateHunk(self, hunk, total):
-        log.info('Applying update job %d of %d', hunk, total)
+        status = "Applying update job %d of %d" % (hunk, total)
+        log.info(status)
+        if self.cbmethod:
+            self.cbmethod(status)

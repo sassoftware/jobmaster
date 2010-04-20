@@ -11,8 +11,6 @@ import os
 import simplejson
 import sys
 from conary import conarycfg
-from conary import conaryclient
-from mcp import image_job
 from mcp import jobstatus
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
@@ -29,6 +27,10 @@ from jobmaster.resources.devfs import LoopManager
 from jobmaster.resources.block import get_scratch_lvs
 from jobmaster.response import ResponseProxy
 from jobmaster.subprocutil import setDebugHook
+
+# Register image job message type with rMake
+from mcp import image_job
+image_job = image_job
 
 log = logging.getLogger(__name__)
 

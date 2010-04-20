@@ -7,9 +7,7 @@
 
 import logging
 import os
-import stat
-import subprocess
-from jobmaster.resource import Resource, ResourceStack
+from jobmaster.resource import Resource
 from jobmaster.resources.mount import AutoMountResource, BindMountResource
 from jobmaster.util import call, logCall, devNull
 

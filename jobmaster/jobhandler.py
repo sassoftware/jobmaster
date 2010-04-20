@@ -69,7 +69,7 @@ class JobHandler(Subprocess):
         try:
             try:
                 # Start up the container process and wait for it to finish.
-                jobslave.start(self.job.job_data)
+                jobslave.start(self.job.job_data, self._cb_preparing)
                 signal.signal(signal.SIGINT, self._onSignal)
                 signal.signal(signal.SIGTERM, self._onSignal)
                 signal.signal(signal.SIGQUIT, self._onSignal)
@@ -112,6 +112,10 @@ class JobHandler(Subprocess):
         self.response.sendStatus(jobstatus.FAILED, reason)
         # Exit normally to indicate that we have handled the error.
         sys.exit(0)
+
+    def _cb_preparing(self, status):
+        self.response.sendStatus(jobstatus.RUNNING,
+                "Preparing build environment: " + status)
 
     def findSlave(self):
         if '/' in self.cfg.troveVersion:

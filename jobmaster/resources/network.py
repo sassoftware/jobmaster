@@ -5,7 +5,6 @@
 #
 
 import os
-from jobmaster.networking import AddressGenerator
 from jobmaster.resource import Resource
 from jobmaster.util import call, logCall, CommandError
 
