@@ -9,7 +9,7 @@ import logging
 import os
 import tempfile
 from jobmaster.resource import Resource
-from jobmaster.util import call, logCall
+from jobmaster.util import logCall
 
 log = logging.getLogger(__name__)
 

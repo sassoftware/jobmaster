@@ -9,11 +9,7 @@ Communicate status and artifacts back to the parent rBuilder.
 """
 
 import logging
-import os
 import restlib.client
-import time
-from conary.lib import digestlib
-from conary.lib import util
 try:
     from xml.etree import ElementTree as ET
 except ImportError:
