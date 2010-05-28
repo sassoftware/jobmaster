@@ -163,20 +163,48 @@ class JobHandler(Subprocess):
         """
         Return the total bytes of scratch space to be requested.
         """
+
+        def metaDataSlop(size):
+            # Slop handling for normal filesystems, assume reasonable
+            # inode balance
+            return int(math.ceil((size + 20 * MEBI) * 1.15))
+
+        def swapSlop(size):
+            # Slop handling for swap files, just need to account for
+            # indirect blocks, so 1% is overkill but not large
+            return int(math.ceil((size + 20 * MEBI) * 1.01))
+
         troveSize = self.getTroveSize()
 
         data = self.job_data.get('data', {})
+        buildType = data.get('buildType', 0)
         freeSpace = int(data.get('freespace', 0)) * MEBI
         swapSpace = int(data.get('swapSize', 0)) * MEBI
         mountSpace = sum([x[0] + x[1] for x in data.get('mountDict', {})]
-                ) * 1048576
+                ) * MEBI
 
-        totalSize = troveSize + freeSpace + swapSpace + mountSpace
+        anacondaSpace = 0
+        if buildType in (1, 16):
+            # We don't know how much space any particular anaconda build
+            # will take exactly, but it is bounded by having to fit on a CD,
+            # and 250 MiB is a reasonable upper bound since in practice
+            # it has been less than half that.
+            # buildtypes.INSTALLABLE_ISO or buildtypes.APPLIANCE_ISO
+            anacondaSpace = 250 * MEBI
+
         # Pad 15% for filesystem overhead (inodes, etc.)
-        totalSize = int(math.ceil((totalSize + 20 * MEBI) * 1.15))
-        # Multiply by 4. A minimum of 2 should suffice, but this has not been
-        # tested thoroughly.
-        totalSize *= 4
+        packageSpace = metaDataSlop(troveSize + mountSpace)
+        totalSize = (packageSpace +
+                     freeSpace +
+                     swapSlop(swapSpace) +
+                     anacondaSpace)
+
+        # Space to transform into image
+        totalSize *= 2
+        if buildType == 9: # buildtypes.VMWARE_ESX_IMAGE
+            # Account for extra sparse image to be built
+            totalSize += packageSpace + swapSlop(swapSpace)
+
         # Never allocate less than the configured minimum.
         totalSize = max(totalSize, self.cfg.minSlaveSize * MEBI)
 
