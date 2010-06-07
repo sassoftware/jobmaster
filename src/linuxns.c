@@ -54,6 +54,7 @@ pyclone(PyObject *self, PyObject *args, PyObject *kwargs) {
     char *kwnames[] = {"callback", "args", "new_uts", "new_ipc", "new_user",
         "new_pid", "new_net", NULL};
     int flags = SIGCHLD | CLONE_NEWNS;
+    int i;
     pid_t pid;
 
     /* parse and check args */
@@ -91,7 +92,17 @@ pyclone(PyObject *self, PyObject *args, PyObject *kwargs) {
     clone_arg.callback = callback;
     clone_arg.args = newargs;
 
-    pid = clone(clone_run, stack, flags, &clone_arg);
+    /* There seems to be some sort of kernel race that returns EEXIST, so
+     * retry a few times to avoid an unnecessary crash.
+     *
+     * This was observed on 2.6.29.6-0.7.smp.gcc4.1.x86_64
+     */
+    for (i = 0; i < 5; i++) {
+        pid = clone(clone_run, stack, flags, &clone_arg);
+        if (pid >= 0 || errno != EEXIST)
+            break;
+    }
+
     if (pid < 0) {
         Py_DECREF(callback);
         Py_DECREF(newargs);
