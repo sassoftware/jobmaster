@@ -226,8 +226,10 @@ def specHash(troveTups, buildTimes=None):
         if buildTime:
             items.append(version.trailingRevision().version)
             items.append(long(buildTime))
-        else:
+        elif version.trailingRevision().timeStamp:
             items.append(version.freeze())
+        else:
+            items.append(version.asString())
         items.append(flavor.freeze())
     items.append('')
     return digestlib.sha1('\0'.join(str(x) for x in items)).hexdigest()
