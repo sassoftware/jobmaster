@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009 rPath, Inc.
+# Copyright (c) 2010 rPath, Inc.
 #
 # All rights reserved.
 #
@@ -31,11 +31,12 @@ class TemplateGenerator(Lockable, Subprocess):
 
     Status = TemplateStatus
 
-    def __init__(self, troveTup, conaryCfg, workDir):
+    def __init__(self, troveTup, kernelTup, conaryCfg, workDir):
         self._troveTup = troveTup
+        self._kernelTup = kernelTup
         self._cfg = conaryCfg
 
-        self._hash = specHash([troveTup])
+        self._hash = specHash([troveTup] + (kernelTup and [kernelTup] or []))
         self._basePath = os.path.join(os.path.abspath(workDir), self._hash)
         self._outputPath = self._basePath + '.tar'
         self._lockPath = self._basePath + '.lock'
@@ -92,6 +93,7 @@ class TemplateGenerator(Lockable, Subprocess):
                     dir=os.path.dirname(self._outputPath))
             self._contentsDir = self._workDir + '/root'
             self._outputDir = self._workDir + '/output'
+            self._kernelDir = self._workDir + '/kernel'
             self._generate()
             self._deleteLock()
         finally:
@@ -100,22 +102,21 @@ class TemplateGenerator(Lockable, Subprocess):
             self._workDir = self._contentsDir = self._outputDir = None
     run = generate
 
-    def _installContents(self):
+    def _installContents(self, root, troves):
         cfg = copy.deepcopy(self._cfg)
-        cfg.root = self._contentsDir
+        cfg.root = root
         cfg.autoResolve = False
         cfg.updateThreshold = 0
 
         cli = ConaryClient(cfg)
         try:
-            self._log.debug("Preparing template update job")
+            self._log.debug("Preparing update job")
             job = cli.newUpdateJob()
-            troveName, troveVersion, troveFlavor = self._troveTup
-            cli.prepareUpdateJob(job, [(troveName,
-                (None, None), (troveVersion, troveFlavor), True)],
-                resolveDeps=False)
+            jobList = [(x[0], (None, None), (x[1], x[2]), True)
+                    for x in troves]
+            cli.prepareUpdateJob(job, jobList, resolveDeps=False)
 
-            self._log.debug("Applying template update job")
+            self._log.debug("Applying update job")
             cli.applyUpdateJob(job)
 
         finally:
@@ -126,7 +127,7 @@ class TemplateGenerator(Lockable, Subprocess):
         self._log.info("Generating template %s from trove %s=%s[%s]",
                 self._hash, *self._troveTup)
 
-        self._installContents()
+        self._installContents(self._contentsDir, [self._troveTup])
 
         # Copy "unified" directly into the output.
         os.mkdir(self._outputDir)
@@ -156,6 +157,8 @@ class TemplateGenerator(Lockable, Subprocess):
         cPickle.dump({
             'sha1sum': digest.hexdigest(),
             'trovespec': '%s=%s[%s]' % self._troveTup,
+            'kernel': (self._kernelTup and ('%s=%s[%s]' % self._kernelTup)
+                or '<none>'),
             # Right now, we are going to hardcode this to an older version
             # of Netclient Protocol to hint to the Conary installed on the
             # jobslave to generate old filecontainers that are compatible
@@ -230,10 +233,7 @@ class TemplateGenerator(Lockable, Subprocess):
             inputDir])
 
     def _RUN_mkcramfs(self, inputDir, output):
-        if os.path.exists('/bin/mkcramfs'):
-            logCall(['/bin/mkcramfs', inputDir, output])
-        else:
-            logCall(['/usr/bin/mkcramfs', inputDir, output])
+        logCall(['/sbin/mkfs.cramfs', inputDir, output])
 
     def _RUN_mkdosfs(self, inputDir, output):
         out = call(['du', '-ms', inputDir])[1]
@@ -246,6 +246,12 @@ class TemplateGenerator(Lockable, Subprocess):
         logCall(['/usr/bin/mcopy', '-i', output] + files + ['::'])
         logCall(['/usr/bin/syslinux', output])
 
+    def _DO_kernel(self, args):
+        if not self._kernelTup:
+            raise RuntimeError("Encountered 'kernel' manifest command but "
+                    "jobslave didn't provide a kernel")
+        self._installContents(self._kernelDir, [self._kernelTup])
+
 
 def main(args):
     import time
@@ -254,22 +260,21 @@ def main(args):
 
     setupLogging(logLevel=logging.DEBUG)
 
-    if len(args) == 1:
-        troveSpec, workDir = args[0], '.'
-    elif len(args) == 2:
-        troveSpec, workDir = args
+    if len(args) == 2:
+        troveSpec, kernelSpec, workDir = args[0], args[1], '.'
+    elif len(args) == 3:
+        troveSpec, kernelSpec, workDir = args
     else:
-        sys.exit("Usage: %s <troveSpec> [<workDir>]" % sys.argv[0])
+        sys.exit("Usage: %s <troveSpec> <kernelSpec> [<workDir>]" % sys.argv[0])
 
     cfg = conarycfg.ConaryConfiguration(True)
     cli = ConaryClient(cfg)
     repos = cli.getRepos()
 
-    troveSpec = parseTroveSpec(troveSpec)
-    matches = repos.findTrove(None, troveSpec)
-    troveTup = sorted(matches)[-1]
+    troveTup = sorted(repos.findTrove(None, parseTroveSpec(troveSpec)))[-1]
+    kernelTup = sorted(repos.findTrove(None, parseTroveSpec(kernelSpec)))[-1]
 
-    generator = TemplateGenerator(troveTup, cfg, workDir)
+    generator = TemplateGenerator(troveTup, kernelTup, cfg, workDir)
     generator.getTemplate(start=True)
     while True:
         status, path = generator.getTemplate(start=False)

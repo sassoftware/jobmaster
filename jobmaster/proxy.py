@@ -17,7 +17,9 @@ rBuilder.
 """
 
 import asyncore
+import base64
 import cgi
+import cPickle
 import errno
 import logging
 import os
@@ -28,8 +30,6 @@ import threading
 import urllib
 import urlparse
 import weakref
-from conary.deps.deps import ThawFlavor
-from conary.versions import ThawVersion
 from jobmaster.templategen import TemplateGenerator
 from jobmaster.util import setupLogging
 
@@ -490,12 +490,8 @@ class ProxyClient(ProxyDispatcher):
 
         if method == 'GET' and path == 'getTemplate':
             try:
-                name, = query['n']
-                version, = query['v']
-                flavor, = query['f']
-
-                version = ThawVersion(version)
-                flavor = ThawFlavor(flavor)
+                blob = base64.urlsafe_b64decode(query['p'][0])
+                params = cPickle.loads(blob)
             except:
                 log.warning("Bad getTemplate request:", exc_info=True)
                 return self.send_text('400 Bad Request',
@@ -504,13 +500,13 @@ class ProxyClient(ProxyDispatcher):
             start = not query.get('nostart', 0)
             if start:
                 log.debug("Client requested template %s=%s[%s]",
-                        name, version, flavor)
+                        *params['templateTup'][0])
             jobmaster = self.server.jobmaster()
             assert jobmaster
             conaryCfg = jobmaster.getConaryConfig(url)
             workDir = jobmaster.cfg.getTemplateCache()
-            generator = TemplateGenerator((name, version, flavor),
-                    conaryCfg, workDir)
+            generator = TemplateGenerator(params['templateTup'],
+                    params['kernelTup'], conaryCfg, workDir)
 
             status, path = generator.getTemplate(start)
             path = os.path.basename(path)
