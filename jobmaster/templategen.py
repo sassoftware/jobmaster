@@ -10,12 +10,14 @@ import errno
 import fcntl
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from conary.conaryclient import ConaryClient
 from conary.lib import digestlib
 from conary.lib import util
+from conary.deps import deps
 from jobmaster.subprocutil import Lockable, LockError, Subprocess
 from jobmaster.util import (AtomicFile, call, logCall, makeConstants,
         setupLogging, specHash)
@@ -250,8 +252,85 @@ class TemplateGenerator(Lockable, Subprocess):
         if not self._kernelTup:
             raise RuntimeError("Encountered 'kernel' manifest command but "
                     "jobslave didn't provide a kernel")
-        self._installContents(self._kernelDir, [self._kernelTup])
+        
+        command = args.pop(0)
+        if command == 'install':
+            self._installContents(self._kernelDir, [self._kernelTup])
+            return
+        commandFunc = getattr(self, '_RUN_' + command, None)
+        if not commandFunc:
+            raise RuntimeError("Unknown kernel command %r in MANIFEST"
+                    % (command,))
 
+        """
+        KERNEL, CONTENTS, and ARCH are treated as macros.
+        Extend the list as needed.  This can probably be
+        combined into one big RegEx.
+        """
+        commandArgs = []
+        kernelFlavor = deps.formatFlavor(self._kernelTup[2])
+        arch = (kernelFlavor.find('x86_64') == -1) and 'i386' or 'x86_64'
+        contentsRE = re.compile('(^|/)CONTENTS(/|$)')
+        kernelRE = re.compile('(^|/)KERNEL(/|$)')
+        archRE = re.compile('(^|/)ARCH(/|$)')
+        while len(args) > 0:
+            nextArg = archRE.sub(r'\1%s\2' % arch,
+                      kernelRE.sub(r'\1%s\2' % self._kernelDir,
+                      contentsRE.sub(r'\1%s\2' % self._contentsDir, 
+                      args.pop(0))))
+            commandArgs.append(nextArg)
+
+        # anaconda scripts may take different args, so just pass them
+        if command == 'anacondaScript':
+            self._RUN_anacondaScript(commandArgs)
+            return
+
+        # This is only for "copy" right now
+        if len(commandArgs) == 3:
+            inputName, outputName, mode = commandArgs
+            mode = int(mode, 8)
+        elif len(commandArgs) == 2:
+            inputName, outputName = commandArgs
+            mode = 0644
+        else:
+            raise RuntimeError("Can't handle kernel command %r" % (command,))
+        commandFunc(inputName, outputName, mode)
+        
+
+    def _RUN_copy(self, inputSpec, outputFile, mode):
+        inputDir = os.path.abspath(os.path.dirname(inputSpec))
+        outputFile = os.path.abspath(outputFile)
+        finalFile = os.path.abspath(outputFile).replace(self._contentsDir, self._outputDir)
+        inputFileSpec = os.path.basename(inputSpec)
+        if (not inputDir.startswith(self._workDir) or
+            not outputFile.startswith(self._contentsDir)):
+            raise RuntimeError("Can't copy outside contents directory")
+
+        # We only expect one match.  If there are more, they
+        # should be identical, anyway
+        match = [ x for x in os.listdir(inputDir) if x.startswith(inputFileSpec) ][0]
+        util.mkdirChain(os.path.dirname(outputFile))
+        util.mkdirChain(os.path.dirname(finalFile))
+        self._log.info("copying %s to %s", os.path.join(inputDir, match), outputFile)
+        util.copyfile(os.path.join(inputDir, match), outputFile)
+        os.chmod(outputFile, mode)   
+        self._log.info("linking %s to %s", outputFile, finalFile)
+        os.link(outputFile, finalFile)
+        
+    def _RUN_anacondaScript(self, argList):
+        """
+        This function was written to run mk-images in "modules only"
+        mode, but maybe it can be flexible enough to run other
+        anaconda scripts.
+        """
+
+        scriptName = argList.pop(0)
+        scriptPath = "%s/instrootgr/usr/lib/anaconda-runtime/%s" % \
+                     (self._contentsDir, scriptName)
+        if not os.path.exists(scriptPath):
+            raise RuntimeError("Script %s does not exist" % scriptName)
+        
+        logCall([ "bash", "-x", scriptPath ] + argList, stderr=open(self._basePath + '.log', 'w'))
 
 def main(args):
     import time
