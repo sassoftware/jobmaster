@@ -119,7 +119,7 @@ class TemplateGenerator(Lockable, Subprocess):
             cli.prepareUpdateJob(job, jobList, resolveDeps=False)
 
             self._log.debug("Applying update job")
-            cli.applyUpdateJob(job)
+            cli.applyUpdateJob(job, noScripts = True)
 
         finally:
             job = None
