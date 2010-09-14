@@ -1,4 +1,5 @@
 #!/bin/sh
 # TODO: slave root cleanup
+/usr/sbin/tmpwatch 6 /srv/rbuilder/jobmaster/tmp
 # Templates - 90 days
 /usr/sbin/tmpwatch 2160 /srv/rbuilder/jobmaster/anaconda-templates
