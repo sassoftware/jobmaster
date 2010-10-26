@@ -256,6 +256,10 @@ class TemplateGenerator(Lockable, Subprocess):
         command = args.pop(0)
         if command == 'install':
             self._installContents(self._kernelDir, [self._kernelTup])
+            # XXX - SLES 11 needs kernel-base
+            if not os.path.exists(os.path.join(self._kernelDir, '/boot/vmlinuz')):
+                self._installContents(self._kernelDir,
+                    [ ('kernel-base', self._kernelTup[1], self._kernelTup[2]) ])
             return
         commandFunc = getattr(self, '_RUN_' + command, None)
         if not commandFunc:
