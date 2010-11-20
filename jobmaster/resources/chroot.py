@@ -1,16 +1,14 @@
 #
-# Copyright (c) 2009 rPath, Inc.
+# Copyright (c) 2010 rPath, Inc.
 #
 # All rights reserved.
 #
 
 import conary.trove
-import errno
 import fcntl
 import logging
 import os
-import tempfile
-from conary.lib.util import mkdirChain, rmtree
+from conary.lib.util import mkdirChain
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.resource import Resource
@@ -108,7 +106,7 @@ class BoundContentsRoot(_ContentsRoot):
     def start(self, prepareCB=None):
         # Grab a shared lock and check if the root exists.
         self._statusCB = prepareCB
-        self._lockWait(fcntl.LOCK_SH, breakIf=self._lockLoop)
+        self._lockWait(fcntl.LOCK_SH, timeout=3600, breakIf=self._lockLoop)
         if self._rootExists():
             log.info("Using existing contents for root %s", self._hash)
             self._statusCB = None
@@ -119,7 +117,7 @@ class BoundContentsRoot(_ContentsRoot):
         # process doing the same thing will not deadlock.
         self._lock(fcntl.LOCK_UN)
         log.debug("Acquiring exclusive lock on %s", self._basePath)
-        self._lockWait(fcntl.LOCK_EX, breakIf=self._lockLoop2)
+        self._lockWait(fcntl.LOCK_EX, timeout=3600, breakIf=self._lockLoop2)
         self._statusCB = None
 
         if self._rootExists():
