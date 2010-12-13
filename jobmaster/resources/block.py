@@ -74,7 +74,7 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
         raise RuntimeError("Volume group %s could not be read" % (vg_name,))
 
     extent_size, extents_free = ret[0].split()
-    assert extent_size.endswith('M')
+    assert extent_size.upper().endswith('M')
     extent_size = 1048576 * int(float(extent_size[:-1]))
     extents_free = int(extents_free)
 
