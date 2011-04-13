@@ -42,3 +42,6 @@ class MasterConfig(config.MCPConfig):
 
     def getTemplateCache(self):
         return os.path.join(self.basePath, self.templateCache)
+
+    def getVersionCachePath(self):
+        return os.path.join(self.basePath, 'roots', 'version.cache')
