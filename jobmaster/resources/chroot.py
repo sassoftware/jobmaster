@@ -1,20 +1,18 @@
 #
-# Copyright (c) 2010 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
 import conary.trove
 import fcntl
 import logging
 import os
-from conary.lib.util import mkdirChain
+from conary.lib.util import mkdirChain, AtomicFile
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.resource import Resource
 from jobmaster.resources.mount import BindMountResource
 from jobmaster.subprocutil import Lockable
-from jobmaster.util import specHash, AtomicFile
+from jobmaster.util import specHash
 
 log = logging.getLogger(__name__)
 
