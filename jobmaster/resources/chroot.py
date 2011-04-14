@@ -1,20 +1,16 @@
 #
-# Copyright (c) 2010 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
-import conary.trove
 import fcntl
 import logging
 import os
-from conary.lib.util import mkdirChain
+from conary.lib.util import mkdirChain, AtomicFile
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.resource import Resource
 from jobmaster.resources.mount import BindMountResource
 from jobmaster.subprocutil import Lockable
-from jobmaster.util import specHash, AtomicFile
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +35,8 @@ class _ContentsRoot(Resource, Lockable):
         self._statusPath = None
 
     def _getHash(self):
-        repos = self.conaryClient.getRepos()
-        buildTimes = [x() for x in repos.getTroveInfo(
-            conary.trove._TROVEINFO_TAG_BUILDTIME, self.troves)]
-        return specHash(self.troves, buildTimes)
+        return '--'.join(x[1].trailingRevision().version
+                for x in sorted(self.troves))
 
     def unpackRoot(self, fObj=None, prepareCB=None):
         if not fObj:

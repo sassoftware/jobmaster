@@ -1,12 +1,11 @@
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
 import math
 import logging
 import os
+import pickle
 import random
 import signal
 import simplejson
@@ -14,6 +13,7 @@ import sys
 from conary.conaryclient import ConaryClient
 from conary.deps.deps import ThawFlavor
 from conary.errors import TroveNotFound
+from conary.lib.util import AtomicFile
 from conary.versions import ThawVersion
 from mcp import jobstatus
 from jobmaster.resources.block import OutOfSpaceError
@@ -131,13 +131,28 @@ class JobHandler(Subprocess):
                 raise RuntimeError("Configuration error")
             version = '%s/%s' % (label, self.cfg.troveVersion)
 
-        troveSpec = ('group-jobslave', version, None)
-        repos = self.conaryClient.getRepos()
+        # Cache findTrove calls so images can be built even if the products
+        # repository is down temporarily.
+        cachePath = self.cfg.getVersionCachePath()
         try:
-            return sorted(repos.findTrove(None, troveSpec))[-1]
-        except:
-            log.exception("Failed to locate jobslave trove:")
-            self.failJob("Could not locate the required build environment.")
+            cache = pickle.load(open(cachePath))
+        except IOError:
+            cache = {}
+
+        troveSpec = ('group-jobslave', version, None)
+        if troveSpec not in cache:
+            repos = self.conaryClient.getRepos()
+            try:
+                cache[troveSpec] = sorted(repos.findTrove(None, troveSpec))[-1]
+            except:
+                log.exception("Failed to locate jobslave trove:")
+                self.failJob("Could not locate the required build environment.")
+            else:
+                fobj = AtomicFile(cachePath)
+                pickle.dump(cache, fobj, 2)
+                fobj.commit()
+
+        return cache[troveSpec]
 
     def getTroveSize(self):
         """

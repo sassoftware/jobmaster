@@ -1,8 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
 
@@ -21,7 +19,7 @@ from conary.lib import digestlib
 from conary.lib.util import copyfileobj, rmtree
 from jobmaster import archiveroot
 from jobmaster import buildroot
-from jobmaster.util import setupLogging, specHash
+from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
 
@@ -62,10 +60,7 @@ def main(args):
 
         matches = repos.findTrove(None, troveSpec)
         troveTups = [ sorted(matches)[-1] ]
-
-        buildTimes = [x() for x in repos.getTroveInfo(
-            trove._TROVEINFO_TAG_BUILDTIME, troveTups)]
-        hash = specHash(troveTups, buildTimes)
+        hash = troveTups[0][1].trailingRevision().version
 
         jsRootDir = tempfile.mkdtemp()
         sysRootDir = tempfile.mkdtemp()

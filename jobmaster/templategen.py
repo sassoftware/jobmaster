@@ -19,7 +19,7 @@ from conary.lib import digestlib
 from conary.lib import util
 from conary.deps import deps
 from jobmaster.subprocutil import Lockable, LockError, Subprocess
-from jobmaster.util import (AtomicFile, call, logCall, makeConstants,
+from jobmaster.util import (call, logCall, makeConstants,
         setupLogging, specHash)
 
 log = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ class TemplateGenerator(Lockable, Subprocess):
 
         # Archive the results.
         digest = digestlib.sha1()
-        outFile = AtomicFile(self._outputPath)
+        outFile = util.AtomicFile(self._outputPath)
 
         proc = call(['/bin/tar', '-cC', self._outputDir, '.'],
                 stdout=subprocess.PIPE, captureOutput=False, wait=False)
@@ -155,7 +155,7 @@ class TemplateGenerator(Lockable, Subprocess):
         proc.wait()
 
         # Write metadata.
-        metaFile = AtomicFile(self._outputPath + '.metadata')
+        metaFile = util.AtomicFile(self._outputPath + '.metadata')
         cPickle.dump({
             'sha1sum': digest.hexdigest(),
             'trovespec': '%s=%s[%s]' % self._troveTup,
