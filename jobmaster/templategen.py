@@ -269,7 +269,7 @@ class TemplateGenerator(Lockable, Subprocess):
                 self._installContents(self._kernelDir,
                     [ ('kernel-base', self._kernelTup[1], self._kernelTup[2]) ])
             return
-        commandFunc = getattr(self, '_RUN_' + command, None)
+        commandFunc = getattr(self, '_KERNEL_' + command, None)
         if not commandFunc:
             raise RuntimeError("Unknown kernel command %r in MANIFEST"
                     % (command,))
@@ -294,7 +294,7 @@ class TemplateGenerator(Lockable, Subprocess):
 
         # anaconda scripts may take different args, so just pass them
         if command == 'anacondaScript':
-            self._RUN_anacondaScript(commandArgs)
+            self._KERNEL_anacondaScript(commandArgs)
             return
 
         # This is only for "copy" right now
@@ -309,7 +309,7 @@ class TemplateGenerator(Lockable, Subprocess):
         commandFunc(inputName, outputName, mode)
         
 
-    def _RUN_copy(self, inputSpec, outputFile, mode):
+    def _KERNEL_copy(self, inputSpec, outputFile, mode):
         inputDir = os.path.abspath(os.path.dirname(inputSpec))
         outputFile = os.path.abspath(outputFile)
         finalFile = os.path.abspath(outputFile).replace(self._contentsDir, self._outputDir)
@@ -329,7 +329,7 @@ class TemplateGenerator(Lockable, Subprocess):
         self._log.info("linking %s to %s", outputFile, finalFile)
         os.link(outputFile, finalFile)
         
-    def _RUN_anacondaScript(self, argList):
+    def _KERNEL_anacondaScript(self, argList):
         """
         This function was written to run mk-images in "modules only"
         mode, but maybe it can be flexible enough to run other
