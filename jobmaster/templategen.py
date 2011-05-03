@@ -137,6 +137,9 @@ class TemplateGenerator(Lockable, Subprocess):
 
         # Process the MANIFEST file.
         for line in open(self._contentsDir + '/MANIFEST'):
+            line = line.rstrip()
+            if not line or line[0] == '#':
+                continue
             args = line.rstrip().split(',')
             command = args.pop(0)
             commandFunc = getattr(self, '_DO_' + command, None)
