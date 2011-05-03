@@ -251,6 +251,16 @@ class TemplateGenerator(Lockable, Subprocess):
         logCall(['/usr/bin/mcopy', '-i', output] + files + ['::'])
         logCall(['/usr/bin/syslinux', output])
 
+    def _RUN_mkfs_squashfs(self, inputDir, output):
+        logCall(['/sbin/mksquashfs', inputDir, output,
+            '-no-fragments', '-no-progress'])
+
+    def _RUN_cp(self, inPath, outPath):
+        util.copyfile(inPath, outPath)
+
+    def _RUN_ln(self, inPath, outPath):
+        os.link(inPath, outPath)
+
     def _DO_kernel(self, args):
         if not self._kernelTup:
             raise RuntimeError("Encountered 'kernel' manifest command but "
