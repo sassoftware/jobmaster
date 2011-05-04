@@ -58,6 +58,7 @@ class JobMaster(CPackageRecipe):
         r.Requires('/bin/dd', '.*/templategen\..*')
         r.Requires('/bin/gzip', '.*/templategen\..*')
         r.Requires('/sbin/mkdosfs', '.*/templategen\..*')
+        r.Requires('/sbin/mksquashfs', '.*/templategen\..*')
         r.Requires('/usr/bin/find', '.*/templategen\..*')
         r.Requires('/usr/bin/mcopy', '.*/templategen\..*')
         r.Requires('/usr/bin/mkcramfs', '.*/templategen\..*')
