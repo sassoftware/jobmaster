@@ -253,7 +253,7 @@ class TemplateGenerator(Lockable, Subprocess):
 
     def _RUN_mkfs_squashfs(self, inputDir, output):
         logCall(['/sbin/mksquashfs', inputDir, output,
-            '-no-fragments', '-no-progress'])
+            '-no-fragments'])
 
     def _RUN_cp(self, inPath, outPath):
         util.copyfile(inPath, outPath)
