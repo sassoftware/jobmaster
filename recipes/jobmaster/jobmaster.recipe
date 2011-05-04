@@ -1,0 +1,74 @@
+#
+# Copyright (c) rPath, Inc.
+#
+
+class JobMaster(CPackageRecipe):
+
+    name = 'jobmaster'
+    version = '5.8'
+
+    buildRequires = [
+        'chkconfig:runtime',
+        'epdb:python',
+        'python:devel',
+        'python-setuptools:python',
+        'rmake:python',
+        'simplejson:python',
+        'mcp:python',
+
+        # for tests
+        #'mcp-test:lib',
+        'net-tools:runtime',
+        ]
+
+    pythonPath = [
+        '%(libdir)s/mcp-test',
+      ]
+
+    def setup(r):
+        r.addMercurialSnapshot()
+
+        # install
+        r.PythonSetup()
+
+        r.macros.jmdir = '/srv/rbuilder/jobmaster'
+
+        r.Install('bin/jobmaster', '%(bindir)s/jobmaster', mode=0755)
+        r.Install('bin/jm-preload-generator', '%(bindir)s/', mode=0755)
+        r.Install('distro/jobmaster.init', '%(initdir)s/jobmaster', mode=0755)
+
+        r.Install('distro/jobmaster.logrotate', '/etc/logrotate.d/jobmaster')
+        r.Install('distro/jobmaster.tmpwatch', '/etc/cron.daily/jobmaster.tmpwatch', mode=0755)
+
+        r.Install('distro/stub.conf', '%(jmdir)s/config')
+        r.Install('distro/limit.conf', '%(jmdir)s/config.d/runtime')
+        r.Transient('%(jmdir)s/config')
+        r.InitialContents('%(jmdir)s/config.d/runtime')
+
+        r.Create('/var/log/rbuilder/.keep.%(name)s')
+        for workdir in ('anaconda-templates', 'archive', 'locks', 'roots'):
+            r.Create('/srv/rbuilder/jobmaster/%s/.keep.%%(name)s' % workdir)
+        r.InitialContents('.*/\.keep$')
+
+        r.MakeDirs('/cgroup')
+        r.ExcludeDirectories(exceptions='/cgroup')
+
+        r.Requires('/usr/bin/xz', '.*/archiveroot\..*')
+        r.Requires('/bin/cpio', '.*/templategen\..*')
+        r.Requires('/bin/dd', '.*/templategen\..*')
+        r.Requires('/bin/gzip', '.*/templategen\..*')
+        r.Requires('/sbin/mkdosfs', '.*/templategen\..*')
+        r.Requires('/usr/bin/find', '.*/templategen\..*')
+        r.Requires('/usr/bin/mcopy', '.*/templategen\..*')
+        r.Requires('/usr/bin/mkcramfs', '.*/templategen\..*')
+        r.Requires('/usr/bin/syslinux', '.*/templategen\..*')
+        r.Requires('/usr/bin/nm', '.*/templategen\..*')
+        r.Requires('/bin/mount', '.*/resources/mount\..*')
+        r.Requires('/sbin/mkfs.xfs', '.*/resources/block\..*')
+        r.Requires('/usr/sbin/lvm', '.*/resources/block\..*')
+        r.Requires('/sbin/ip', '.*/resources/network\..*')
+
+        r.Requires('/usr/sbin/tmpwatch', 'jobmaster.tmpwatch')
+
+        #r.RemoveNonPackageFiles('.*\.py')
+        r.RemoveNonPackageFiles('.*\.egg-info.*')
