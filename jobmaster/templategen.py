@@ -137,6 +137,9 @@ class TemplateGenerator(Lockable, Subprocess):
 
         # Process the MANIFEST file.
         for line in open(self._contentsDir + '/MANIFEST'):
+            line = line.rstrip()
+            if not line or line[0] == '#':
+                continue
             args = line.rstrip().split(',')
             command = args.pop(0)
             commandFunc = getattr(self, '_DO_' + command, None)
@@ -248,6 +251,16 @@ class TemplateGenerator(Lockable, Subprocess):
         logCall(['/usr/bin/mcopy', '-i', output] + files + ['::'])
         logCall(['/usr/bin/syslinux', output])
 
+    def _RUN_mkfs_squashfs(self, inputDir, output):
+        logCall(['/sbin/mksquashfs', inputDir, output,
+            '-no-fragments'])
+
+    def _RUN_cp(self, inPath, outPath):
+        util.copyfile(inPath, outPath)
+
+    def _RUN_ln(self, inPath, outPath):
+        os.link(inPath, outPath)
+
     def _DO_kernel(self, args):
         if not self._kernelTup:
             raise RuntimeError("Encountered 'kernel' manifest command but "
@@ -266,7 +279,7 @@ class TemplateGenerator(Lockable, Subprocess):
                 self._installContents(self._kernelDir,
                     [ ('kernel-base', self._kernelTup[1], self._kernelTup[2]) ])
             return
-        commandFunc = getattr(self, '_RUN_' + command, None)
+        commandFunc = getattr(self, '_KERNEL_' + command, None)
         if not commandFunc:
             raise RuntimeError("Unknown kernel command %r in MANIFEST"
                     % (command,))
@@ -291,7 +304,7 @@ class TemplateGenerator(Lockable, Subprocess):
 
         # anaconda scripts may take different args, so just pass them
         if command == 'anacondaScript':
-            self._RUN_anacondaScript(commandArgs)
+            self._KERNEL_anacondaScript(commandArgs)
             return
 
         # This is only for "copy" right now
@@ -306,7 +319,7 @@ class TemplateGenerator(Lockable, Subprocess):
         commandFunc(inputName, outputName, mode)
         
 
-    def _RUN_copy(self, inputSpec, outputFile, mode):
+    def _KERNEL_copy(self, inputSpec, outputFile, mode):
         inputDir = os.path.abspath(os.path.dirname(inputSpec))
         outputFile = os.path.abspath(outputFile)
         finalFile = os.path.abspath(outputFile).replace(self._contentsDir, self._outputDir)
@@ -326,7 +339,7 @@ class TemplateGenerator(Lockable, Subprocess):
         self._log.info("linking %s to %s", outputFile, finalFile)
         os.link(outputFile, finalFile)
         
-    def _RUN_anacondaScript(self, argList):
+    def _KERNEL_anacondaScript(self, argList):
         """
         This function was written to run mk-images in "modules only"
         mode, but maybe it can be flexible enough to run other
