@@ -10,6 +10,7 @@ import random
 import signal
 import simplejson
 import sys
+from conary import trovetup
 from conary.conaryclient import ConaryClient
 from conary.deps.deps import ThawFlavor
 from conary.errors import TroveNotFound
@@ -154,21 +155,31 @@ class JobHandler(Subprocess):
 
         return cache[troveSpec]
 
+    def _getTroveSize(self, spec=None):
+        repos = self.conaryClient.getRepos()
+        if spec is None:
+            name = self.job_data['troveName'].encode('utf8')
+            version = ThawVersion(self.job_data['troveVersion'].encode('utf8'))
+            flavor = ThawFlavor(self.job_data['troveFlavor'].encode('utf8'))
+        else:
+            if isinstance(spec, unicode):
+                spec = spec.encode('utf8')
+            troveSpec = trovetup.TroveSpec.fromString(spec)
+            troveTup = sorted(repos.findTrove(None, troveSpec))[-1]
+            name, version, flavor = troveTup
+
+        trove = repos.getTrove(name, version, flavor, withFiles=False)
+        return trove.troveInfo.size()
+
     def getTroveSize(self):
         """
         Return the size, in bytes, of the image group.
         """
-        name = self.job_data['troveName'].encode('utf8')
-        version = ThawVersion(self.job_data['troveVersion'].encode('utf8'))
-        flavor = ThawFlavor(self.job_data['troveFlavor'].encode('utf8'))
-
-        repos = self.conaryClient.getRepos()
         try:
-            trove = repos.getTrove(name, version, flavor, withFiles=False)
+            troveSize = self._getTroveSize()
         except:
             log.exception("Failed to retrieve image group:")
             self.failJob("Failed to retrieve image group")
-        troveSize = trove.troveInfo.size()
         if not troveSize:
             troveSize = GIBI
             log.warning("Trove has no size; using %s", prettySize(troveSize))
@@ -200,12 +211,11 @@ class JobHandler(Subprocess):
 
         anacondaSpace = 0
         if buildType in (1, 16):
-            # We don't know how much space any particular anaconda build
-            # will take exactly, but it is bounded by having to fit on a CD,
-            # and 250 MiB is a reasonable upper bound since in practice
-            # it has been less than half that.
-            # buildtypes.INSTALLABLE_ISO or buildtypes.APPLIANCE_ISO
             anacondaSpace = 250 * MEBI
+            anacondaTemplates = data.get('anaconda-templates', None)
+            if anacondaTemplates:
+                anacondaSpace = min(anacondaSpace,
+                        self._getTroveSize(anacondaTemplates))
 
         # Pad 15% for filesystem overhead (inodes, etc.)
         packageSpace = metaDataSlop(troveSize + mountSpace)
