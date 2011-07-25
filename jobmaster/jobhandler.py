@@ -192,7 +192,7 @@ class JobHandler(Subprocess):
         troveSize = self.getTroveSize()
 
         data = self.job_data.get('data', {})
-        buildType = data.get('buildType', 0)
+        buildType = self.job_data['buildType']
         freeSpace = int(data.get('freespace', 0)) * MEBI
         swapSpace = int(data.get('swapSize', 0)) * MEBI
         mountSpace = sum([x[0] + x[1] for x in data.get('mountDict', {})]
