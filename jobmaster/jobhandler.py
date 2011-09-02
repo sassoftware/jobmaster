@@ -42,9 +42,7 @@ class JobHandler(Subprocess):
         self.response = ResponseProxy(self.job.rbuilder_url, self.job_data)
 
         self.conaryCfg = master.getConaryConfig(job.rbuilder_url)
-        for line in self.job_data['project']['conaryCfg'].splitlines():
-            self.conaryCfg.configLine(line)
-        self.conaryClient = ConaryClient(self.conaryCfg)
+        self.conaryClient = None
         self.loopManager = master.loopManager
 
         self.name = os.urandom(6).encode('hex')
@@ -58,6 +56,9 @@ class JobHandler(Subprocess):
                 "Preparing build environment")
         random.seed()
 
+        for line in self.job_data['project']['conaryCfg'].splitlines():
+            self.conaryCfg.configLine(line)
+        self.conaryClient = ConaryClient(self.conaryCfg)
         troveTup = self.findSlave()
 
         # Calculate how much scratch space will be required for this build.
