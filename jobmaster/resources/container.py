@@ -1,8 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
 import logging
@@ -67,6 +65,11 @@ class ContainerWrapper(ResourceStack):
         templateDir = self.cfg.getTemplateCache()
         if not os.path.isdir(templateDir):
             os.makedirs(templateDir)
+
+        if self.cfg.debugMode:
+            path = '/tmp/jobslave-%s-scratch' % self.name
+            os.mkdir(path, 0700)
+            self.append(self.scratch.mount(path, delete=True))
 
         pid = self.container.start(self.network, jobData,
                 mounts=[
@@ -194,12 +197,29 @@ class Container(TempDir, Subprocess):
         unshared, so there's no need to ever unmount these -- when the
         container exits, they will be obliterated.
         """
+        containerMounts = set()
         for resource, path, readOnly in self.mounts:
             target = os.path.join(self.path, path)
+            containerMounts.add(target)
             mountRes = resource.mount(target, readOnly)
             mountRes.release()
-        mount('proc', self.path + '/proc', 'proc')
-        mount('sysfs', self.path + '/sys', 'sysfs')
+        for fstype, path in [('proc', '/proc'), ('sysfs', '/sys')]:
+            path = self.path + path
+            containerMounts.add(path)
+            mount(fstype, path, fstype)
+
+        # Try to umount stuff not in this container to avoid blocking those
+        # things from being umounted, especially in the case of other
+        # jobslaves' scratch disks if they are mounted in the outer OS.
+        otherMounts = set()
+        for line in open('/proc/mounts'):
+            path = line.split()[1]
+            otherMounts.add(path)
+        otherMounts -= containerMounts
+        otherMounts.discard('/')
+        for path in otherMounts:
+            log.debug("Unmounting %s", path)
+            logCall(["/bin/umount", "-dn", path], ignoreErrors=True)
 
     def writeConfigs(self):
         master = self.network.masterAddr.format(useMask=False)

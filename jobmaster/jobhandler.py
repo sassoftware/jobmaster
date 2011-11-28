@@ -234,8 +234,8 @@ class JobHandler(Subprocess):
         # Never allocate less than the configured minimum.
         totalSize = max(totalSize, self.cfg.minSlaveSize * MEBI)
 
-        log.info("Allocating %s of scratch space for job %s",
-                prettySize(totalSize), self.uuid)
+        log.info("Allocating %s of scratch space for job %s in slave %s",
+                prettySize(totalSize), self.uuid, self.name)
         return totalSize
 
 

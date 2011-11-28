@@ -1,8 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved
+# Copyright (c) 2011 rPath, Inc.
 #
 
 import logging
@@ -52,13 +50,15 @@ class ScratchDisk(Resource):
         if os.path.exists(self.devicePath):
             logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
-    def mount(self, path, readOnly=False):
+    def mount(self, path, readOnly=False, delete=False):
         if self.firstMount:
-            return BindMountResource(self.firstMount, path)
+            return BindMountResource(self.firstMount, path, delete=delete)
         else:
             self.firstMount = path
             return AutoMountResource(self.devicePath, path,
-                    options=["-t", "xfs", "-o", "noatime"])
+                    options=["-t", "xfs", "-o", "noatime"],
+                    delete=delete,
+                    )
 
 
 def allocate_scratch(vg_name, lv_name, disk_bytes):

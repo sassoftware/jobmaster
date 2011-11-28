@@ -1,17 +1,30 @@
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) 2011 rPath, Inc.
 #
 
 import errno
 import logging
 import os
 import tempfile
+import time
 from jobmaster.resource import Resource
-from jobmaster.util import logCall
+from jobmaster.util import logCall, CommandError
 
 log = logging.getLogger(__name__)
+
+
+def _umount(path):
+    retries = 5
+    for x in range(retries):
+        try:
+            logCall(['/bin/umount', '-dn', path])
+            return True
+        except CommandError:
+            if x == retries:
+                log.error("Failed to unmount %s, giving up", path)
+            else:
+                log.error("Failed to unmount %s, trying again", path)
+                time.sleep(1)
 
 
 class MountResource(Resource):
@@ -30,7 +43,7 @@ class MountResource(Resource):
         """
         Call C{umount} on close, optionally deleting the mount point.
         """
-        logCall(['/bin/umount', '-dn', self.mountPoint])
+        _umount(self.mountPoint)
         if self.delete:
             try:
                 os.rmdir(self.mountPoint)
@@ -100,8 +113,7 @@ class BindMountResource(AutoMountResource):
                 cmd += ['-o', 'remount,ro']
                 logCall(cmd)
         except:
-            logCall(['/bin/umount', '-fn', self.mountPoint],
-                    ignoreErrors=True)
+            _umount(self.mountPoint)
             raise
 
 
