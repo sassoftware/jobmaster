@@ -201,6 +201,7 @@ class JobHandler(Subprocess):
             # indirect blocks, so 1% is overkill but not large
             return int(math.ceil((size + 20 * MEBI) * 1.01))
 
+        import epdb; epdb.st()
         troveSize = self.getTroveSize()
 
         data = self.job_data.get('data', {})
@@ -226,7 +227,7 @@ class JobHandler(Subprocess):
                      anacondaSpace)
 
         # Space to transform into image
-        totalSize *= 2
+        totalSize *= 2.5
         if buildType == 9: # buildtypes.VMWARE_ESX_IMAGE
             # Account for extra sparse image to be built
             totalSize += packageSpace + swapSlop(swapSpace)
