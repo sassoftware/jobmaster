@@ -41,7 +41,7 @@ class JobHandler(Subprocess):
         self.uuid = job.uuid
         self.response = ResponseProxy(self.job.rbuilder_url, self.job_data)
 
-        self.conaryCfg = master.getConaryConfig(job.rbuilder_url)
+        self.conaryCfg = master.getConaryConfig(job.rbuilder_url, cache=False)
         self.conaryClient = None
         self.loopManager = master.loopManager
 

@@ -60,16 +60,18 @@ class JobMaster(bus_node.BusNode):
         self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map,
                 self)
 
-    def getConaryConfig(self, rbuilderUrl):
-        if rbuilderUrl not in self._cfgCache:
+    def getConaryConfig(self, rbuilderUrl, cache=True):
+        if cache and rbuilderUrl in self._cfgCache:
+            ccfg = self._cfgCache[rbuilderUrl]
+        else:
             if not rbuilderUrl.endswith('/'):
                 rbuilderUrl += '/'
             ccfg = conarycfg.ConaryConfiguration(True)
             ccfg.initializeFlavors()
-            ccfg.configLine('conaryProxy http %sconary/' % rbuilderUrl)
-            ccfg.configLine('conaryProxy https %sconary/' % rbuilderUrl)
-            self._cfgCache[rbuilderUrl] = ccfg
-        return self._cfgCache[rbuilderUrl]
+            ccfg.configLine('includeConfigFile %sconaryrc' % rbuilderUrl)
+            if cache:
+                self._cfgCache[rbuilderUrl] = ccfg
+        return ccfg
 
     def run(self):
         log.info("Started with pid %d.", os.getpid())
