@@ -13,7 +13,6 @@ import tarfile
 import tempfile
 from conary import conarycfg
 from conary import conaryclient
-from conary import trove
 from conary.conaryclient.cmdline import parseTroveSpec
 from conary.lib import digestlib
 from conary.lib.util import copyfileobj, rmtree
