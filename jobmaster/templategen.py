@@ -368,7 +368,8 @@ def main(args):
     else:
         sys.exit("Usage: %s <troveSpec> <kernelSpec> [<workDir>]" % sys.argv[0])
 
-    cfg = conarycfg.ConaryConfiguration(True)
+    cfg = conarycfg.ConaryConfiguration(False)
+    cfg.configLine('includeConfigFile http://localhost/conaryrc')
     cli = ConaryClient(cfg)
     repos = cli.getRepos()
 
@@ -385,8 +386,6 @@ def main(args):
         elif status == generator.Status.DONE:
             print 'Done:', path
             break
-        elif status == generator.Status.IN_PROGRESS:
-            print 'working'
         time.sleep(1)
 
     generator.wait()
