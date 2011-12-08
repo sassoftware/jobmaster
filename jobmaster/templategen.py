@@ -15,10 +15,10 @@ import tempfile
 from conary.conaryclient import ConaryClient
 from conary.lib import digestlib
 from conary.lib import util
+from conary.lib.log import setupLogging
 from conary.deps import deps
 from jobmaster.subprocutil import Lockable, LockError, Subprocess
-from jobmaster.util import (call, logCall, makeConstants,
-        setupLogging, specHash)
+from jobmaster.util import call, logCall, makeConstants, specHash
 
 log = logging.getLogger(__name__)
 
@@ -357,7 +357,7 @@ def main(args):
     from conary import conarycfg
     from conary.conaryclient.cmdline import parseTroveSpec
 
-    setupLogging(logLevel=logging.DEBUG)
+    setupLogging(consoleLevel=logging.DEBUG, consoleFormat='file')
 
     if len(args) == 2:
         troveSpec, kernelSpec, workDir = args[0], args[1], '.'

@@ -15,16 +15,16 @@ from conary import conarycfg
 from conary import conaryclient
 from conary.conaryclient.cmdline import parseTroveSpec
 from conary.lib import digestlib
+from conary.lib.log import setupLogging
 from conary.lib.util import copyfileobj, rmtree
 from jobmaster import archiveroot
 from jobmaster import buildroot
-from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
 
 
 def main(args):
-    setupLogging(logLevel=logging.DEBUG)
+    setupLogging(consoleLevel=logging.DEBUG, consoleFormat='file')
 
     if len(args) < 2:
         sys.exit("usage: %s <basename> <trovespec> | [<directory> <paths>+]"

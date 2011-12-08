@@ -10,6 +10,7 @@ import tempfile
 import traceback
 from conary import conarycfg
 from conary import conaryclient
+from conary.lib.log import setupLogging
 from jobmaster import cgroup
 from jobmaster import linuxns
 from jobmaster import osutil
@@ -23,7 +24,7 @@ from jobmaster.resources.mount import MountableDirectory
 from jobmaster.resources.network import NetworkPairResource
 from jobmaster.resources.tempdir import TempDir
 from jobmaster.subprocutil import Pipe, Subprocess
-from jobmaster.util import createDirectory, createFile, devNull, logCall, mount, setupLogging
+from jobmaster.util import createDirectory, createFile, devNull, logCall, mount
 
 log = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ def main(args):
     if len(args) < 2:
         sys.exit("Usage: %s <cfg> <trovespec>+" % sys.argv[0])
 
-    setupLogging(logging.DEBUG)
+    setupLogging(consoleLevel=logging.DEBUG, consoleFormat='file')
 
     cfgPath, = args[:1]
     troveSpecs = args[1:]

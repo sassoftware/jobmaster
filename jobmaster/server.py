@@ -9,6 +9,7 @@ import os
 import simplejson
 import sys
 from conary import conarycfg
+from conary.lib.log import setupLogging
 from mcp import jobstatus
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
@@ -227,7 +228,9 @@ def main(args):
     if options.clean_mounts:
         options.no_daemon = True
 
-    util.setupLogging(cfg.logLevel, toFile=cfg.logPath, toStderr=options.no_daemon)
+    level = cfg.getLogLevel()
+    setupLogging(logPath=cfg.logPath, fileLevel=level, consoleFormat='file',
+            consoleLevel=level if options.no_daemon else None)
     master = JobMaster(cfg)
 
     if options.clean_mounts:

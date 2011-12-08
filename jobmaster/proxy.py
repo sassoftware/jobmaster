@@ -30,8 +30,8 @@ import threading
 import urllib
 import urlparse
 import weakref
+from conary.lib.log import setupLogging
 from jobmaster.templategen import TemplateGenerator
-from jobmaster.util import setupLogging
 
 log = logging.getLogger(__name__)
 
@@ -579,7 +579,7 @@ def test():
         epdb.serve()
     signal.signal(signal.SIGUSR1, hdlr)
 
-    setupLogging(logging.DEBUG)
+    setupLogging(consoleLevel=logging.DEBUG, consoleFormat='file')
     s = ProxyServer(7770)
     try:
         asyncore.loop(use_poll=True)

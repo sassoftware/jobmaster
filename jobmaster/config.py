@@ -5,6 +5,7 @@
 # All rights reserved
 #
 
+import logging
 import os
 from conary.lib import cfgtypes
 from mcp import config
@@ -45,3 +46,9 @@ class MasterConfig(config.MCPConfig):
 
     def getVersionCachePath(self):
         return os.path.join(self.basePath, 'roots', 'version.cache')
+
+    def getLogLevel(self):
+        level = self.logLevel
+        if isinstance(level, basestring):
+            level = logging.getLevelName(level.upper())
+        return level
