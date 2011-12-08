@@ -24,6 +24,7 @@ from jobmaster.networking import AddressGenerator
 from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
 from jobmaster.resources.block import get_scratch_lvs
+from jobmaster.resources.chroot import BoundContentsRoot
 from jobmaster.response import ResponseProxy
 from jobmaster.subprocutil import setDebugHook
 
@@ -51,13 +52,7 @@ class JobMaster(bus_node.BusNode):
         self.handlers = {}
         self.subprocesses = []
         self._cfgCache = {}
-
-        self.loopManager = LoopManager(
-                os.path.join(self.cfg.basePath, 'locks/loop'))
-        self.addressGenerator = AddressGenerator(cfg.pairSubnet)
         self._map = self.bus.session._map
-        self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map,
-                self)
 
     def getConaryConfig(self, rbuilderUrl, cache=True):
         if cache and rbuilderUrl in self._cfgCache:
@@ -71,6 +66,13 @@ class JobMaster(bus_node.BusNode):
             if cache:
                 self._cfgCache[rbuilderUrl] = ccfg
         return ccfg
+
+    def pre_start(self):
+        self.addressGenerator = AddressGenerator(self.cfg.pairSubnet)
+        self.loopManager = LoopManager(
+                os.path.join(self.cfg.basePath, 'locks/loop'))
+        self.proxyServer = ProxyServer(self.cfg.masterProxyPort, self._map,
+                self)
 
     def run(self):
         log.info("Started with pid %d.", os.getpid())
@@ -213,6 +215,29 @@ class JobMaster(bus_node.BusNode):
             log.info("Deleting LV %s/%s", self.cfg.lvmVolumeName, lv_name)
             util.call('lvremove -f %s/%s' % (self.cfg.lvmVolumeName, lv_name))
 
+    def clean_roots(self):
+        root = os.path.join(self.cfg.basePath, 'roots')
+        todelete = set()
+        toconsider = []
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            if not os.path.isdir(path):
+                continue
+            if len(path) == 40:
+                # Old, SHA-1 based root
+                todelete.add(name)
+            else:
+                # New, version string based root
+                mtime = os.stat(path).st_mtime
+                toconsider.append((mtime, name))
+        # Discard all but the most recent two new-style roots
+        toconsider = sorted(toconsider)[:-2]
+        todelete.update(x[1] for x in toconsider)
+        for name in todelete:
+            log.info("Deleting old contents root %s", name)
+            root = BoundContentsRoot(name, self.cfg, None)
+            root.delete()
+
 
 def main(args):
     parser = optparse.OptionParser()
@@ -220,12 +245,14 @@ def main(args):
     parser.add_option('-n', '--no-daemon', action='store_true')
     parser.add_option('--clean-mounts', action='store_true',
             help='Clean up stray mount points and logical volumes')
+    parser.add_option('--clean-roots', action='store_true',
+            help='Clean up old jobslave roots')
     options, args = parser.parse_args(args)
 
     cfg = config.MasterConfig()
     cfg.read(options.config_file)
 
-    if options.clean_mounts:
+    if options.clean_mounts or options.clean_roots:
         options.no_daemon = True
 
     level = cfg.getLogLevel()
@@ -235,10 +262,14 @@ def main(args):
 
     if options.clean_mounts:
         return master.clean_mounts()
+    elif options.clean_roots:
+        return master.clean_roots()
     elif options.no_daemon:
+        master.pre_start()
         master.run()
         return 0
     else:
+        master.pre_start()
         # Double-fork to daemonize
         pid = os.fork()
         if pid:

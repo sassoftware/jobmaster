@@ -5,7 +5,7 @@
 import fcntl
 import logging
 import os
-from conary.lib.util import mkdirChain, AtomicFile
+from conary.lib.util import mkdirChain, AtomicFile, rmtree
 from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.resource import Resource
@@ -35,8 +35,12 @@ class _ContentsRoot(Resource, Lockable):
         self._statusPath = None
 
     def _getHash(self):
-        return '--'.join(x[1].trailingRevision().version
-                for x in sorted(self.troves))
+        if isinstance(self.troves, basestring):
+            # Used by the cleanup script
+            return self.troves
+        else:
+            return '--'.join(x[1].trailingRevision().version
+                    for x in sorted(self.troves))
 
     def unpackRoot(self, fObj=None, prepareCB=None):
         if not fObj:
@@ -57,6 +61,11 @@ class _ContentsRoot(Resource, Lockable):
 
     def mount(self, path, readOnly=True):
         return BindMountResource(self._basePath, path, readOnly=readOnly)
+
+    def delete(self):
+        self._lock(fcntl.LOCK_EX)
+        rmtree(self._basePath)
+        self._deleteLock()
 
 
 class BoundContentsRoot(_ContentsRoot):

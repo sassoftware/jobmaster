@@ -79,6 +79,11 @@ condstop(){
     [ -e /var/lock/subsys/$prog ] && stop
 }
 
+cleanroots(){
+    $DAEMON -n -c "$JOBMASTER_CONFIG" --clean-roots 2>/dev/null || exit 1
+}
+
+
 case "$1" in
   start)
         start
@@ -98,6 +103,11 @@ case "$1" in
   status)
         status $DAEMON
         ;;
+
+  cleanroots)
+        cleanroots
+        ;;
+
   *)
     echo "Usage: `basename $0` {start|stop|restart|condstop|condrestart|status}"
     ;;

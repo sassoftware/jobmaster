@@ -35,10 +35,10 @@ class JobMaster(CPackageRecipe):
 
         r.Install('bin/jobmaster', '%(bindir)s/jobmaster', mode=0755)
         r.Install('bin/jm-preload-generator', '%(bindir)s/', mode=0755)
+        r.Install('distro/cleanup.sh', '/etc/cron.daily/jobmaster-cleanup.sh', mode=0755)
         r.Install('distro/jobmaster.init', '%(initdir)s/jobmaster', mode=0755)
 
         r.Install('distro/jobmaster.logrotate', '/etc/logrotate.d/jobmaster')
-        r.Install('distro/jobmaster.tmpwatch', '/etc/cron.daily/jobmaster.tmpwatch', mode=0755)
 
         r.Install('distro/stub.conf', '%(jmdir)s/config')
         r.Install('distro/limit.conf', '%(jmdir)s/config.d/runtime')
@@ -69,7 +69,7 @@ class JobMaster(CPackageRecipe):
         r.Requires('/usr/sbin/lvm', '.*/resources/block\..*')
         r.Requires('/sbin/ip', '.*/resources/network\..*')
 
-        r.Requires('/usr/sbin/tmpwatch', 'jobmaster.tmpwatch')
+        r.Requires('/usr/sbin/tmpwatch', '/etc/cron.daily/jobmaster-cleanup.sh')
 
         #r.RemoveNonPackageFiles('.*\.py')
         r.RemoveNonPackageFiles('.*\.egg-info.*')
