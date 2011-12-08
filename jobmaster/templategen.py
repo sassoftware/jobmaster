@@ -349,19 +349,7 @@ class TemplateGenerator(Lockable, Subprocess):
                      (self._contentsDir, scriptName)
         if not os.path.exists(scriptPath):
             raise RuntimeError("Script %s does not exist" % scriptName)
-
-        # AWFUL HACK: mingle #1353 - mixing new system glibc with old
-        # anadonda-templates glibc causes everything to segfault if the old
-        # libc is in LD_LIBRARY_PATH, so turn off that modification. Respinning
-        # templates for all of the platforms is too expensive.
-        lines = []
-        for line in open(scriptPath):
-            if 'export LD_LIBRARY_PATH=' in line:
-                continue
-            lines.append(line)
-        with open(scriptPath, 'w') as f:
-            f.writelines(lines)
-
+        
         logCall([ "bash", "-x", scriptPath ] + argList, stderr=open(self._basePath + '.log', 'w'))
 
 def main(args):
