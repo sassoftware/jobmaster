@@ -10,7 +10,7 @@ from jobmaster import archiveroot
 from jobmaster import buildroot
 from jobmaster.resource import Resource
 from jobmaster.resources.mount import BindMountResource
-from jobmaster.subprocutil import Lockable
+from jobmaster.subprocutil import Lockable, LockError
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,10 @@ class _ContentsRoot(Resource, Lockable):
         return BindMountResource(self._basePath, path, readOnly=readOnly)
 
     def delete(self):
-        self._lock(fcntl.LOCK_EX)
+        try:
+            self._lock(fcntl.LOCK_EX)
+        except LockError:
+            return
         rmtree(self._basePath)
         self._deleteLock()
 
