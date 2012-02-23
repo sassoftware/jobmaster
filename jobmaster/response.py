@@ -20,8 +20,7 @@ log = logging.getLogger(__name__)
 
 class ResponseProxy(object):
     def __init__(self, masterUrl, jobData):
-        self.imageBase = '%sapi/products/%s/images/%d/' % (masterUrl,
-                jobData['project']['hostname'], jobData['buildId'])
+        self.imageBase = '%sapi/v1/%s/images/%d' % (masterUrl, jobData['buildId'])
         self.outputToken = jobData['outputToken']
 
     def _post(self, method, path, contentType='application/xml', body=None):
@@ -29,17 +28,20 @@ class ResponseProxy(object):
                 'Content-Type': contentType,
                 'X-rBuilder-OutputToken': self.outputToken,
                 }
-        url = self.imageBase + path
+        if path is None:
+            url = self.imageBase
+        else:
+            url = "%s/%s" % (self.imageBase.rstrip('/'), path)
 
         client = restlib.client.Client(url, headers)
         client.connect()
         return client.request(method, body)
 
     def sendStatus(self, code, message):
-        root = ET.Element('imageStatus')
-        ET.SubElement(root, "code").text = str(code)
-        ET.SubElement(root, "message").text = message
+        root = ET.Element('image')
+        ET.SubElement(root, "status").text = str(code)
+        ET.SubElement(root, "status_message").text = message
         try:
-            self._post('PUT', 'status', body=ET.tostring(root))
+            self._post('PUT', path=None, body=ET.tostring(root))
         except:
             log.exception("Failed to send status upstream")

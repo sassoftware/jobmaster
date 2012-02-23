@@ -38,12 +38,12 @@ log = logging.getLogger(__name__)
 
 ALLOWED_PATHS = {
         'POST': [
-            re.compile('^/api/products/[^/]+/images/\d+/buildLog$'),
+            re.compile('^/api/v1/images/\d+/build_log$'),
             ],
         'PUT': [
             re.compile('^/uploadBuild/\d+/'),
-            re.compile('^/api/products/[^/]+/images/\d+/files$'),
-            re.compile('^/api/products/[^/]+/images/\d+/status$'),
+            re.compile('^/api/v1/images/\d+/?$'),
+            re.compile('^/api/v1/images/\d+/status$'),
             ],
         }
 
