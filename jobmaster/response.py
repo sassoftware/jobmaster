@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 class ResponseProxy(object):
     def __init__(self, masterUrl, jobData):
-        self.imageBase = '%sapi/v1/%s/images/%d' % (masterUrl, jobData['buildId'])
+        self.imageBase = '%sapi/v1/images/%d' % (masterUrl, jobData['buildId'])
         self.outputToken = jobData['outputToken']
 
     def _post(self, method, path, contentType='application/xml', body=None):
