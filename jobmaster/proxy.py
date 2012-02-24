@@ -43,7 +43,7 @@ ALLOWED_PATHS = {
         'PUT': [
             re.compile('^/uploadBuild/\d+/'),
             re.compile('^/api/v1/images/\d+/?$'),
-            re.compile('^/api/v1/images/\d+/status$'),
+            re.compile('^/api/v1/images/\d+/build_files$'),
             ],
         }
 
