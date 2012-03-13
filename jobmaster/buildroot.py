@@ -34,6 +34,7 @@ def buildRoot(ccfg, troveTups, destRoot, callback=None):
             dir=os.path.dirname(destRoot))
 
     rootCfg = copy.deepcopy(ccfg)
+    rootCfg.proxyMap = ccfg.proxyMap  # remove after conary 2.3.13
     rootCfg.root = fsRoot
     rootCfg.autoResolve = False
     #rootCfg.updateThreshold = 0

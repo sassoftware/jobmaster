@@ -62,6 +62,8 @@ class JobMaster(bus_node.BusNode):
                 rbuilderUrl += '/'
             ccfg = conarycfg.ConaryConfiguration(True)
             ccfg.initializeFlavors()
+            # Don't inherit proxy settings from the system
+            ccfg.configLine('proxyMap []')
             ccfg.configLine('includeConfigFile %sconaryrc' % rbuilderUrl)
             if cache:
                 self._cfgCache[rbuilderUrl] = ccfg
