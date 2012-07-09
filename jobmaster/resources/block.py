@@ -56,7 +56,7 @@ class ScratchDisk(Resource):
         else:
             self.firstMount = path
             return AutoMountResource(self.devicePath, path,
-                    options=["-t", "xfs", "-o", "noatime"],
+                    options=["-t", "xfs", "-o", "noatime,barrier=0"],
                     delete=delete,
                     )
 
