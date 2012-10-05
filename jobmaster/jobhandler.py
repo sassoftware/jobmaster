@@ -34,6 +34,8 @@ class JobHandler(Subprocess):
     procName = "job handler"
     setsid = True
 
+    _catchSignals = [signal.SIGINT, signal.SIGTERM, signal.SIGQUIT]
+
     def __init__(self, master, job):
         self.cfg = master.cfg
         self.job = job
@@ -72,11 +74,14 @@ class JobHandler(Subprocess):
             try:
                 # Start up the container process and wait for it to finish.
                 jobslave.start(self.job.job_data, self._cb_preparing)
-                signal.signal(signal.SIGINT, self._onSignal)
-                signal.signal(signal.SIGTERM, self._onSignal)
-                signal.signal(signal.SIGQUIT, self._onSignal)
+                for signum in self._catchSignals:
+                    signal.signal(signum, self._onSignal)
                 ret = jobslave.wait()
             finally:
+                # Ignore signals during cleanup to make sure an impatient
+                # initscript or sysadmin doesn't cause stuck LVs.
+                for signum in self._catchSignals:
+                    signal.signal(signum, signal.SIG_IGN)
                 jobslave.close()
         except OutOfSpaceError, err:
             log.error(str(err))
@@ -102,6 +107,7 @@ class JobHandler(Subprocess):
         self.kill(signal.SIGQUIT)
 
     def _onSignal(self, signum, sigtb):
+        log.error("Received signal %d, cleaning up...", signum)
         if signum == signal.SIGQUIT:
             # Stop requested by user.
             raise StopJob()
