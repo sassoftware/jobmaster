@@ -39,8 +39,8 @@ class _ContentsRoot(Resource, Lockable):
             # Used by the cleanup script
             return self.troves
         else:
-            return '--'.join(x[1].trailingRevision().version
-                    for x in sorted(self.troves))
+            # Use the bare upstream revisions as-is
+            return '--'.join(x[1].split('/')[-1] for x in sorted(self.troves))
 
     def unpackRoot(self, fObj=None, prepareCB=None):
         if not fObj:
