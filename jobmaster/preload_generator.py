@@ -6,7 +6,6 @@
 
 import logging
 import os
-import pickle
 import signal
 import subprocess
 import sys
@@ -67,23 +66,13 @@ def main(args):
         try:
             buildroot.buildRoot(cfg, [troveTup], jsRootDir)
 
-            # Prime the version cache so that the archive can be used right
-            # away with no repo calls.
-            relCachePath = 'srv/rbuilder/jobmaster/roots/version.cache'
-            fullCachePath = os.path.join(sysRootDir, relCachePath)
-            os.makedirs(os.path.dirname(fullCachePath))
-            shortVer = '%s/%s' % (troveTup[1].trailingLabel(), hash)
-            cache = {(troveTup[0], shortVer, None): troveTup}
-            with open(fullCachePath, 'w') as f:
-                pickle.dump(cache, f)
-
             log.info("Creating root archive")
             relArchivePath = 'srv/rbuilder/jobmaster/archive/%s.tar.xz' % hash
             fullArchivePath = os.path.join(sysRootDir, relArchivePath)
             os.makedirs(os.path.dirname(fullArchivePath))
             archiveroot.archiveRoot(jsRootDir, fullArchivePath)
 
-            targets = [relCachePath, relArchivePath]
+            targets = [relArchivePath]
 
             log.info("Creating preload tarball")
             manifest = open(baseName, 'w')
