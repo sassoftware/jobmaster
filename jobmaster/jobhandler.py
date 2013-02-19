@@ -7,7 +7,7 @@ import logging
 import os
 import random
 import signal
-import simplejson
+import json
 import sys
 from conary import trovetup
 from conary.conaryclient import ConaryClient
@@ -37,7 +37,7 @@ class JobHandler(Subprocess):
     def __init__(self, master, job):
         self.cfg = master.cfg
         self.job = job
-        self.job_data = simplejson.loads(job.job_data)
+        self.job_data = json.loads(job.job_data)
         self.uuid = job.uuid
         self.response = ResponseProxy(self.job.rbuilder_url, self.job_data)
 

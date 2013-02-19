@@ -10,7 +10,7 @@ testsuite.setup()
 
 import os
 import time
-import simplejson
+import json
 import signal
 import StringIO
 import threading
@@ -20,7 +20,6 @@ import weakref
 import jobmaster_helper
 
 from jobmaster import master
-from jobmaster import constants
 from jobmaster import xenmac
 from jobmaster import xenip
 
@@ -73,7 +72,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
                     "Expected response. No response was sent.")
         addr, dataStr = responseSent.pop(0)
         assert addr == '/topic/mcp/response', "Last sent was not a response"
-        data = simplejson.loads(dataStr)
+        data = json.loads(dataStr)
         for key, val in kwargs.iteritems():
             assert key in data, "Expected %s in response" % key
             assert data[key] == val, "expected %s of %s but got %s" % \
@@ -83,7 +82,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         if not controlTopic:
             controlTopic = self.jobMaster.controlTopic
         kwargs.setdefault('node', self.cfg.nodeName)
-        dataStr = simplejson.dumps(kwargs)
+        dataStr = json.dumps(kwargs)
         controlTopic.inbound.insert(0, dataStr)
 
     def testBasicAttributes(self):
@@ -116,7 +115,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.status(protocolVersion = 1)
         assert self.jobMaster.response.response.connection.sent
         dataStr = self.jobMaster.response.response.connection.sent.pop(0)[1]
-        data = simplejson.loads(dataStr)
+        data = json.loads(dataStr)
         self.failIf(data['event'] != 'masterStatus')
 
     def testDownStatus(self):
@@ -129,7 +128,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         self.jobMaster.status(protocolVersion = 1)
         assert self.jobMaster.response.response.connection.sent
         dataStr = self.jobMaster.response.response.connection.sent.pop(0)[1]
-        data = simplejson.loads(dataStr)
+        data = json.loads(dataStr)
         self.failIf(data['event'] != 'masterStatus')
         refSlaves = ['testMaster:testSlave2']
         self.failIf(data['slaves'] != refSlaves, \
@@ -275,13 +274,13 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         data['node'] = 'masters'
         data['action'] = 'checkVersion'
         data['protocols'] = [1]
-        dataStr = simplejson.dumps(data)
+        dataStr = json.dumps(data)
         self.jobMaster.controlTopic.inbound = [dataStr]
         self.jobMaster.checkControlTopic()
         self.assertResponse(event = 'protocol', protocolVersion = 1)
 
         data['node'] = self.cfg.nodeName
-        dataStr = simplejson.dumps(data)
+        dataStr = json.dumps(data)
         self.jobMaster.controlTopic.inbound = [dataStr]
         self.jobMaster.checkControlTopic()
 
@@ -467,7 +466,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             "Action 'checkControlTopic' is not a control method")
 
     def testBadNode(self):
-        dataStr = simplejson.dumps({'action' : 'leftOutNode'})
+        dataStr = json.dumps({'action' : 'leftOutNode'})
         self.jobMaster.controlTopic.inbound.insert(0, dataStr)
 
         # test that this control command is ignored.
@@ -491,7 +490,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         jobMaster.running = False
         jobMaster.join()
         assert sent, "no response was sent"
-        data = simplejson.loads(sent.pop()[1]) # We want the last message sent
+        data = json.loads(sent.pop()[1]) # We want the last message sent
         refData = {"node": "testMaster", "event": "masterOffline"}
         for key, val in refData.iteritems():
             assert key in data
@@ -665,7 +664,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         def FakeHandlerRun(x):
             x.slaveStatus(slavestatus.OFFLINE)
 
-        jobData = simplejson.dumps({'protocolVersion': 1,
+        jobData = json.dumps({'protocolVersion': 1,
             'UUID' : 'test.rpath.local-build-42-3',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         sleep = master.time.sleep
@@ -689,7 +688,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             respawnCount = 0
             for message in [x[1] for x in \
                     reversed(resp.response.connection.sent)]:
-                data = simplejson.loads(message)
+                data = json.loads(message)
                 if data['event'] == 'slaveStatus':
                     if data['status'] != slavestatus.OFFLINE:
                         state = 'up'
@@ -756,7 +755,7 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
             os.fork = fork
 
     def testFlushJobs(self):
-        jobData = simplejson.dumps({'protocolVersion': 1,
+        jobData = json.dumps({'protocolVersion': 1,
             'UUID' : 'test.rpath.local-build-88-0',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         self.jobMaster.jobQueue.inbound = [jobData]
@@ -764,14 +763,14 @@ class MasterTest(jobmaster_helper.JobMasterHelper):
         for status in (slavestatus.BUILDING, slavestatus.OFFLINE):
             addy, event = \
                     self.jobMaster.response.response.connection.sent.pop(0)
-            data = simplejson.loads(event)
+            data = json.loads(event)
             self.assertEquals(data.get('event'), 'slaveStatus')
             self.assertEquals(data.get('jobId'), 'test.rpath.local-build-88-0')
             self.assertEquals(data.get('slaveId'), 'testMaster:deadSlave0')
             self.assertEquals(data.get('status'), status)
 
     def testFlushJobProtocols(self):
-        jobData = simplejson.dumps({'protocolVersion': -1,
+        jobData = json.dumps({'protocolVersion': -1,
             'UUID' : 'test.rpath.local-build-88-4',
             'jobSlaveNVF' : 'jobslave=test.rpath.local@rpl:1[is: x86]'})
         self.jobMaster.jobQueue.inbound = [jobData]

@@ -6,7 +6,7 @@
 import logging
 import optparse
 import os
-import simplejson
+import json
 import sys
 from conary import conarycfg
 from conary.lib.log import setupLogging
@@ -175,7 +175,7 @@ class JobMaster(bus_node.BusNode):
         if failed:
             try:
                 response = ResponseProxy(job.rbuilder_url,
-                        simplejson.loads(job.job_data))
+                        json.loads(job.job_data))
                 response.sendStatus(jobstatus.FAILED,
                         "Error creating build environment")
             except:

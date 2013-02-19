@@ -243,7 +243,7 @@ class Container(TempDir, Subprocess):
 
 
 def main(args):
-    import simplejson
+    import json
     import threading
     from conary.conaryclient import cmdline
     from conary.lib import util
@@ -278,7 +278,7 @@ def main(args):
     troveTups = [max(x) for x in searchSource.findTroves(specTups).values()]
 
     jobData = open('data').read()
-    jobDataDict = simplejson.loads(jobData)
+    jobDataDict = json.loads(jobData)
 
     loopDir = tempfile.mkdtemp()
     try:
