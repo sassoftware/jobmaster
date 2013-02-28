@@ -48,7 +48,7 @@ class ScratchDisk(Resource):
         Call C{lvremove} on close.
         """
         if os.path.exists(self.devicePath):
-            logCall(['/usr/sbin/lvm', 'lvremove', '-f', self.devicePath])
+            logCall(['/sbin/lvm', 'lvremove', '-f', self.devicePath])
 
     def mount(self, path, readOnly=False, delete=False):
         if self.firstMount:
@@ -67,7 +67,7 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
     with a size of at least C{disk_bytes}.
     """
     # Determine how many free extents there are, and how big an extent is.
-    ret = call(['/usr/sbin/lvm', 'vgs', '-o', 'extent_size,free_count',
+    ret = call(['/sbin/lvm', 'vgs', '-o', 'extent_size,free_count',
         vg_name], logCmd=False)[1]
     ret = ret.splitlines()[1:]
     if not ret:
@@ -83,7 +83,7 @@ def allocate_scratch(vg_name, lv_name, disk_bytes):
     if extents_required > extents_free:
         raise OutOfSpaceError(extents_required, extents_free)
 
-    logCall(['/usr/sbin/lvm', 'lvcreate', '-l', str(extents_required),
+    logCall(['/sbin/lvm', 'lvcreate', '-l', str(extents_required),
         '-n', lv_name, vg_name], stdout=devNull())
 
 
@@ -93,7 +93,7 @@ def get_scratch_lvs(vg_name):
     """
 
     ret, stdout, _ = call(
-            ['/usr/sbin/lvm', 'lvs', '-o', 'name', vg_name], ignoreErrors=True)
+            ['/sbin/lvm', 'lvs', '-o', 'name', vg_name], ignoreErrors=True)
     if ret:
         raise RuntimeError("Volume group %s could not be read" % (vg_name,))
 

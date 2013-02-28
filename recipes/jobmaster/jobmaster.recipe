@@ -67,14 +67,15 @@ class JobMaster(CPackageRecipe):
         r.Requires('/sbin/mksquashfs', '.*/templategen\..*')
         r.Requires('/usr/bin/find', '.*/templategen\..*')
         r.Requires('/usr/bin/mcopy', '.*/templategen\..*')
-        r.Requires('/usr/bin/mkcramfs', '.*/templategen\..*')
+        r.Requires('/sbin/mkfs.cramfs', '.*/templategen\..*')
         r.Requires('/usr/bin/syslinux', '.*/templategen\..*')
         r.Requires('/usr/bin/nm', '.*/templategen\..*')
         r.Requires('/bin/mount', '.*/resources/mount\..*')
         r.Requires('/sbin/mkfs.xfs', '.*/resources/block\..*')
-        r.Requires('/usr/sbin/lvm', '.*/resources/block\..*')
+        r.Requires('/sbin/lvm', '.*/resources/block\..*')
         r.Requires('/sbin/ip', '.*/resources/network\..*')
 
         r.Requires('/usr/sbin/tmpwatch', '/etc/cron.daily/jobmaster-cleanup.sh')
 
         r.RemoveNonPackageFiles('.*\.egg-info.*')
+        r.NormalizeInitscriptContents(exceptions='%(initdir)s/.*')
