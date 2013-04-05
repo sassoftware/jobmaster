@@ -188,7 +188,6 @@ class JobHandler(Subprocess):
 
         data = self.job_data.get('data', {})
         buildType = self.job_data['buildType']
-        freeSpace = int(data.get('freespace', 0)) * MEBI
         swapSpace = int(data.get('swapSize', 0)) * MEBI
         mountSpace = sum([x[0] + x[1] for x in data.get('mountDict', {})]
                 ) * MEBI
@@ -204,7 +203,6 @@ class JobHandler(Subprocess):
         # Pad 15% for filesystem overhead (inodes, etc.)
         packageSpace = metaDataSlop(troveSize + mountSpace)
         totalSize = (packageSpace +
-                     freeSpace +
                      swapSlop(swapSpace) +
                      anacondaSpace)
 
