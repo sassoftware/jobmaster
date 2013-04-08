@@ -112,7 +112,10 @@ class ProxyServer(asyncore.dispatcher):
     def findTarget(self, address):
         self.lock.acquire()
         try:
-            (targetUrl, refs) = self.targetMap.get(address)
+            target = self.targetMap.get(address)
+            if target is None:
+                return None
+            (targetUrl, refs) = target
             assert refs > 0
             return targetUrl
         finally:
