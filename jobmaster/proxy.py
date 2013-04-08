@@ -247,6 +247,10 @@ class ProxyDispatcher(asyncore.dispatcher):
             last = self.state, len(self.in_buffer)
 
             if self.state == STATE_HEADER:
+                # Skip blank lines like those Conary likes to send when it
+                # hasn't received any data for a while.
+                while self.in_buffer.startswith('\r\n'):
+                    self.in_buffer = self.in_buffer[2:]
                 end = self.in_buffer.find('\r\n\r\n')
                 if end > -1:
                     end += 4
