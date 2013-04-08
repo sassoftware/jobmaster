@@ -36,6 +36,7 @@ class MasterConfig(config.MCPConfig):
     masterProxyPort = (cfgtypes.CfgInt, 7770)
     minSlaveSize    = (cfgtypes.CfgInt, 1024) # scratch space in MB
     pairSubnet      = 'fdf0:dbe6:3760::/48'
+    useNetContainer = (cfgtypes.CfgBool, True)
 
     # DEPRECATED
     conaryProxy = None

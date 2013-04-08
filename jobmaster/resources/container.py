@@ -124,8 +124,13 @@ class Container(TempDir, Subprocess):
         self.mounts = mounts
 
         self.c2p_pipe, self.p2c_pipe = Pipe(), Pipe()
-        self.pid = linuxns.clone(self._run_wrapper, (), new_uts=True,
-                new_ipc=True, new_pid=True, new_net=True, new_user=True)
+        self.pid = linuxns.clone(self._run_wrapper, (),
+                new_uts=True,
+                new_ipc=True,
+                new_pid=True,
+                new_net=network.use_namespace,
+                new_user=True,
+                )
         self.c2p_pipe.closeWriter()
         self.p2c_pipe.closeReader()
 

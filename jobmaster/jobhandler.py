@@ -18,6 +18,7 @@ from mcp import jobstatus
 from jobmaster.resources.block import OutOfSpaceError
 from jobmaster.resources.container import ContainerWrapper
 from jobmaster.resources.network import NetworkPairResource
+from jobmaster.resources.network import DummyNetworkResource
 from jobmaster.response import ResponseProxy
 from jobmaster.subprocutil import Subprocess
 from jobmaster.util import prettySize
@@ -46,7 +47,10 @@ class JobHandler(Subprocess):
         self.loopManager = master.loopManager
 
         self.name = os.urandom(6).encode('hex')
-        self.network = NetworkPairResource(master.addressGenerator, self.name)
+        if self.cfg.useNetContainer:
+            self.network = NetworkPairResource(master.addressGenerator, self.name)
+        else:
+            self.network = DummyNetworkResource()
 
         self.pid = None
 

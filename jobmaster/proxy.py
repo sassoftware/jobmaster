@@ -85,7 +85,12 @@ class ProxyServer(asyncore.dispatcher):
             address = address.format(useMask=False)
         self.lock.acquire()
         try:
-            self.targetMap[address] = targetUrl
+            (existing, refs) = self.targetMap.get(address, (None, 0))
+            if existing and existing != targetUrl:
+                raise RuntimeError("You must use network containers when "
+                        "sharing a jobmaster between head nodes")
+            refs += 1
+            self.targetMap[address] = (targetUrl, refs)
         finally:
             self.lock.release()
 
@@ -94,14 +99,22 @@ class ProxyServer(asyncore.dispatcher):
             address = address.format(useMask=False)
         self.lock.acquire()
         try:
-            del self.targetMap[address]
+            (targetUrl, refs) = self.targetMap[address]
+            assert refs > 0
+            refs -= 1
+            if refs:
+                self.targetMap[address] = (targetUrl, refs)
+            else:
+                del self.targetMap[address]
         finally:
             self.lock.release()
 
     def findTarget(self, address):
         self.lock.acquire()
         try:
-            return self.targetMap.get(address)
+            (targetUrl, refs) = self.targetMap.get(address)
+            assert refs > 0
+            return targetUrl
         finally:
             self.lock.release()
 
