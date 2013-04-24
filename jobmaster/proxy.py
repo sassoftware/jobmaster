@@ -85,7 +85,12 @@ class ProxyServer(asyncore.dispatcher):
             address = address.format(useMask=False)
         self.lock.acquire()
         try:
-            self.targetMap[address] = targetUrl
+            (existing, refs) = self.targetMap.get(address, (None, 0))
+            if existing and existing != targetUrl:
+                raise RuntimeError("You must use network containers when "
+                        "sharing a jobmaster between head nodes")
+            refs += 1
+            self.targetMap[address] = (targetUrl, refs)
         finally:
             self.lock.release()
 
@@ -94,14 +99,25 @@ class ProxyServer(asyncore.dispatcher):
             address = address.format(useMask=False)
         self.lock.acquire()
         try:
-            del self.targetMap[address]
+            (targetUrl, refs) = self.targetMap[address]
+            assert refs > 0
+            refs -= 1
+            if refs:
+                self.targetMap[address] = (targetUrl, refs)
+            else:
+                del self.targetMap[address]
         finally:
             self.lock.release()
 
     def findTarget(self, address):
         self.lock.acquire()
         try:
-            return self.targetMap.get(address)
+            target = self.targetMap.get(address)
+            if target is None:
+                return None
+            (targetUrl, refs) = target
+            assert refs > 0
+            return targetUrl
         finally:
             self.lock.release()
 
@@ -231,6 +247,10 @@ class ProxyDispatcher(asyncore.dispatcher):
             last = self.state, len(self.in_buffer)
 
             if self.state == STATE_HEADER:
+                # Skip blank lines like those Conary likes to send when it
+                # hasn't received any data for a while.
+                while self.in_buffer.startswith('\r\n'):
+                    self.in_buffer = self.in_buffer[2:]
                 end = self.in_buffer.find('\r\n\r\n')
                 if end > -1:
                     end += 4

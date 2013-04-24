@@ -1,10 +1,9 @@
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) SAS Institute Inc.
 #
 
 import os
+from jobmaster import networking
 from jobmaster.resource import Resource
 from jobmaster.util import call, logCall, CommandError
 
@@ -13,6 +12,8 @@ class NetworkPairResource(Resource):
     """
     Resource that sets up and tears down a veth network pair.
     """
+
+    use_namespace = True
 
     def __init__(self, generator, name):
         Resource.__init__(self)
@@ -79,3 +80,21 @@ class NetworkPairResource(Resource):
     @staticmethod
     def _setUp(device):
         logCall(['/sbin/ip', 'link', 'set', device, 'up'])
+
+
+class DummyNetworkResource(Resource):
+
+    use_namespace = False
+
+    def __init__(self):
+        Resource.__init__(self)
+        self.masterAddr = self.slaveAddr = networking.Address.parse('::1')
+
+    def start(self):
+        pass
+
+    def moveSlave(self, pid):
+        pass
+
+    def finishConfiguration(self):
+        pass
