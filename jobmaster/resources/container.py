@@ -75,7 +75,7 @@ class ContainerWrapper(ResourceStack):
         pid = self.container.start(self.network, jobData,
                 mounts=[
                     (self.contents, '', True),
-                    (self.devFS, 'dev', True),
+                    (self.devFS, 'dev', False),
                     (self.scratch, 'tmp', False),
                     (self.scratch, 'var/tmp', False),
                     (self.scratch, 'var/lock', False),
