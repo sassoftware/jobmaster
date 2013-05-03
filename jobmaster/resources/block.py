@@ -28,11 +28,12 @@ class ScratchDisk(Resource):
     Resource for a LVM2 logical volume to be removed on close.
     """
 
-    def __init__(self, vgName, lvName, size):
+    def __init__(self, vgName, lvName, size, fsType='ext4'):
         Resource.__init__(self)
         self.vgName = vgName
         self.lvName = lvName
         self.size = size
+        self.fsType = fsType
         self.devicePath = os.path.join('/dev', vgName, lvName)
         self.firstMount = None
 
@@ -41,7 +42,12 @@ class ScratchDisk(Resource):
         allocate_scratch(self.vgName, self.lvName, self.size)
 
         # Format
-        logCall(["/sbin/mkfs.xfs", "-fq", self.devicePath])
+        opts = ['-q']
+        if self.fsType == 'xfs':
+            opts.append('-f')
+        elif self.fsType == 'ext4':
+            opts += ['-O', 'sparse_super']
+        logCall(['/sbin/mkfs.' + self.fsType] + opts + [self.devicePath])
 
     def _close(self):
         """
@@ -56,7 +62,7 @@ class ScratchDisk(Resource):
         else:
             self.firstMount = path
             return AutoMountResource(self.devicePath, path,
-                    options=["-t", "xfs", "-o", "noatime,barrier=0"],
+                    options=["-t", self.fsType, "-o", "noatime,barrier=0"],
                     delete=delete,
                     )
 

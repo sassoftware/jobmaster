@@ -71,7 +71,6 @@ class JobMaster(CPackageRecipe):
         r.Requires('/usr/bin/syslinux', '.*/templategen\..*')
         r.Requires('/usr/bin/nm', '.*/templategen\..*')
         r.Requires('/bin/mount', '.*/resources/mount\..*')
-        r.Requires('/sbin/mkfs.xfs', '.*/resources/block\..*')
         r.Requires('/sbin/lvm', '.*/resources/block\..*')
         r.Requires('/sbin/ip', '.*/resources/network\..*')
 
