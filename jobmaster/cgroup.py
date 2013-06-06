@@ -1,11 +1,12 @@
 #
-# Copyright (c) 2005-2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) SAS Institute Inc.
 #
 
+import logging
 import errno
 import os
+
+log = logging.getLogger(__name__)
 
 CGROUP_PATH = '/cgroup'
 
@@ -40,3 +41,18 @@ def addDeviceCap(pid, kinds='a', major='*', minor='*', perms='rwm'):
     else:
         _write(pid, 'devices.allow',
                 ' '.join((kinds, '%s:%s' % (major, minor), perms)))
+
+
+def cleanup(pid):
+    try:
+        os.rmdir(os.path.join(CGROUP_PATH, str(pid)))
+    except OSError, err:
+        if err.errno == errno.ENOENT:
+            return
+        elif err.errno == errno.EBUSY:
+            log.warning("Unable to cleanup cgroup for worker %s, "
+                    "it is still in use", pid)
+        else:
+            log.exception("Unable to cleanup cgroup for worker %s:", pid)
+    except:
+        log.exception("Unable to cleanup cgroup for worker %s:", pid)

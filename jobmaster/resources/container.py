@@ -150,6 +150,9 @@ class Container(TempDir, Subprocess):
 
     def _close(self):
         self.kill()
+        pid = self.pid or self.exitPid
+        if pid:
+            cgroup.cleanup(pid)
         TempDir._close(self)
 
     def _run_wrapper(self):
