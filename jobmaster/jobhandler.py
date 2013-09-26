@@ -1,17 +1,23 @@
 #
-# Copyright (c) rPath, Inc.
+# Copyright (c) SAS Institute Inc.
 #
 
-import math
+import copy
+import json
 import logging
+import math
 import os
 import random
 import signal
-import json
+import tempfile
 import sys
+from conary import conaryclient
 from conary import trovetup
 from conary.conaryclient import ConaryClient
+from conary.conaryclient import modelupdate
+from conary.conaryclient.cml import CML
 from conary.deps.deps import ThawFlavor
+from conary.lib import util
 from conary.errors import TroveNotFound
 from conary.versions import ThawVersion
 from mcp import jobstatus
@@ -159,12 +165,36 @@ class JobHandler(Subprocess):
         trove = repos.getTrove(name, version, flavor, withFiles=False)
         return trove.troveInfo.size()
 
+    def _getModelSize(self):
+        flavor = ThawFlavor(self.job_data['troveFlavor'].encode('utf8'))
+        cml = CML(self.conaryCfg)
+        cml.parse([str(x) for x in self.job_data['imageModel']])
+        ccfg = copy.copy(self.conaryCfg)
+        ccfg.flavor = [flavor]
+        ccfg.initializeFlavors()
+        tempDir = tempfile.mkdtemp()
+        try:
+            ccfg.root = tempDir
+            ccli = conaryclient.ConaryClient(ccfg)
+            tc = modelupdate.CMLTroveCache(ccli.db, ccli.repos)
+            ts = ccli.cmlGraph(cml)
+            ts.g.realize(modelupdate.CMLActionData(tc, ccfg.flavor[0],
+                ccli.repos, ccfg))
+            primaryTups = list(ts.installSet)
+            size = 0
+            for trv in ccli.repos.getTroves(primaryTups, withFiles=False):
+                size += trv.troveInfo.size()
+            ccli.close()
+        finally:
+            util.rmtree(tempDir)
+        return size
+
     def getTroveSize(self):
         """
         Return the size, in bytes, of the image group.
         """
         try:
-            troveSize = self._getTroveSize()
+            troveSize = self._getModelSize()
         except:
             log.exception("Failed to retrieve image group:")
             self.failJob("Failed to retrieve image group")
