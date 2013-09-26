@@ -1,10 +1,11 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2011 rPath, Inc.
+# Copyright (c) SAS Institute Inc.
 #
 
 import logging
 import os
+import signal
 import sys
 import tempfile
 import traceback
@@ -104,6 +105,7 @@ class ContainerWrapper(ResourceStack):
 
 class Container(TempDir, Subprocess):
     procName = 'container'
+    _catchSignals = [signal.SIGINT, signal.SIGTERM, signal.SIGQUIT]
 
     def __init__(self, name, cfg): 
         TempDir.__init__(self, prefix='root-')
@@ -155,17 +157,28 @@ class Container(TempDir, Subprocess):
             cgroup.cleanup(pid)
         TempDir._close(self)
 
+    @staticmethod
+    def _onSignal(signum, sigtb):
+        sys.exit(70)
+
     def _run_wrapper(self):
         try:
             try:
                 rv = self._run()
                 os._exit(rv)
+            except SystemExit, err:
+                if err.code is None or isinstance(err.code, (int, long)):
+                    os._exit(err.code or 0)
+                else:
+                    os._exit(70)
             except:
                 traceback.print_exc()
         finally:
             os._exit(70)
 
     def _run(self):
+        for signum in self._catchSignals:
+            signal.signal(signum, self._onSignal)
         self.c2p_pipe.closeReader()
         self.p2c_pipe.closeWriter()
         self._close_fds((self.c2p_pipe.writer, self.p2c_pipe.reader))

@@ -1,7 +1,5 @@
 /*
- * Copyright (c) 2009 rPath, Inc.
- *
- * All rights reserved.
+ * Copyright (c) SAS Institute Inc.
  */
 
 #include <Python.h>
@@ -29,6 +27,7 @@ struct clone_arg {
 static int
 clone_run(void *arg) {
     struct clone_arg *clone_arg = arg;
+    PyOS_AfterFork();
 
     PyObject *rv = PyObject_Call(clone_arg->callback, clone_arg->args, NULL);
 
@@ -109,7 +108,6 @@ pyclone(PyObject *self, PyObject *args, PyObject *kwargs) {
         PyErr_SetFromErrno(PyExc_OSError);
         return NULL;
     }
-    PyOS_AfterFork();
     Py_DECREF(callback);
     Py_DECREF(newargs);
 
