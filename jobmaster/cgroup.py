@@ -31,7 +31,7 @@ def _write(pid, path, contents):
 
 
 def clearDeviceCaps(pid):
-    _write(pid, 'devices.deny', 'b *:* rwm\nc *:* rwm\n')
+    _write(pid, 'devices.deny', 'a *:* rwm\n')
 
 
 def addDeviceCap(pid, kinds='a', major='*', minor='*', perms='rwm'):
