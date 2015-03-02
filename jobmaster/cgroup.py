@@ -42,6 +42,10 @@ def addDeviceCap(pid, kinds='a', major='*', minor='*', perms='rwm'):
         _write(pid, 'devices.allow',
                 ' '.join((kinds, '%s:%s' % (major, minor), perms)))
 
+def create(pid):
+    cgdir = os.path.join(CGROUP_PATH, str(pid))
+    os.mkdir(cgdir)
+    file(os.path.join(cgdir, "tasks"), "a").write("%s\n" % pid)
 
 def cleanup(pid):
     try:

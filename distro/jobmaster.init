@@ -41,7 +41,7 @@ start() {
         $DAEMON -n -c "$JOBMASTER_CONFIG" --clean-mounts
 
         # /cgroup must be mounted to run image builds
-        grep -q ' /cgroup ' /proc/mounts || mount -t cgroup cgroup /cgroup
+        grep -q ' /cgroup ' /proc/mounts || mount -t cgroup cgroup /cgroup -odevices
 
         daemon $DAEMON -c "$JOBMASTER_CONFIG" && touch /var/lock/subsys/$prog
     fi

@@ -12,6 +12,7 @@ import traceback
 from conary import conarycfg
 from conary import conaryclient
 from conary.lib.log import setupLogging
+from conary.lib.util import mkdirChain
 from jobmaster import cgroup
 from jobmaster import linuxns
 from jobmaster import osutil
@@ -131,8 +132,14 @@ class Container(TempDir, Subprocess):
                 new_ipc=True,
                 new_pid=True,
                 new_net=network.use_namespace,
-                new_user=True,
+                new_user=False,
                 )
+        # This sets the uid/gid of the child as root
+        file("/proc/%d/uid_map" % self.pid, "a").write("0 0 1")
+        file("/proc/%d/gid_map" % self.pid, "a").write("0 0 1")
+        # Create cgroup
+        cgroup.create(self.pid)
+
         self.c2p_pipe.closeWriter()
         self.p2c_pipe.closeReader()
 
@@ -222,6 +229,7 @@ class Container(TempDir, Subprocess):
         containerMounts = set()
         for resource, path, readOnly in self.mounts:
             target = os.path.join(self.path, path)
+            mkdirChain(target)
             containerMounts.add(target)
             mountRes = resource.mount(target, readOnly)
             mountRes.release()
