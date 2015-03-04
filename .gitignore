@@ -1,0 +1,13 @@
+*~
+*,cover
+*.o
+*.orig
+*.pyc
+*.pyo
+*.rej
+*.so
+*.swo
+*.swp
+.coverage/
+.failed
+.times
