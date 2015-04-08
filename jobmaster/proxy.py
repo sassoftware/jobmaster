@@ -1,8 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2009 rPath, Inc.
-#
-# All rights reserved.
+# Copyright (c) SAS Institute Inc.
 #
 
 """
@@ -37,6 +35,10 @@ log = logging.getLogger(__name__)
 
 
 ALLOWED_PATHS = {
+        'GET': [
+            re.compile('^/downloadImage?.*'),
+            re.compile('^/images/'),
+            ],
         'POST': [
             re.compile('^/api/v1/images/\d+/build_log$'),
             ],
