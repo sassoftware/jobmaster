@@ -143,7 +143,7 @@ class JobMaster(bus_node.BusNode):
         else:
             log.warning("Could not write new config in %s.", cfgDir)
 
-    def handleRequestIfReady(self, sleepTime):
+    def handleRequestIfReady(self, sleepTime=1.0):
         bus_node.BusNode.handleRequestIfReady(self, sleepTime)
         # Check on all our subprocesses to make sure they are alive and reap
         # them if they are not.
