@@ -43,7 +43,6 @@ class JobMaster(CPackageRecipe):
         r.macros.jmdir = '/srv/rbuilder/jobmaster'
 
         r.Install('bin/jobmaster', '%(bindir)s/jobmaster', mode=0755)
-        r.Install('bin/jm-preload-generator', '%(bindir)s/', mode=0755)
         r.Install('distro/cleanup.sh', '/etc/cron.daily/jobmaster-cleanup.sh', mode=0755)
         r.Install('distro/jobmaster.init', '%(initdir)s/jobmaster', mode=0755)
 

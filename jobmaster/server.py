@@ -10,6 +10,7 @@ import json
 import sys
 from conary import conarycfg
 from conary.lib.log import setupLogging
+from conary.lib.util import rmtree
 from mcp import jobstatus
 from mcp.messagebus import bus_node
 from mcp.messagebus import messages
@@ -24,7 +25,6 @@ from jobmaster.networking import AddressGenerator
 from jobmaster.proxy import ProxyServer
 from jobmaster.resources.devfs import LoopManager
 from jobmaster.resources.block import get_scratch_lvs
-from jobmaster.resources.chroot import BoundContentsRoot
 from jobmaster.response import ResponseProxy
 from jobmaster.subprocutil import setDebugHook
 
@@ -218,27 +218,12 @@ class JobMaster(bus_node.BusNode):
             util.call('lvremove -f %s/%s' % (self.cfg.lvmVolumeName, lv_name))
 
     def clean_roots(self):
+        # Contents roots are no longer used; delete everything
         root = os.path.join(self.cfg.basePath, 'roots')
-        todelete = set()
-        toconsider = []
         for name in os.listdir(root):
             path = os.path.join(root, name)
-            if not os.path.isdir(path):
-                continue
-            if len(path) == 40:
-                # Old, SHA-1 based root
-                todelete.add(name)
-            else:
-                # New, version string based root
-                mtime = os.stat(path).st_mtime
-                toconsider.append((mtime, name))
-        # Discard all but the most recent two new-style roots
-        toconsider = sorted(toconsider)[:-2]
-        todelete.update(x[1] for x in toconsider)
-        for name in todelete:
             log.info("Deleting old contents root %s", name)
-            root = BoundContentsRoot(name, self.cfg, None)
-            root.delete()
+            rmtree(path)
 
 
 def main(args):

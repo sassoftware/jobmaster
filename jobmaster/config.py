@@ -25,10 +25,6 @@ class MasterConfig(config.MCPConfig):
     # Runtime settings
     slaveLimit = (cfgtypes.CfgInt, 5)
 
-    # Trove source settings
-    troveName       = (cfgtypes.CfgString, 'group-jobslave')
-    troveVersion    = (cfgtypes.CfgString, None)
-
     # Misc settings
     conaryProxyPort = (cfgtypes.CfgInt, 80)
     debugMode       = (cfgtypes.CfgBool, False)
@@ -41,12 +37,11 @@ class MasterConfig(config.MCPConfig):
     # DEPRECATED
     conaryProxy = None
     maxSlaveLimit = None
+    troveName = None
+    troveVersion = None
 
     def getTemplateCache(self):
         return os.path.join(self.basePath, self.templateCache)
-
-    def getVersionCachePath(self):
-        return os.path.join(self.basePath, 'roots', 'version.cache')
 
     def getLogLevel(self):
         level = self.logLevel

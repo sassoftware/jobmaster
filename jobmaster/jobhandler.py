@@ -18,7 +18,6 @@ from conary.conaryclient import modelupdate
 from conary.conaryclient.cml import CML
 from conary.deps.deps import ThawFlavor
 from conary.lib import util
-from conary.errors import TroveNotFound
 from conary.versions import ThawVersion
 from mcp import jobstatus
 from jobmaster.resources.block import OutOfSpaceError
@@ -69,19 +68,18 @@ class JobHandler(Subprocess):
         for line in self.job_data['project']['conaryCfg'].splitlines():
             self.conaryCfg.configLine(line)
         self.conaryClient = ConaryClient(self.conaryCfg)
-        troveSpec = self.findSlave()
 
         # Calculate how much scratch space will be required for this build.
         scratchSize = self.getScratchSize()
 
         # Allocate early resources.
-        jobslave = ContainerWrapper(self.name, [troveSpec], self.cfg,
-                self.conaryClient, self.loopManager, self.network, scratchSize)
+        jobslave = ContainerWrapper(self.name, self.cfg, self.loopManager,
+                self.network, scratchSize)
         ret = -1
         try:
             try:
                 # Start up the container process and wait for it to finish.
-                jobslave.start(self.job.job_data, self._cb_preparing)
+                jobslave.start(self.job.job_data)
                 for signum in self._catchSignals:
                     signal.signal(signum, self._onSignal)
                 ret = jobslave.wait()
@@ -128,26 +126,6 @@ class JobHandler(Subprocess):
         self.response.sendStatus(jobstatus.FAILED, reason)
         # Exit normally to indicate that we have handled the error.
         sys.exit(0)
-
-    def _cb_preparing(self, status):
-        self.response.sendStatus(jobstatus.RUNNING,
-                "Preparing build environment: " + status)
-
-    def findSlave(self):
-        if '/' in self.cfg.troveVersion:
-            version = self.cfg.troveVersion
-        else:
-            try:
-                ver = self.conaryClient.db.findTrove(None,
-                        ('rbuilder-mcp', None, None))[0][1]
-                label = ver.trailingLabel()
-            except TroveNotFound:
-                log.error("Can't locate jobslave trove: no troveLabel "
-                        "configured and no rbuilder-mcp installed")
-                raise RuntimeError("Configuration error")
-            version = '%s/%s' % (label, self.cfg.troveVersion)
-
-        return ('group-jobslave', version, None)
 
     def _getTroveSize(self, spec=None):
         repos = self.conaryClient.getRepos()
