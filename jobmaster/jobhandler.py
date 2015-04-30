@@ -219,7 +219,11 @@ class JobHandler(Subprocess):
                      anacondaSpace)
 
         # Space to transform into image
-        totalSize *= 2.5
+        if totalSize * 2.5 > 100 * GIBI:
+            totalSize *= 2.5
+        else:
+            totalSize *= 4
+
         if buildType == 9: # buildtypes.VMWARE_ESX_IMAGE
             # Account for extra sparse image to be built
             totalSize += packageSpace + swapSlop(swapSpace)
